@@ -7,8 +7,9 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-All six were ratified on 2026-10-18 by CLEG0078 (project owner) and are cited by
-number throughout `spec/` and `docs/crug/`.
+Six were ratified on 2026-10-18 by CLEG0078 (project owner) and are cited by
+number throughout `spec/` and `docs/crug/`. ADR 0006 is new and is Proposed:
+it needs the owner's ratification like the others did.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -18,6 +19,7 @@ number throughout `spec/` and `docs/crug/`.
 | 0004 | 0004-ownership-analysis-layer.md | owning aggregates, field places, drop order, unions, arrays, adoption | Accepted (2026-10-18) |
 | 0005 | 0005-drop-lowering.md | where drops run, setjmp/exit/abort, task scopes | Accepted (2026-10-18) |
 | 0018 | 0018-grammar.md | productions, qualifier attachment, go/scope/select/match, payload enums | Accepted (2026-10-18) |
+| 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Proposed (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -49,13 +51,13 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0003 ownership metadata storage | written and accepted as `0003-ownership-metadata-storage.md` |
 | 0004 ownership analysis layer | written and accepted as `0004-ownership-analysis-layer.md` |
 | 0005 drop lowering | written and accepted as `0005-drop-lowering.md` |
-| 0006-0017 | not written |
+| 0006 c-abi-policy | written and proposed as `0006-c-abi-policy.md` |
+| 0007-0017 | not written |
 
 ## Candidate next ADRs
 
 | Number | Topic | Depends on |
 |--------|-------|------------|
-| 0006 | C ABI policy: layout, calling convention, borrow and slice representation | ADR 0003, ADR 0004, `docs/crug/ABI.md` |
 | 0007 | `.crugffi` metadata format and threat model | ADR 0003 D3, ADR 0006 |
 | 0008 | Goroutine stack model | ADR 0018 D4/D5 |
 | 0010 | Aliasing and the noalias permission model | ADR 0004 |
@@ -63,8 +65,10 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0016 | Freestanding and no-runtime policy | ADR 0017 |
 | 0017 | Kernel ownership policy | C-09 (kernel pin) |
 
-ADR 0006 is the next one that unblocks work; 0009, 0012 to 0015 have no written
-dependency yet and should be scheduled with the phase that needs them.
+ADR 0007 is the next one that unblocks work: Phase 9 requires the `.crugffi`
+grammar v1 ADR before its gate, and ADR 0006 now fixes what metadata may not do
+(change layout). 0009, 0012 to 0015 have no written dependency yet and should be
+scheduled with the phase that needs them.
 
 ## Writing rules
 

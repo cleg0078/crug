@@ -34,7 +34,9 @@ open, and what to do next.
    gates, milestones.
 
 Architecture decisions live in [docs/crug/adr/](docs/crug/adr/); release gates in
-[docs/crug/EXIT-GATES.md](docs/crug/EXIT-GATES.md). Diagnostic codes are registered
+[docs/crug/EXIT-GATES.md](docs/crug/EXIT-GATES.md). The C ABI policy is
+[docs/crug/adr/0006-c-abi-policy.md](docs/crug/adr/0006-c-abi-policy.md) and the ABI facts it governs are
+registered in [docs/crug/ABI.md](docs/crug/ABI.md). Diagnostic codes are registered
 in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 `scripts/check-diagnostics.sh` keeps the registry consistent with the docs.
 

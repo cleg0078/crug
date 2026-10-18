@@ -38,6 +38,13 @@ hidden runtime (`scripts/check-kernel-freestanding.sh`). The CI half is written
 (`.github/workflows/kernel-compat.yml`, `scripts/check-ci-gate.sh`) but cannot run
 until the owner pushes and enables branch protection.
 
+The ABI question now has a policy: ADR 0006 (Proposed) fixes two ABI classes,
+erasure rules, boundary moves and versioning, and creates the normative registry
+`docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
+already hold and leaves every Crug-native layout (`slice`, `option`, `result`,
+payload enum, `chan`) pending until the phase that ships it freezes it. ADR 0006
+is not yet ratified, so no ABI policy is binding until the owner accepts it.
+
 ## Resolved in this revision
 
 | Item | Artefact |
@@ -66,6 +73,8 @@ until the owner pushes and enables branch protection.
 | Exit gates were Proposed, so no gate definition was binding, and the phase-to-milestone mapping (C-06) was unsettled | docs/crug/EXIT-GATES.md Status Accepted (2026-10-19); C-06 settled by its section 7; amendment record in section 12 |
 | There was no kernel-mode flag, corpus or local runner, so the kernel constraint was untested | `-fcrug-kernel` in `gcc/common.opt` (Common Ignore); 18-source corpus under `gcc/testsuite/crug.dg/kernel/`; `scripts/test-kernel-compat.sh` (21/21), `scripts/check-kernel-objects.sh`, `scripts/check-kernel-freestanding.sh`; `make check-KERNEL_COMPAT`; phase-2 gate archived for checks 1-3 |
 | Nothing would have protected the kernel baseline in CI | `.github/workflows/kernel-compat.yml` (builds the pinned baseline, runs the suite, 180-minute timeout) + `scripts/check-ci-gate.sh` (asserts the check concluded success and is required) |
+| No C ABI policy existed, so qualifier erasure, Crug-native type layouts and boundary moves were unsettled | docs/crug/adr/0006-c-abi-policy.md (two ABI classes, erasure, boundary moves, targets, versioning, test obligations) |
+| No single place recorded ABI facts, while the Phase 10 gate already required one | docs/crug/ABI.md: C-ABI-transparent guarantees recorded, Crug-native rows pending, registry rules and layout-assertion obligation |
 
 ## Still open
 
@@ -78,6 +87,8 @@ until the owner pushes and enables branch protection.
 | -  | No ABI document; ADR 0003 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
 | -  | Phase 2 gate check 4 (`kernel-compat` CI required at HEAD) has never passed: the repository has not been pushed, the workflow has never run, and the job is not in branch protection | Owner: push, enable Actions, require `kernel-compat`, then `GH_TOKEN=... scripts/check-ci-gate.sh` |
+| -  | ADR 0006 is Proposed, so the C ABI policy is not binding and `docs/crug/ABI.md` is a draft registry | Owner ratification of ADR 0006 |
+| -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
 
 ## Next actions, in dependency order
 
@@ -85,8 +96,9 @@ until the owner pushes and enables branch protection.
    no-runtime checks locally (`make check-KERNEL_COMPAT`), then have the owner push
    and enable the `kernel-compat` CI job and branch protection. Phase 2 stays open
    until the CI check passes at HEAD (docs/crug/KERNEL-COMPATIBILITY.md).
-2. **Write ADR 0006 (C ABI policy)**, which ADR 0003 D3 defers to, then ADR 0007
-   for the `.crugffi` sidecar.
+2. **Ratify ADR 0006**, then write ADR 0007 for the `.crugffi` sidecar, which
+   Phase 9 requires before its gate and which ADR 0006 now bounds (metadata
+   describes ownership, never layout).
 3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree.
 
