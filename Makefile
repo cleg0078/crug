@@ -177,6 +177,12 @@ check-KERNEL_COMPAT: ## run the Phase 2 kernel/GNU C compatibility suite (writes
 check-kernel-objects: ## scan out/*.o for __crug_ symbols and libcrug dependencies
 	scripts/check-kernel-objects.sh out
 
+check-CRUG_FLAGS: ## check the -fcrug-* option set, its closure and the feature macros
+	scripts/check-crug-flags.sh
+
+check-GNU_C_COMPAT: ## compile the GNU C and kernel corpora with the full Crug flag set
+	scripts/check-gnu-c-compat.sh
+
 crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1
@@ -219,4 +225,5 @@ distclean: ## remove build/ and sources/ entirely
 .PHONY: help check-host download verify extract deps configure build build-full \
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
+	check-CRUG_FLAGS check-GNU_C_COMPAT \
 	status print-config reconfigure clean distclean
