@@ -110,7 +110,8 @@ P25→M23 (closes)                 P26→M24
 - `CHECK: crugc -O2 -fcrug-ownership -c gcc/testsuite/crug.dg/ownership/abi-ptr.c && readelf -sW abi-ptr.o | grep -c 'own'` => 0 and the `_Static_assert(sizeof(own Foo*)==sizeof(Foo*))` in that test compiles (ABI-transparent).
 - `CHECK: objdump -d gcc/testsuite/crug.dg/ownership/move-zero-cost.o | grep -cE 'call|__crug_'` => 0 (move lowers to a register copy, no helper).
 - `CHECK: make check-OWNERSHIP` => exit 0, with at least one `dg-error` compile-fail case per rejection class: use-after-move, double move, implicit owned copy.
-- `CHECK: crugc -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/ownership/use-after-move.c` => exit 1, stderr carries a stable diagnostic code (e.g. `crug-UAM-001`), not free text.
+- `CHECK: crugc -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/ownership/use-after-move.c` => exit 1, stderr contains `[crug-UAM-001]`, not free text.
+- `CHECK: scripts/check-diagnostics.sh` => exit 0 (every code referenced by docs/ and spec/ is registered, with no duplicate or unknown-area code).
 - `CHECK: crugc -fcrug-ownership -fdump-crug=ownership -c gcc/testsuite/crug.dg/ownership/branch-join.c` => dump prints the post-join state (OWNED/MOVED/MAYBE_MOVED) for the variable, matching the expected block in the test.
 **Non-goals:** no drop insertion (P5), no borrow (P6), no kernel-mode `own` (optional, §33), no cross-function ownership transfer beyond the "simple calls" scope, no destructor metadata.
 **Risk of skipping:** an ownership state machine validated on the wrong pointer ABI leaks hidden metadata into every `own` variable and poisons P5–P11.
@@ -295,6 +296,7 @@ P25→M23 (closes)                 P26→M24
 **Closes:** M20 — Tooling/diagnostics hardening.
 **Prerequisite:** gates M11, M18 and M19 archived (§33 dependency graph); a stable diagnostic-code registry exists.
 **Exit gate:**
+- `CHECK: scripts/check-diagnostics.sh` => exit 0 (the registry is consistent before goldens are added).
 - `CHECK: wc -l < gcc/testsuite/crug.dg/diagnostics/top50.txt` => 50 named error classes, each with a golden file.
 - `CHECK: make check-DIAGNOSTICS` => golden diff 0 (wording stable) and every case carries an origin note.
 - `CHECK: crugc -fdiagnostics-format=json ... | jq -e '.[] | select(.code and .notes)'` => exit 0 (machine-readable diagnostics with codes and notes for all 50).

@@ -1,0 +1,268 @@
+# CRUG Diagnostic Code Registry
+
+Status: proposed, 2026-10-18. This file is the canonical registry of stable
+diagnostic codes. ADR 0018 D10 is canonical for the `-Wcrug-*` options and for
+strict-mode promotion; this file is canonical for the code that names each
+diagnostic. Where the two disagree, the disagreement is a defect to be fixed in
+both files in one commit.
+
+## 1. Why stable codes
+
+A diagnostic has three parts with three different lifetimes:
+
+1. the **condition** - semantic, changes only with a language decision;
+2. the **code** - `crug-<AREA>-<NNN>`, permanent once allocated;
+3. the **wording** - may improve at any time, but only with its golden file.
+
+Tests, golden files, documentation, and the JSON consumer in EXIT-GATES phase 20
+refer to the code, never to the wording. The phase-4 gate requires the
+use-after-move error to carry `[crug-UAM-001]`; phase 20 requires every
+machine-readable diagnostic to carry a code and notes. A code is therefore part
+of the interface, and the rules below are the price of keeping it stable.
+
+## 2. Format and stability rules
+
+```
+crug-<AREA>-<NNN>
+```
+
+- `AREA` is one of the areas in section 3. The area is part of the code;
+  moving a diagnostic between areas is a new code.
+- `NNN` is three digits, `001`-`099`. Numbers are never reused, never
+  renumbered, and never sorted for aesthetics: the next free number wins.
+- A retired diagnostic keeps its row, marked `retired in <version>`, and its
+  number stays reserved forever. It is not deleted, because old logs and issue
+  reports still quote it.
+- A code is allocated only together with (a) its registry row, (b) its origin
+  decision, and (c) at least one test in `gcc/testsuite/crug.dg/diagnostics/`
+  named after the code. A code without a test is a wish, not a diagnostic.
+- No diagnostic fires with all Crug flags off (ADR 0018 D1). Every code below is
+  therefore reachable only under the flag that enables its construct.
+- The human-readable form is
+  `<file>:<line>:<column>: error: <message> [-Wcrug-<option>] [crug-<AREA>-<NNN>]`,
+  with the option bracket omitted for hard errors that have no option.
+- The machine-readable form (GCC `-fdiagnostics-format=json`) carries the code
+  as the string member `code` and keeps the related-location chain in `notes`.
+  Codes are identical in both forms; there is no numeric-only alternative.
+
+## 3. Areas
+
+| Area | Scope | Range | Owning decision |
+|------|-------|-------|-----------------|
+| `UAM` | move paths and use-after-move | 001-099 | ADR 0004 |
+| `OWN` | ownership operands, adoption, release, transfer | 001-099 | ADR 0004, ADR 0018 D3 |
+| `BORROW` | borrow conflicts, escapes, returned borrows | 001-099 | MASTER_SPEC s10, RFC-0001 B1 |
+| `DROP` | drop insertion, jump policy, setjmp policy | 001-099 | ADR 0005 |
+| `CONC` | goroutines, channels, select | 001-099 | ADR 0018 D4-D6 |
+| `ADT` | payload enums and match | 001-099 | ADR 0018 D8 |
+| `TYPE` | declarator formation, qualifiers, generic types | 001-099 | ADR 0018 D2, D7 |
+| `GRAMMAR` | parsing, keyword and intrinsic shadowing, macros | 001-099 | ADR 0002, ADR 0018 D9 |
+| `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (unwritten) |
+| `KERNEL` | freestanding and kernel-mode restrictions | 001-099 | ADR 0016, ADR 0017 (unwritten) |
+
+Reserved areas have no allocated codes yet. Allocating one before its owning ADR
+exists is refused by review, because the code would encode semantics nobody has
+decided.
+
+## 4. Registry
+
+Columns: **Code**; **Option** (`-` when the error has no `-W` option); **Default**
+severity in hybrid mode; **Strict** severity under `-fcrug-strict`; **Canonical
+message**, with `%s` standing for a name or type; **Origin** decision.
+
+### 4.1 Move paths (`UAM`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-UAM-001` | - | error | error | use of moved value '%s' | ADR 0004 D4 |
+| `crug-UAM-002` | - | error | error | move of already-moved value '%s' | ADR 0004 D4 |
+| `crug-UAM-003` | - | error | error | implicit copy of owned value '%s'; owned values are not copyable | RFC-0001 O1, ADR 0004 D2 |
+| `crug-UAM-004` | - | error | error | use of possibly-moved value '%s' after a branch join | ADR 0004 D4 |
+| `crug-UAM-005` | - | error | error | partially moved aggregate '%s' used as a whole | GAPS s5, ADR 0004 D4 (post-MVP) |
+| `crug-UAM-006` | - | error | error | move of aggregate field '%s' is not supported; move the whole object | ADR 0004 D4 |
+| `crug-UAM-007` | `-Wcrug-owned-byte-copy` | warning | error | byte copy of owned value '%s' can duplicate ownership | ADR 0004 D9 |
+
+### 4.2 Ownership operands (`OWN`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-OWN-001` | `-Wcrug-intrinsic-operand` | error | error | move() operand is not an owned object | ADR 0018 D3 |
+| `crug-OWN-002` | `-Wcrug-adopt-signature` | error | error | adopt() destructor must have type void (*)(T *) for the operand type T | ADR 0018 D3 |
+| `crug-OWN-003` | `-Wcrug-cast-cannot-own` | error | error | cast cannot create ownership; use adopt() | ADR 0018 D2 |
+| `crug-OWN-004` | `-Wcrug-intrinsic-operand` | error | error | release() operand is not an owned object | ADR 0018 D3 |
+| `crug-OWN-005` | - | error | error | cannot create an owned value from a non-owned expression; use adopt() | ADR 0018 D2 |
+| `crug-OWN-006` | `-Wcrug-conditional-ownership` | error | error | conditional expression mixes owned and non-owned operands | ADR 0018 D3 |
+| `crug-OWN-007` | `-Wcrug-unadopted-own` | warning | error | owned value '%s' is never adopted or released | ADR 0004 D8 |
+| `crug-OWN-008` | `-Wcrug-ffi-ownership` | warning | error | owned value crosses an FFI boundary without adopt() or release() metadata | ADR 0004 D3 |
+| `crug-OWN-009` | - | error | error | own member in union requires an active-variant contract | ADR 0004 D6 |
+
+### 4.3 Borrowing (`BORROW`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-BORROW-001` | `-Wcrug-returned-borrow` | error | error | cannot return a borrow of '%s' | ADR 0018 D2 |
+| `crug-BORROW-002` | - | error | error | cannot mutably borrow '%s' while it is shared-borrowed | MASTER_SPEC s10, RFC-0001 B1 |
+| `crug-BORROW-003` | - | error | error | cannot mutably borrow '%s' more than once | MASTER_SPEC s10, RFC-0001 B1 |
+| `crug-BORROW-004` | - | error | error | cannot move '%s' while it is borrowed | MASTER_SPEC s10 |
+| `crug-BORROW-005` | - | error | error | cannot drop '%s' while it is borrowed | MASTER_SPEC s10 |
+| `crug-BORROW-006` | `-Wcrug-intrinsic-operand` | error | error | borrow() operand must be an lvalue | ADR 0018 D3 |
+| `crug-BORROW-007` | - | error | error | borrow '%s' escapes the lifetime of its referent | MASTER_SPEC s10 |
+| `crug-BORROW-008` | - | error | error | assignment through shared borrow '%s' | MASTER_SPEC s10 |
+
+### 4.4 Destruction (`DROP`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-DROP-001` | `-Wcrug-intrinsic-operand` | error | error | drop() operand is not an owned object | ADR 0018 D3 |
+| `crug-DROP-002` | `-Wcrug-jump-into-scope` | error | error | goto jumps into the scope of owned '%s' | ADR 0005 D3 |
+| `crug-DROP-003` | `-Wcrug-setjmp-drops` | warning | error | destructors between setjmp and longjmp may be skipped for '%s' | ADR 0005 D3 |
+| `crug-DROP-004` | - | error | error | owned value '%s' may be destroyed twice on this path | ADR 0005 D4 |
+| `crug-DROP-005` | `-Wcrug-drop-unreachable` | warning | error | owned value '%s' can never be dropped on any path | ADR 0005 D8 |
+
+### 4.5 Concurrency (`CONC`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-CONC-001` | `-Wcrug-channel-shape` | error | error | channel element is not a type-name | ADR 0018 D6 |
+| `crug-CONC-002` | `-Wcrug-channel-shape` | error | error | channel(n) requires a channel type from context | ADR 0018 D6 |
+| `crug-CONC-003` | - | error | error | send transfers ownership; wrap the argument in move() | ADR 0018 D6 R2 |
+| `crug-CONC-004` | `-Wcrug-select-form` | error | error | select case must be 'case v = recv(ch):', 'case send(ch, v):' or 'default:' | ADR 0018 D6 R4 |
+| `crug-CONC-005` | `-Wcrug-select-form` | error | error | select may have at most one default | ADR 0018 D6 R4 |
+| `crug-CONC-006` | `-Wcrug-select-form` | error | error | default must be the last select arm | ADR 0018 D6 R4 |
+| `crug-CONC-007` | `-Wcrug-select-form` | error | error | 'case v == recv(ch)' is not a select form; use 'case v = recv(ch)' | ADR 0018 D6 R4 |
+| `crug-CONC-008` | - | error | error | 'go' callee must return void | ADR 0018 D4 |
+| `crug-CONC-009` | - | error | error | select may not be used as an expression | ADR 0018 D6 R5 |
+
+### 4.6 Payload enums and match (`ADT`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-ADT-001` | `-Wcrug-adt-form` | error | error | empty payload parentheses are not allowed; omit the parentheses for a unit variant | ADR 0018 D8 |
+| `crug-ADT-002` | `-Wcrug-adt-form` | error | error | a payload variant takes exactly one type-name | ADR 0018 D8 |
+| `crug-ADT-003` | - | error | error | variant '%s' expects a payload | ADR 0018 D8 |
+| `crug-ADT-004` | - | error | error | variant '%s' does not take a payload | ADR 0018 D8 |
+| `crug-ADT-010` | `-Wcrug-match-form` | error | error | match arm must be 'pattern => expression' or 'pattern => { ... }' | ADR 0018 D8 |
+| `crug-ADT-011` | `-Wcrug-match-non-exhaustive` | error | error | match on '%s' is not exhaustive; add the missing variant or '_' | ADR 0018 D8 |
+| `crug-ADT-012` | `-Wcrug-match-unreachable` | warning | error | match arm '%s' is unreachable | ADR 0018 D8 |
+| `crug-ADT-013` | `-Wcrug-match-form` | error | error | match requires a payload enum, option or result value | ADR 0018 D8 |
+| `crug-ADT-014` | `-Wcrug-match-form` | error | error | match may not be used as an expression | ADR 0018 D8 |
+| `crug-ADT-015` | `-Wcrug-match-form` | error | error | an owned scrutinee must be moved into match: write match (move(x)) | ADR 0018 D8 |
+
+### 4.7 Types and declarators (`TYPE`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-TYPE-001` | `-Wcrug-qualifier-placement` | error | error | qualifier is not allowed on this declarator | ADR 0018 D2 |
+| `crug-TYPE-002` | `-Wcrug-qualifier-combination` | error | error | more than one Crug qualifier on one declarator | ADR 0018 D2 |
+| `crug-TYPE-003` | `-Wcrug-qualifier-redundant` | warning | error | redundant qualifier '%s' | ADR 0018 D2 |
+| `crug-TYPE-004` | `-Wcrug-qualifier-combination` | error | error | '_Atomic' may not be combined with a Crug qualifier | ADR 0018 D2 |
+| `crug-TYPE-005` | `-Wcrug-qualifier-placement` | error | error | 'own' may not qualify a function type | ADR 0018 D2 |
+| `crug-TYPE-006` | `-Wcrug-qualifier-placement` | error | error | qualifier is not allowed on a bit-field, flexible array member or unnamed member | ADR 0018 D2 |
+| `crug-TYPE-010` | `-Wcrug-generic-form` | error | error | generic type is not allowed in this position | ADR 0018 D7 |
+| `crug-TYPE-011` | `-Wcrug-generic-form` | error | error | '%s<...>' is not a generic type; unknown type constructor | ADR 0018 D7 |
+
+### 4.8 Parsing and shadowing (`GRAMMAR`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-GRAMMAR-001` | - | error | error | cannot take the address of a move() or borrow() result | ADR 0018 D3 |
+| `crug-GRAMMAR-002` | `-Wcrug-keyword-shadowed` | warning | error | Crug word '%s' is shadowed by a macro | ADR 0002 D8 |
+| `crug-GRAMMAR-003` | `-Wcrug-intrinsic-shadowed` | warning | error | Crug intrinsic '%s' is shadowed by a user declaration | ADR 0018 D3 |
+| `crug-GRAMMAR-004` | `-Wcrug-go-ambiguous` | warning | error | 'go' is ambiguous here; write 'go (expr);' or rename the declaration | ADR 0018 D4 |
+| `crug-GRAMMAR-005` | `-Wcrug-word-macro` | warning | warning | macro definition redefines the Crug word '%s' | ADR 0018 D9 |
+| `crug-GRAMMAR-006` | - | error | error | 'scope', 'unsafe', 'match' and 'select' require a compound statement | ADR 0018 D5, D6, D8 |
+
+## 5. Option map
+
+Several codes share one option; the code identifies the condition, the option
+controls the warning group. This table is the reverse index of section 4, and
+must be updated in the same commit as the registry rows.
+
+| Option | Codes |
+|--------|-------|
+| `-Wcrug-owned-byte-copy` | UAM-007 |
+| `-Wcrug-intrinsic-operand` | OWN-001, OWN-004, BORROW-006, DROP-001 |
+| `-Wcrug-adopt-signature` | OWN-002 |
+| `-Wcrug-cast-cannot-own` | OWN-003 |
+| `-Wcrug-conditional-ownership` | OWN-006 |
+| `-Wcrug-unadopted-own` | OWN-007 |
+| `-Wcrug-ffi-ownership` | OWN-008 |
+| `-Wcrug-returned-borrow` | BORROW-001 |
+| `-Wcrug-jump-into-scope` | DROP-002 |
+| `-Wcrug-setjmp-drops` | DROP-003 |
+| `-Wcrug-drop-unreachable` | DROP-005 |
+| `-Wcrug-channel-shape` | CONC-001, CONC-002 |
+| `-Wcrug-select-form` | CONC-004, CONC-005, CONC-006, CONC-007 |
+| `-Wcrug-adt-form` | ADT-001, ADT-002 |
+| `-Wcrug-match-form` | ADT-010, ADT-013, ADT-014, ADT-015 |
+| `-Wcrug-match-non-exhaustive` | ADT-011 |
+| `-Wcrug-match-unreachable` | ADT-012 |
+| `-Wcrug-qualifier-placement` | TYPE-001, TYPE-005, TYPE-006 |
+| `-Wcrug-qualifier-combination` | TYPE-002, TYPE-004 |
+| `-Wcrug-qualifier-redundant` | TYPE-003 |
+| `-Wcrug-generic-form` | TYPE-010, TYPE-011 |
+| `-Wcrug-keyword-shadowed` | GRAMMAR-002 |
+| `-Wcrug-intrinsic-shadowed` | GRAMMAR-003 |
+| `-Wcrug-go-ambiguous` | GRAMMAR-004 |
+| `-Wcrug-word-macro` | GRAMMAR-005 |
+
+`-fcrug-strict` promotes exactly the rows whose Default is `warning` and whose
+Strict is `error`, and nothing else. `-Wcrug-word-macro` stays a warning even
+in strict mode because the macro is already tokenized by then and no reading is
+unsafe, only surprising.
+
+## 6. Message rules
+
+- The message names the **source construct** and the **variable, type, or
+  variant** involved. It never names a pass, an IR object, a dump name or a
+  sanitizer.
+- A rejected operand message ends with the operand type only when the type
+  explains the rejection, for example `move() operand is not an owned object`.
+- `note:` lines carry the fix: the flag, the intrinsic to use, or the exact
+  spelling. The phase-20 gate rejects any fix instruction that requires reading a
+  compiler dump.
+- Wording changes are allowed; they must update the golden file in the same
+  commit. Code changes are not allowed without a new number.
+- Dynamic text (`%s`) is quoted with straight single quotes; no backticks, no
+  angle brackets, no nesting quotes. This keeps `grep`-based consumers and
+  golden diffs stable.
+
+## 7. Allocation and retirement
+
+1. Pick the next free number in the area that owns the semantics (section 3),
+   not the area of the flag that reports it.
+2. Add the registry row with origin decision, default and strict severity.
+3. Add `gcc/testsuite/crug.dg/diagnostics/<code>.c` with `// { dg-error
+   "<canonical message>" }` and the code in a comment; the test must fail on
+   the code, not only on the wording.
+4. Add the option to ADR 0018 D10 if it is new, and to section 5 above.
+5. Run `scripts/check-diagnostics.sh`; it fails if a referenced code is
+   missing, a row is duplicated, or an area is unknown.
+
+Retirement: keep the row, change Default and Strict to `retired`, and state the
+version. The number is never reused. A retired code may still appear in archived
+gate logs.
+
+## 8. Verification
+
+`scripts/check-diagnostics.sh` checks the mechanical properties:
+
+- every code in `docs/` and `spec/` is registered here;
+- every registry row has a unique code and a known area;
+- no code is registered twice.
+
+It does not check semantics; that is the gate's job. The phase-4 gate runs the
+script and requires `[crug-UAM-001]` on the use-after-move test; phase 20 runs
+the script plus the 50-entry golden corpus that this registry seeds. The registry
+is therefore the *index* of diagnostics, not the proof that they work: a code
+with a row and no test is caught by review, a code with a test and no row is
+caught by the script.
+
+## 9. Status
+
+All 62 codes above are **planned**: no Crug frontend exists yet, so none is
+implemented. The count per area is: UAM 7, OWN 9, BORROW 8, DROP 5, CONC 9,
+ADT 10, TYPE 8, GRAMMAR 6. FFI and KERNEL have reserved ranges and no codes.
+When the frontend lands, a code moves to `implemented` only when its test is in
+`gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
+the same commit.

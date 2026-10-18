@@ -24,7 +24,9 @@ for what is decided, what is open, and what to do next.
    gates, milestones.
 
 Architecture decisions live in [docs/crug/adr/](docs/crug/adr/); release gates in
-[docs/crug/EXIT-GATES.md](docs/crug/EXIT-GATES.md).
+[docs/crug/EXIT-GATES.md](docs/crug/EXIT-GATES.md). Diagnostic codes are registered
+in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
+`scripts/check-diagnostics.sh` keeps the registry consistent with the docs.
 
 ## What Crug adds
 

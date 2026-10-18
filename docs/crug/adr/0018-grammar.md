@@ -580,7 +580,8 @@ that would not parse when written out literally.
 ### D10 - Diagnostics and test obligations
 
 **Statement.** Every new warning has a `-Wcrug-*` option; Crug-only hard errors carry one where a test
-must name them, and every diagnostic has a stable code `crug-<AREA>-<NNN>` in the registry that
+must name them, and every diagnostic has a stable code `crug-<AREA>-<NNN>` in the registry
+(`docs/crug/DIAGNOSTICS.md`) that
 EXIT-GATES phase 4 (L113) and phase 20 require. `-fcrug-strict` promotes exactly the options marked
 "error" in the strict column and nothing else (conflict C-08, spec/000-PRECEDENCE.md L44).
 
@@ -606,6 +607,11 @@ EXIT-GATES phase 4 (L113) and phase 20 require. `-fcrug-strict` promotes exactly
 | `-Wcrug-match-non-exhaustive` | error | error | D8 R3 |
 | `-Wcrug-match-unreachable` | warn | error | D8 R3 |
 | `-Wcrug-word-macro` | warn | warn | D9 R2 |
+| `-Wcrug-unadopted-own` | warn | error | ADR 0004 D8 |
+| `-Wcrug-ffi-ownership` | warn | error | ADR 0004 D3 |
+| `-Wcrug-owned-byte-copy` | warn | error | ADR 0004 D9 |
+| `-Wcrug-setjmp-drops` | warn | error | ADR 0005 D3 |
+| `-Wcrug-drop-unreachable` | warn | error | ADR 0005 D8 |
 
 Two rules constrain how they are used: no diagnostic fires with all flags off (D1), and no diagnostic
 quotes GIMPLE, IR or sanitizer output (EXIT-GATES L301) - fix instructions name the source construct and

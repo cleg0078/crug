@@ -26,6 +26,7 @@ single authority order, a grammar, and decision records for the open questions.
 | Syntax was sketched but ambiguous | docs/crug/adr/0018-grammar.md |
 | ADR numbering conflicted with MASTER_SPEC §79 | spec/000-PRECEDENCE.md C-11 + docs/crug/adr/README.md |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (62 planned codes) + scripts/check-diagnostics.sh |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
 | No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
@@ -42,7 +43,7 @@ single authority order, a grammar, and decision records for the open questions.
 | C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
 | C-09 | Kernel corpus for K0 does not exist | owner decision on kernel version + defconfig |
 | C-11 | ADR 0004 covers two required ADRs (0003 metadata storage, 0004 analysis layer) | owner decision on splitting |
-| -  | Diagnostics: EXIT-GATES phase 4/20 greps for stable codes such as `crug-UAM-001`; ADR 0018 D10 defines the `-Wcrug-*` option plus code scheme, but docs/crug/DIAGNOSTICS.md (the code register) is not written | ADR 0018 ratification |
+| -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No ABI document; ADR 0004 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
 | -  | The pre-fork baseline testsuite (phase-0 check 3) has never been run | dejagnu (`runtest`) is not installed and cannot be installed without root here |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
@@ -57,11 +58,9 @@ single authority order, a grammar, and decision records for the open questions.
 4. **Amend RFC-0001** to cite ADR 0018 and to adopt the ADR 0004/0005 rules, so that
    conformance classes O1/B1 stop depending on implied semantics. The amendments are
    enumerated at the end of ADR 0018.
-5. **Write docs/crug/DIAGNOSTICS.md** as the code register, then wire one gate check
-   to it so the register cannot rot.
-6. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
+5. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
    marker, object list. Without it K0 is unclaimable.
-7. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
+6. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
    `make baseline` supplies the pinned build; the phase-0 checks that still fail are
    the baseline testsuite run and the comparison against a pre-fork result set,
    because neither has been produced yet. The gate's two baseline checks were
