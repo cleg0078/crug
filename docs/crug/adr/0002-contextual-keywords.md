@@ -1,6 +1,7 @@
 # ADR 0002 - Context-Sensitive Crug Words
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-18)
+- **Ratified:** 2026-10-18 by CLEG0078 (project owner)
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), compiler frontend owner
 - **Context doc:** MASTER_SPEC section 7, section 8, section 42; RFC-0001 sections 7.1 and 13

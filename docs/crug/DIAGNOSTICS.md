@@ -74,10 +74,10 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 
 | Code | Option | Default | Strict | Canonical message | Origin |
 |------|--------|---------|--------|-------------------|--------|
-| `crug-UAM-001` | - | error | error | use of moved value '%s' | ADR 0004 D4 |
-| `crug-UAM-002` | - | error | error | move of already-moved value '%s' | ADR 0004 D4 |
-| `crug-UAM-003` | - | error | error | implicit copy of owned value '%s'; owned values are not copyable | RFC-0001 O1, ADR 0004 D2 |
-| `crug-UAM-004` | - | error | error | use of possibly-moved value '%s' after a branch join | ADR 0004 D4 |
+| `crug-UAM-001` | - | error | error | use of moved value '%s' | ADR 0003 D2 |
+| `crug-UAM-002` | - | error | error | move of already-moved value '%s' | ADR 0003 D2 |
+| `crug-UAM-003` | - | error | error | implicit copy of owned value '%s'; owned values are not copyable | RFC-0001 O1, ADR 0003 D2 |
+| `crug-UAM-004` | - | error | error | use of possibly-moved value '%s' after a branch join | ADR 0003 D2 |
 | `crug-UAM-005` | - | error | error | partially moved aggregate '%s' used as a whole | GAPS s5, ADR 0004 D4 (post-MVP) |
 | `crug-UAM-006` | - | error | error | move of aggregate field '%s' is not supported; move the whole object | ADR 0004 D4 |
 | `crug-UAM-007` | `-Wcrug-owned-byte-copy` | warning | error | byte copy of owned value '%s' can duplicate ownership | ADR 0004 D9 |
@@ -93,7 +93,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-OWN-005` | - | error | error | cannot create an owned value from a non-owned expression; use adopt() | ADR 0018 D2 |
 | `crug-OWN-006` | `-Wcrug-conditional-ownership` | error | error | conditional expression mixes owned and non-owned operands | ADR 0018 D3 |
 | `crug-OWN-007` | `-Wcrug-unadopted-own` | warning | error | owned value '%s' is never adopted or released | ADR 0004 D8 |
-| `crug-OWN-008` | `-Wcrug-ffi-ownership` | warning | error | owned value crosses an FFI boundary without adopt() or release() metadata | ADR 0004 D3 |
+| `crug-OWN-008` | `-Wcrug-ffi-ownership` | warning | error | owned value crosses an FFI boundary without adopt() or release() metadata | ADR 0003 D3 |
 | `crug-OWN-009` | - | error | error | own member in union requires an active-variant contract | ADR 0004 D6 |
 
 ### 4.3 Borrowing (`BORROW`)

@@ -423,10 +423,11 @@ opens.
 ## 10. Related decisions
 
 - ADR 0002 fixes which contextual words have Crug meaning (Phase 3 gate).
-- ADR 0004 fixes aggregate ownership and the aggregate ABI (Phase 4 gate).
+- ADR 0003 fixes the ownership metadata storage model and the C-ABI erasure rules (Phase 4 gate).
+- ADR 0004 fixes aggregate ownership analysis, drop order and adoption (Phase 4 gate).
 - ADR 0005 fixes destructor attachment and control-flow cleanup (Phase 5 gate).
 - spec/000-PRECEDENCE.md decides conflicts between documents. Conflicts C1 and C2
-  above use a different numbering from that file's C-01..C-10 register and should
+  above use a different numbering from that file's C-01..C-11 register and should
   be cross-referenced when the register is next edited.
 
 ## 11. Known weaknesses of this gate set

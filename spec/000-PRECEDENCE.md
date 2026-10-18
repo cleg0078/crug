@@ -1,6 +1,7 @@
 # 000 - Specification Precedence and Conflict Register
 
-- **Status:** Proposed (requires owner ratification; see DECISION-REQUIRED items)
+- **Status:** Accepted (2026-10-18)
+- **Ratified:** 2026-10-18 by CLEG0078 (project owner)
 - **Date:** 2026-10-18
 - **Supersedes:** none
 - **Applies to:** every document in spec/ and docs/crug/
@@ -58,9 +59,9 @@ not yet absorbed:
 
 | ID | Conflict | Documents | Current reading | Owner / resolution |
 |----|----------|-----------|-----------------|--------------------|
-| C-01 | Partial moves: forbidden in the ownership MVP vs. required as an acceptance criterion of the move-path model | MASTER_SPEC section 13 vs. RUST_MEMORY_GAPS section 5, section 41 | MVP tracks ownership at variable granularity and at top-level pointed-to resource; field-granular places and partial moves are out of MVP scope. GAPS section 5 is a target requirement, not an MVP gate. | ADR 0004 (aggregate ownership) |
+| C-01 | Partial moves: forbidden in the ownership MVP vs. required as an acceptance criterion of the move-path model | MASTER_SPEC section 13 vs. RUST_MEMORY_GAPS section 5, section 41 | MVP tracks ownership at variable granularity and at top-level pointed-to resource; field-granular places and partial moves are out of MVP scope. GAPS section 5 is a target requirement, not an MVP gate. | ADR 0004 D4 (ratified 2026-10-18) |
 | C-02 | Context-sensitive words have no disambiguation procedure | MASTER_SPEC section 7/42, RFC-0001 sections 7.1 and 13 vs. syntax shown in MASTER_SPEC section 8 | C parse wins whenever the token stream is valid C; Crug reading requires the C parse to be impossible. | ADR 0002 |
-| C-03 | Aggregates containing owned fields: ABI-transparent layout and no hidden state vs. the need to know whether a field was moved | RFC-0001 sections 14 and 22 vs. RUST_MEMORY_GAPS section 5/section 6 | No hidden moved bit. A join where drop correctness depends on runtime state is a compile error, not a hidden flag. | ADR 0004 |
+| C-03 | Aggregates containing owned fields: ABI-transparent layout and no hidden state vs. the need to know whether a field was moved | RFC-0001 sections 14 and 22 vs. RUST_MEMORY_GAPS section 5/section 6 | No hidden moved bit. A join where drop correctness depends on runtime state is a compile error, not a hidden flag. | ADR 0003 D2/D3 (ratified) |
 | C-04 | Drop across non-local control flow is an escape ("MUST NOT claim ... through abnormal control flow it does not model") vs. a drop policy | RFC-0001 section 19, MASTER_SPEC section 14.8 vs. ROADMAP section 10/13 work items | Documented domain of guaranteed cleanup; everything outside it is a diagnostic under `-fcrug-strict`. | ADR 0005 |
 | C-05 | P1 is defined by "the 1.0 production matrix published by the release RFC" which does not exist | RFC-0001 section 7.8 vs. ROADMAP section 2 | P1 is unclaimable until RFC-0010 exists and is published. | RFC-0010 (not written) |
 | C-06 | 27 phases vs. 25 milestones; Phase 23 assigned to M23 in one section and M25 in another; Phase 24 has no milestone; M10 and M12 reach release from nowhere | ROADMAP section 28, section 30, section 33 | Phase-to-milestone mapping is authoritative only after EXIT-GATES.md is ratified. | docs/crug/EXIT-GATES.md |
@@ -68,7 +69,7 @@ not yet absorbed:
 | C-08 | "Strict mode" is used as a load-bearing condition but is never defined | RFC-0001 sections 10, 20, 32 and Appendix C; MASTER_SPEC section 6 | `-fcrug-strict` = ownership + borrow + all diagnostics that are warnings under hybrid become errors. Nothing else. | ADR 0018 D10 (diagnostics) |
 | C-09 | Kernel corpus is required by K0 but exists in no artefact | RFC-0001 sections 7.2 and 38.2 | K0 is unclaimable until a pinned corpus exists. | EXIT-GATES.md phase 0K |
 | C-10 | Ownership copy may be "explicitly allowed" but no mechanism is named | RFC-0001 sections 7.3 and 17 | MVP has no copy mechanism for owned values; release-and-readopt is the only escape. | ADR 0004 |
-| C-11 | ADR numbering: MASTER_SPEC section 79 fixes 17 required file names, `docs/crug/adr/README.md` proposed a different topic order, and the grammar ADR has no required slot | MASTER_SPEC L4266-4283 vs. docs/crug/adr/README.md | A required topic keeps its required number; a new topic takes the next free number above 0017; no number is reused. The mapping is in `docs/crug/adr/README.md`. | ADR 0018 (grammar), `docs/crug/adr/README.md` |
+| C-11 | ADR numbering: MASTER_SPEC section 79 fixes 17 required file names, `docs/crug/adr/README.md` proposed a different topic order, and the grammar ADR has no required slot | MASTER_SPEC section 79 vs. docs/crug/adr/README.md | A required topic keeps its required number; a new topic takes the next free number above 0017; no number is reused. The mapping is in `docs/crug/adr/README.md`. | resolved 2026-10-18: split into ADR 0003 (metadata) and ADR 0004 (analysis); ADR 0005 renamed to the required file name. Mapping in `docs/crug/adr/README.md`. |
 
 ## 5. Amendment rules
 
@@ -85,9 +86,11 @@ not yet absorbed:
    project-authored files are GPL-3.0-or-later, imported GCC files keep their own
    headers, and libcrug is GPL-3.0-or-later without a runtime exception (C-07,
    LICENSE, NOTICE).
-2. Whether MVP tracks field-granular places (C-01) or is restricted as stated.
+2. **Resolved 2026-10-18.** MVP tracks places at variable granularity; field-granular places and partial moves are post-MVP (ADR 0004 D4, C-01).
 3. Whether the kernel qualification target is a specific version plus defconfig
    (C-09), and which one.
-4. Whether ADR 0004 stays one decision record or is split into the required
-   0003 (ownership metadata storage) and 0004 (ownership analysis layer) files
-   (C-11). Splitting is cheaper now than after ratification.
+4. **Resolved 2026-10-18.** ADR 0004 is split into the required
+   0003-ownership-metadata-storage (metadata, ABI erasure, forbidden
+   representations) and 0004-ownership-analysis-layer topics (aggregates,
+   places, drops, adoption); ADR 0005 carries the required drop-lowering file
+   name (C-11).

@@ -1,7 +1,8 @@
 # ADR 0018 - Surface Grammar: productions, disambiguation and attachment
 
-- **Status:** Proposed; normative text implemented in RFC-0001 0.2-draft sections 13-25 (RFC Appendix H)
+- **Status:** Accepted (2026-10-18); normative text implemented in RFC-0001 0.2-draft sections 13-25 (RFC Appendix H)
 - **Date:** 2026-10-18
+- **Ratified:** 2026-10-18 by CLEG0078 (project owner)
 - **Deciders:** project owner (ratification), compiler frontend owner
 - **Context docs:** MASTER_SPEC s6.2-s6.4, s7, s8.1-s8.10, s9.1-s9.3, s13-s15, s18-s22, s25.6, s42-s43; RFC-0001 s13-s27; ADR 0002; ADR 0004; ADR 0005; spec/000-PRECEDENCE.md; docs/crug/EXIT-GATES.md phases 1-10
 
@@ -127,7 +128,7 @@ assignment, composite types and `_Generic`, qualifiers are erased: `void (*)(own
 compatible with `void (*)(Foo *)`, and `void f(own Foo *p)` has the type of `void f(Foo *p)`. RFC-0001 section 22
 requires the same calling representation, and an unannotated C header must keep matching a
 Crug definition. Consequence: a C callback installed into a Crug-annotated function pointer consumes
-without dropping; ADR 0004 D3 closes that with `.crugffi` metadata, not with types.
+without dropping; ADR 0003 D3 closes that with `.crugffi` metadata, not with types.
 
 R5 - **Field and parameter positions.** Fields may carry a qualifier, and ADR 0004 D5/D6 then govern
 drop order and forbid owned union members. Bit-fields, flexible array members and unnamed members
@@ -195,7 +196,7 @@ of an rvalue are rejected: there is no place to leave in a moved or dropped stat
 destructor is rejected: not adopting is spelled by not calling `adopt` (ADR 0004 D8).
 
 R4 - **Conditional expressions.** `c ? move(a) : move(b)` is legal; after the join both operands are
-MAYBE_MOVED and any later use or unconditional drop is rejected (RFC-0001 section 15, ADR 0004 D2). The grammar
+MAYBE_MOVED and any later use or unconditional drop is rejected (RFC-0001 section 15, ADR 0003 D2). The grammar
 does not restrict `?:`; the ownership pass does. A conditional's ownership kind is the meet of its
 arms, and arms that disagree are an error (`-Wcrug-conditional-ownership`): otherwise an owned arm's
 value would become unmanaged and leak.
@@ -609,7 +610,7 @@ EXIT-GATES phase 4 (the `[crug-UAM-001]` check) and phase 20 require. `-fcrug-st
 | `-Wcrug-match-unreachable` | warn | error | D8 R3 |
 | `-Wcrug-word-macro` | warn | warn | D9 R2 |
 | `-Wcrug-unadopted-own` | warn | error | ADR 0004 D8 |
-| `-Wcrug-ffi-ownership` | warn | error | ADR 0004 D3 |
+| `-Wcrug-ffi-ownership` | warn | error | ADR 0003 D3 |
 | `-Wcrug-owned-byte-copy` | warn | error | ADR 0004 D9 |
 | `-Wcrug-setjmp-drops` | warn | error | ADR 0005 D3 |
 | `-Wcrug-drop-unreachable` | warn | error | ADR 0005 D8 |

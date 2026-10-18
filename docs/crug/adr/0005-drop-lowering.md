@@ -1,6 +1,7 @@
-# ADR 0005 - Destruction and Non-Local Control Flow
+# ADR 0005 - Drop Lowering: Destruction and Non-Local Control Flow
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-18)
+- **Ratified:** 2026-10-18 by CLEG0078 (project owner)
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), frontend + ownership pass owners
 - **Context docs:** RFC-0001 sections 19, 20 and 42; MASTER_SPEC s14.8;
@@ -130,4 +131,4 @@ asynchronous drop in the language, and it is bounded by "the task body ends here
 - **Prevent all `setjmp` in Crug code.** Too restrictive: legitimate signal-safe
   C code uses it, and the C0 compatibility class must keep compiling.
 - **Drop at every basic-block exit unconditionally.** Double drops on paths where
-  the value was moved; D2 of ADR 0004 makes the join a compile error instead.
+  the value was moved; ADR 0003 D2 makes the join a compile error instead.
