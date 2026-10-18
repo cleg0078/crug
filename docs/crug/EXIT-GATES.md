@@ -427,3 +427,31 @@ opens.
   above use a different numbering from that file's C-01..C-10 register and should
   be cross-referenced when the register is next edited.
 
+## 11. Known weaknesses of this gate set
+
+Recorded at the commit that introduces this file. Each item is a gate that could
+pass without proving what it claims, and each names who must fix it.
+
+1. **Phase 22 (security/reliability) cannot be adjudicated from the tree.** Its
+   evidence is CI run history over a time window ("30 consecutive green days") when
+   the rule requires archived evidence at a commit. Fix: replace the window with
+   archived fuzz and sanitizer artefacts, or amend the rule in section 2.4.
+2. **Phase 24 (packaging) is self-referential.** `sha256sum -c SHA256SUMS` verifies
+   digests generated from the artefacts it checks, and `docker run crug/pkg:<version>`
+   presumes a published image. Fix: add a rebuild-from-tag check that produces the
+   artefacts and compares them byte-for-byte.
+3. **Phase 23 (documentation) accepts stubs.** `test -s` plus phrase greps pass on a
+   one-line document. Fix: cross-check each documented feature against a named test
+   directory, as Phase 20 does for diagnostics.
+4. **Phase 17 (Send/Sync) has a CHECK that cannot fail.** Its second condition
+   accepts either "rejected" or "accepted with the documented warning". Fix: require
+   one behaviour and add a stress/sanitizer check behind the data-race claim.
+5. **Phase 19 (kernel) leaves corpus size to human judgement.** "Every object
+   difference has a recorded explanation" is not mechanical, and the VAGUE marker on
+   stages K3/K4 lets the pinned file list shrink. Fix: freeze the list in
+   `kernel/KERNEL-CORPUS.md` with counts before M19 is claimed.
+
+The same pattern may exist in other VAGUE markers (12 in this file). A VAGUE marker
+is an open gate by section 2.5; this list is the subset known to be exploitable.
+
+
