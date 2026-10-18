@@ -20,6 +20,9 @@ and gaps analysis still carry their original wording.
 Reusable infrastructure now exists: `scripts/gate.sh` adjudicates every phase gate
 and archives evidence, and the documentation set below gives the specification a
 single authority order, a grammar, and decision records for the open questions.
+The pinned GCC 16.2.0 tree is imported into git and tagged `releases/gcc-16.2`,
+so the repository root is the GCC top level and the fork base is reproducible
+from a clone rather than from a tarball on one machine.
 
 ## Resolved in this revision
 
@@ -39,7 +42,8 @@ single authority order, a grammar, and decision records for the open questions.
 | No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (62 planned codes) + scripts/check-diagnostics.sh |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
-| No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
+| The fork base lived outside git, so the tree could not be reproduced from a clone | GCC 16.2.0 imported as commit 57ccbae and tagged `releases/gcc-16.2`; `git diff releases/gcc-16.2..HEAD -- gcc/` is the fork delta |
+| No way to reproduce the toolchain | Makefile (`make baseline`: verify, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
 | Repository licence was MIT, incompatible with the GCC fork | LICENSE (GPL-3.0-or-later), NOTICE (per-path map); C-07 resolved by the owner on 2026-10-18 |
 | Line citations rotted as documents were revised | every citation now names a section or a gate phase and check (rule in spec/000-PRECEDENCE.md section 2) |
 
@@ -58,12 +62,9 @@ single authority order, a grammar, and decision records for the open questions.
 
 ## Next actions, in dependency order
 
-1. **Import the pinned GCC tree** into the repository and tag it
-   `releases/gcc-16.2`, so the fork base is reproducible from git rather than from
-   a tarball on one machine.
-2. **Make the C testsuite runnable** (`make check-c` is currently an empty recipe)
+1. **Make the C testsuite runnable** (`make check-c` is currently an empty recipe)
    through a root-free local DejaGnu, with the run summarised by a script.
-3. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log;
+2. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log;
    the baseline testsuite run and the comparison against a pre-fork result set are
    the checks that still fail.
 

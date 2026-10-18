@@ -14,9 +14,10 @@
 # add targets at the bottom (crugc, check-crug, libcrug) rather than forking
 # this file.
 #
-# Layout (all generated; none of it is committed):
+# Layout:
+#   gcc/                        the fork source tree, in the repository
 #   sources/                    downloaded tarball and checksum-verified copy
-#   build/gcc-16.2.0/           unpacked upstream source
+#   build/gcc-16.2.0/           unpacked tarball (fallback when gcc/ is absent)
 #   build/obj/                  out-of-tree configure/build directory
 #   build/.stamps/              markers for the expensive one-time steps
 #   $(PREFIX)                   installation prefix for `make install`
@@ -34,15 +35,17 @@ GCC_SHA512_FILE ?= docs/crug/gcc-baseline.sha512
 # ------------------------------------------------------------------ layout --
 SOURCES_DIR ?= sources
 BUILD_DIR   ?= build
-GCC_SRC     := $(BUILD_DIR)/gcc-$(GCC_VERSION)
+GCC_SRC     ?= $(if $(wildcard configure),.,$(BUILD_DIR)/gcc-$(GCC_VERSION))
 OBJ_DIR     := $(BUILD_DIR)/obj
 STAMP_DIR   := $(BUILD_DIR)/.stamps
 TARBALL     := $(SOURCES_DIR)/$(GCC_TARBALL)
 
-# GCC_SRC is the unpacked upstream tree for now. When the fork imports upstream
-# into the repository root (roadmap section 5 lays out gcc/, libcrug/, bench/),
-# point GCC_SRC at gcc/ and the extract target becomes a no-op; every other
-# target stays as it is.
+# The source tree is the in-repository fork when the tree has been imported
+# (commit "crug: gcc: import the pinned GCC 16.2.0 tree as the fork base"),
+# otherwise the unpacked tarball. When imported, the repository root is the
+# GCC top-level directory and gcc/ holds the compiler proper; configure is
+# still run out of tree from build/obj. The extract target is a no-op in that
+# case, so every target below has one code path.
 
 # -------------------------------------------------------------- host policy --
 PREFIX    ?= /opt/crug
@@ -104,10 +107,14 @@ verify: $(TARBALL) ## check the tarball against docs/crug/gcc-baseline.sha512
 	@test -s $(GCC_SHA512_FILE) || { echo 'missing $(GCC_SHA512_FILE)' >&2; exit 2; }
 	cd $(SOURCES_DIR) && sha512sum --check --strict $(abspath $(GCC_SHA512_FILE))
 
-extract: $(STAMP_DIR)/extracted ## unpack the tarball into build/
+extract: $(STAMP_DIR)/extracted ## unpack the tarball (no-op when gcc/ is the source)
 $(STAMP_DIR)/extracted: $(TARBALL) | verify
 	@mkdir -p $(BUILD_DIR) $(STAMP_DIR)
-	tar --extract --xz --file=$(TARBALL) --directory=$(BUILD_DIR)
+	@if [ -f configure ]; then \
+	  echo 'using the in-repository fork tree (top-level configure); nothing to extract'; \
+	else \
+	  tar --extract --xz --file=$(TARBALL) --directory=$(BUILD_DIR); \
+	fi
 	@test -x $(GCC_SRC)/configure || { echo '$(GCC_SRC)/configure missing after extract' >&2; exit 2; }
 	@touch $@
 
@@ -151,7 +158,7 @@ check-c: build ## run the gcc.dg C regression suite
 
 status: ## show where the build stands
 	@printf '%-22s %s\n' 'tarball' "$$(test -f $(TARBALL) && echo "present ($$(stat -c %s $(TARBALL)) bytes)" || echo missing)"
-	@printf '%-22s %s\n' 'source tree' "$$(test -d $(GCC_SRC) && echo present || echo missing)"
+	@printf '%-22s %s\n' 'source tree' "$$(if [ '$(GCC_SRC)' = . ]; then echo 'repository root (configure in ., compiler in gcc/)'; elif [ -d $(GCC_SRC) ]; then echo '$(GCC_SRC)'; else echo missing; fi)"
 	@printf '%-22s %s\n' 'prerequisites' "$$(test -d $(GCC_SRC)/mpfr && echo fetched || echo 'not fetched')"
 	@printf '%-22s %s\n' 'configured' "$$(test -f $(STAMP_DIR)/configured && echo yes || echo no)"
 	@printf '%-22s %s\n' 'xgcc' "$$(test -x $(OBJ_DIR)/gcc/xgcc && echo built || echo 'not built')"

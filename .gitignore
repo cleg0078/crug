@@ -98,9 +98,9 @@ REVISION
 stamp-*
 *.stamp
 
-# in-tree prerequisites, if ever unpacked into gcc/ by download_prerequisites
-/gcc/mpfr*
-/gcc/mpc*
-/gcc/gmp*
-/gcc/isl*
-/gcc/gettext*
+# in-tree prerequisites, unpacked at the top level by download_prerequisites
+/gmp*
+/mpfr*
+/mpc*
+/isl*
+/gettext*

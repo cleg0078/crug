@@ -8,7 +8,10 @@ with the old and new values quoted.
 
 ## 1. Compiler baseline
 
-The fork tracks upstream GCC 16.2, released 2026-08-07.
+The fork tracks upstream GCC 16.2, released 2026-08-07. The tarball tree is
+imported into this repository by the commit tagged `releases/gcc-16.2`, so the
+repository root is the GCC top-level directory (top-level `configure`,
+`contrib/`, and the compiler proper in `gcc/`).
 
 | Item | Value |
 |------|-------|
@@ -17,6 +20,7 @@ The fork tracks upstream GCC 16.2, released 2026-08-07.
 | Size | 102 MiB (tar.xz) |
 | SHA512 | `c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1` |
 | Signature | `gcc-16.2.0.tar.xz.sig` (detached, also published) |
+| Fork base in git | annotated tag `releases/gcc-16.2`, pointing at the import commit |
 
 The checksum above was read from upstream `sha512.sum` on 2026-10-18 and
 recorded here so that the import commit can be checked without network access.
@@ -34,7 +38,9 @@ gpg --verify gcc-16.2.0.tar.xz.sig gcc-16.2.0.tar.xz   # key per https://gcc.gnu
 
 `make baseline` runs download, verify, extract, prerequisite fetch, configure and
 `all-gcc` in that order; it is the reproducible entry point the phase 0 gate
-calls.
+calls. When the tree has been imported, `make extract` is a no-op and `make`
+builds out of tree from the repository root; the checksum remains the source of
+truth for what the import must contain.
 
 Do not substitute a git checkout of upstream for the tarball in a gate: the
 tarball is the artefact the checksum and signature cover.
@@ -57,13 +63,15 @@ is to record the exact versions actually used.
 
 Configure baseline for development (no bootstrap, assertions on):
 
-The Makefile runs exactly this from `build/obj` against the unpacked tree in
-`build/gcc-16.2.0`; `make print-config` prints the flags and `make baseline`
-runs them.
+The Makefile runs exactly this from `build/obj` against the source tree, which is
+the repository root once the tarball has been imported (top-level `configure`,
+compiler in `gcc/`) and `build/gcc-16.2.0` otherwise; `make print-config` prints
+the flags and `make baseline` runs them. Prerequisites are unpacked at the top
+level by `contrib/download_prerequisites` and are ignored by git.
 
 ```sh
 mkdir -p build/obj && cd build/obj
-../gcc-16.2.0/configure \
+../configure \
   --prefix=/opt/crug \
   --enable-languages=c,c++ \
   --disable-bootstrap \

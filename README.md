@@ -6,9 +6,12 @@ requirement.
 
 ## Status
 
-Design phase. The repository contains specification documents and architecture
-decisions; there is no compiler yet. See [docs/crug/progress.md](docs/crug/progress.md)
-for what is decided, what is open, and what to do next.
+Design phase. The repository contains specification documents, architecture
+decisions, and the pinned GCC 16.2.0 tree that the fork modifies (the
+repository root is the GCC top level; the compiler is `gcc/`; the import is
+tagged `releases/gcc-16.2`). There is no Crug compiler yet. See
+[docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
+open, and what to do next.
 
 ## Reading order
 
@@ -40,18 +43,23 @@ in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 ## Building
 
 The fork tracks GCC 16.2.0, pinned in [docs/crug/GCC-BASELINE.md](docs/crug/GCC-BASELINE.md)
-by checksum. The top-level [Makefile](Makefile) reproduces that baseline:
+by checksum and imported as the tag `releases/gcc-16.2`. The top-level
+[Makefile](Makefile) reproduces that baseline:
 
-    make baseline      # download, verify, extract, fetch prerequisites, configure, build
+    make baseline      # verify the tarball, fetch prerequisites, configure, build
     make help          # every target
     make check-host    # required host tools, read-only
 
-The first run downloads the 102 MiB tarball, unpacks it under `build/`, fetches
-GCC's own GMP/MPFR/MPC/ISL prerequisites, and builds `all-gcc` out of tree into
-`build/obj`. Later runs are incremental. `make baseline` stops at the compiler
-binaries: `xgcc` compiles (`-S`, `-c`) but linking needs the target libraries
-built by `make build-full`. `make install PREFIX=...` installs the compiler, and
-`make check-c` runs `gcc.dg` (it needs dejagnu). Nothing generated is tracked.
+The source tree is already in the repository, so a build does not unpack the
+tarball: `make baseline` fetches GCC's own GMP/MPFR/MPC/ISL prerequisites (they
+unpack at the top level and are ignored) and builds `all-gcc` out of tree into
+`build/obj`. Later runs are incremental; after a source change use
+`make reconfigure` when configure inputs changed. `make baseline` stops at the
+compiler binaries: `xgcc` compiles (`-S`, `-c`) but linking needs the target
+libraries built by `make build-full`. `make install PREFIX=...` installs the
+compiler. `make check-c` runs the `gcc.dg` C testsuite; it needs DejaGnu, which
+`scripts/bootstrap-dejagnu.sh` installs into `tools/` without root. Nothing
+generated is tracked.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
