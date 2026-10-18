@@ -1,0 +1,5 @@
+phase-1 #2 rc=0
+cmd: printf 'int own=1; int class_ref; int mut=2; int go=3;' | crugc -x c -fsyntax-only -
+expected: exit 0 (contextual words still ordinary identifiers).
+---
+
