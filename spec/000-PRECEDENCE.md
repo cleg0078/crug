@@ -63,6 +63,7 @@ not yet absorbed:
 | C-08 | "Strict mode" is used as a load-bearing condition but is never defined | RFC-0001 L375, L617, L860, L1897; MASTER_SPEC section 6 | `-fcrug-strict` = ownership + borrow + all diagnostics that are warnings under hybrid become errors. Nothing else. | ADR 0005 (diagnostics part) |
 | C-09 | Kernel corpus is required by K0 but exists in no artefact | RFC-0001 L229-233, L976 | K0 is unclaimable until a pinned corpus exists. | EXIT-GATES.md phase 0K |
 | C-10 | Ownership copy may be "explicitly allowed" but no mechanism is named | RFC-0001 L243, L538 | MVP has no copy mechanism for owned values; release-and-readopt is the only escape. | ADR 0004 |
+| C-11 | ADR numbering: MASTER_SPEC section 79 fixes 17 required file names, `docs/crug/adr/README.md` proposed a different topic order, and the grammar ADR has no required slot | MASTER_SPEC L4266-4283 vs. docs/crug/adr/README.md | A required topic keeps its required number; a new topic takes the next free number above 0017; no number is reused. The mapping is in `docs/crug/adr/README.md`. | ADR 0018 (grammar), `docs/crug/adr/README.md` |
 
 ## 5. Amendment rules
 
@@ -80,3 +81,6 @@ not yet absorbed:
 2. Whether MVP tracks field-granular places (C-01) or is restricted as stated.
 3. Whether the kernel qualification target is a specific version plus defconfig
    (C-09), and which one.
+4. Whether ADR 0004 stays one decision record or is split into the required
+   0003 (ownership metadata storage) and 0004 (ownership analysis layer) files
+   (C-11). Splitting is cheaper now than after ratification.
