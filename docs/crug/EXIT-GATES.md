@@ -1,7 +1,7 @@
 # CRUG — Phase Exit Gates (Phases 0–26)
 
 **Document type:** Mechanical gate specification
-**Status:** Proposed — not ratified, not executed at the commit that introduces it.
+**Status:** Accepted (2026-10-19) — ratified by CLEG0078 (project owner). Phase 0 and Phase 1 were adjudicated before ratification; their archived evidence is under `docs/crug/gates/phase-0/` and `docs/crug/gates/phase-1/`. Amendments are recorded in section 12.
 **Owner:** CRUG project owner (compiler lead). Gate adjudicator: a second engineer who did not author the change, or a CI job that runs the checks verbatim.
 **Derived from:** `spec/CRUG_PRODUCTION_ROADMAP.md` (phases 0–26, milestones M0–M24, severities P0–P3, regression suites §36, stop conditions §35.3), `spec/CRUG_MASTER_SPEC_EN.md` §56–§57, `spec/CRUG_RFC_0001.md` §7 (conformance classes C0/K0/O1/B1/F1/T1/C1/P1).
 **Adds no requirements:** every CHECK here either restates a roadmap §5–§31 acceptance criterion as a command, or narrows a VAGUE criterion to its weakest defensible observable. Where they disagree the roadmap wins and this file is wrong.
@@ -456,5 +456,11 @@ pass without proving what it claims, and each names who must fix it.
 
 The same pattern may exist in other VAGUE markers (12 in this file). A VAGUE marker
 is an open gate by section 2.5; this list is the subset known to be exploitable.
+
+## 12. Amendment record
+
+| # | Date | Change | Why |
+|---|------|--------|-----|
+| A-1 | 2026-10-19 | Status changed from Proposed to Accepted; C-06 settled by section 7 (phase-to-milestone mapping is authoritative as written there). | The owner ratified the gate set. Phases 0 and 1 were adjudicated before ratification; their evidence is archived at the commits recorded in each gate directory. |
 
 

@@ -26,7 +26,9 @@ so the repository root is the GCC top level and the fork base is reproducible
 from a clone rather than from a tarball on one machine. The C testsuite runs
 through a root-free DejaGnu (`scripts/bootstrap-dejagnu.sh`), and its 224,481-pass
 result is archived at `docs/crug/baseline/phase0/`; the phase-0 and phase-1 gates
-pass with archived checks. `gcc/crugc` is a launcher around the built GCC driver
+pass with archived checks, and `docs/crug/EXIT-GATES.md` was ratified on 2026-10-19,
+so the gate definitions are binding and the phase-to-milestone mapping (C-06) is
+settled. `gcc/crugc` is a launcher around the built GCC driver
 for now, so plain C compatibility is measured rather than assumed
 (`make check-C_COMPAT`, `scripts/diff-cc.sh`).
 
@@ -55,13 +57,13 @@ for now, so plain C compatibility is measured rather than assumed
 | The C testsuite could not run (no root, no DejaGnu) | `make bootstrap-dejagnu` installs DejaGnu/Expect/Tcl under `tools/`; `make check-c` runs the suite; result archived at docs/crug/baseline/phase0/ (224,481 pass, 84 environmental fail) |
 | Phase 0 was unadjudicated | `scripts/gate.sh --run phase-0` passed 5/5 checks; logs under docs/crug/gates/phase-0/ |
 | No driver existed, so plain-C compatibility could not be measured | `gcc/crugc` launcher (docs/crug/DRIVER.md) + `corpus/` (30 programs) + `scripts/diff-cc.sh` + `make check-C_COMPAT`; phase-1 gate archived under docs/crug/gates/phase-1/ |
+| Exit gates were Proposed, so no gate definition was binding, and the phase-to-milestone mapping (C-06) was unsettled | docs/crug/EXIT-GATES.md Status Accepted (2026-10-19); C-06 settled by its section 7; amendment record in section 12 |
 
 ## Still open
 
 | ID | Item | Blocked on |
 |----|------|------------|
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
-| C-06 | 27 phases vs 25 milestones, orphan milestones M10/M12, unlinked Phase 24 | ratification of EXIT-GATES.md |
 | C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
 | -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
@@ -70,13 +72,13 @@ for now, so plain C compatibility is measured rather than assumed
 
 ## Next actions, in dependency order
 
-1. **Ratify EXIT-GATES.md** so the gate definitions stop being Proposed, which
-   also settles C-06 (27 phases vs 25 milestones).
-2. **Run Phase 2** (kernel / GNU C compatibility): `scripts/test-kernel-compat.sh`
-   and the kernel-style corpus under `gcc/testsuite/crug.dg/kernel/`.
-3. **Write ADR 0006 (C ABI policy)**, which ADR 0003 D3 defers to, then ADR 0007
+1. **Close Phase 2** (kernel / GNU C compatibility): run the kernel corpus and the
+   no-runtime checks locally (`make check-KERNEL_COMPAT`), then have the owner push
+   and enable the `kernel-compat` CI job and branch protection. Phase 2 stays open
+   until the CI check passes at HEAD (docs/crug/KERNEL-COMPATIBILITY.md).
+2. **Write ADR 0006 (C ABI policy)**, which ADR 0003 D3 defers to, then ADR 0007
    for the `.crugffi` sidecar.
-4. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
+3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree.
 
 ## Working rules
