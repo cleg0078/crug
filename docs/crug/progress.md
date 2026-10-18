@@ -45,7 +45,11 @@ digest; `scripts/check-crug-flags.sh` (149 work items) and
 `scripts/check-gnu-c-compat.sh` (50 files) are the local checks. The
 productions the flags will gate - `own`, `move`, `borrow`, `slice`, `chan`,
 `match` - do not exist yet: that is Phase 4 onward, and the contextual words
-still parse as ordinary C identifiers under every combination.
+still parse as ordinary C identifiers under every combination. The Phase 3 gate
+passes its four checks at commit `b327e45` (evidence under
+`docs/crug/gates/phase-3/b327e45/`), but the phase's own prerequisite - the
+`kernel-compat` job being mandatory at HEAD - is still unmet, so M3 is not
+formally closed.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

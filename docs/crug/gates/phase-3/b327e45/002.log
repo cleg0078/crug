@@ -1,0 +1,5 @@
+phase-3 #2 rc=0
+cmd: scripts/diff-obj.sh corpus/ "-O2" "-O2 -fcrug-modern"
+expected: exit 0, printed `diff-obj: 30 files, 0 differing (-O2 | -O2 -fcrug-modern)` (an unused flag must not change codegen).
+---
+diff-obj: 30 files, 0 differing (-O2 | -O2 -fcrug-modern)
