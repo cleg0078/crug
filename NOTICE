@@ -1,38 +1,37 @@
-CRUG - licensing status
-========================
+CRUG - licence map
+==================
 
-This repository is being built in two layers with different licensing
-obligations. Read this before adding code.
+CRUG is free software under the GNU General Public License, version 3 or
+later. The authoritative licence text is LICENSE; this file says which
+licence applies to which path.
 
-1. Specification documents (spec/, docs/)
-   Currently distributed under the MIT licence in LICENSE, Copyright (c) 2026
-   CLEG0078. They contain no GCC source.
+1. Licence map
 
-2. Compiler implementation (gcc/crug/ and any file derived from GCC)
-   If this repository adopts the GCC fork plan, every file that is derived from
-   or linked with GCC code must be GPLv3-or-later. That includes copyright
-   headers such as:
+| Path                                   | Licence                 | Notes |
+|----------------------------------------|-------------------------|-------|
+| spec/, docs/ (project-authored)        | GPL-3.0-or-later        | Specifications, decision records, gates. |
+| scripts/, Makefile, README.md, NOTICE  | GPL-3.0-or-later        | Build and adjudication tools. |
+| gcc/ (imported GCC 16.2.0 tree)        | per-file headers        | Most files are GPLv3-or-later (gcc/COPYING3). Runtime libraries are LGPLv3-or-later or GPLv2-or-later with the GCC exceptions (gcc/COPYING.RUNTIME, gcc/COPYING3.LIB, gcc/COPYING.LIB); documentation is GFDL (gcc/doc). Never strip or rewrite an imported header. |
+| gcc/crug/ (Crug frontend, later)       | GPL-3.0-or-later        | Derived from GCC: keep the GCC copyright header and add the Crug one. |
+| libcrug/ (runtime, later)              | GPL-3.0-or-later, no runtime exception | Linking libcrug makes the resulting binary a GPLv3+ work. Kernel and freestanding builds link no libcrug. A later ADR may add a GCC-style Runtime Library Exception. |
+| kernel corpus                          | GPLv2, never vendored   | External checkout, pinned and digest-verified by docs/crug/KERNEL-BASELINE.md. |
+| benchmarks                             | per input               | Record the source and licence of every input in bench/NOTICE. |
 
-       Copyright (C) 2026 Free Software Foundation, Inc.
-       This file is part of GCC. GCC is free software; you can redistribute it
-       and/or modify it under the terms of the GNU General Public License as
-       published by the Free Software Foundation; either version 3, or (at your
-       option) any later version.
+2. Historical note
 
-   Adding such code under MIT alone is a licence violation. This is recorded as
-   conflict C-07 in spec/000-PRECEDENCE.md and is DECISION-REQUIRED by the
-   project owner before the first line of GCC-derived code lands.
+The initial commit 707909c published LICENSE (MIT) and README.md; that commit
+was distributed under the MIT licence. The current tree is GPL-3.0-or-later,
+and no file in it is offered under MIT. The owner made this change on
+2026-10-18; it is recorded as C-07 in spec/000-PRECEDENCE.md. Rights already
+granted for commit 707909c are not revoked by this change.
 
-3. Runtime library (libcrug/)
-   The licence is not yet selected. It must be chosen before libcrug ships,
-   because it determines whether Crug-produced binaries can be linked into
-   GPL-incompatible programs.
+3. Rules for adding files
 
-4. Generated and third-party content
-   - Kernel corpus used for K0 qualification: GPLv2, must never be vendored into
-     this repository; the corpus is a checked-out external tree referenced by
-     pin file.
-   - Benchmark inputs: licence must be recorded per benchmark in bench/NOTICE.
-
-This NOTICE does not change LICENSE. It states the obligation that a GCC fork
-creates.
+- A new project-authored file gets the GPL-3.0-or-later notice: copyright line,
+  "GNU General Public License ... version 3 or later", and the warranty line.
+- A file copied or derived from GCC keeps its original copyright and licence
+  header. Do not relicense it and do not remove its exception clause.
+- Third-party code is not vendored without a row in the table above naming the
+  exact path and its licence.
+- The imported GCC tarball carries COPYING, COPYING.LIB, COPYING.RUNTIME,
+  COPYING3 and COPYING3.LIB; those texts govern the files that name them.

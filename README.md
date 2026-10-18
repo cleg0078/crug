@@ -56,6 +56,7 @@ See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
 
-Specification text: MIT (see [LICENSE](LICENSE)). Compiler code derived from GCC
-will be GPLv3-or-later; the runtime library licence is undecided. See
-[NOTICE](NOTICE).
+GPL-3.0-or-later (see [LICENSE](LICENSE)). The imported `gcc/` tree keeps its
+own GPLv3+/LGPLv3+ headers, and the runtime library is GPLv3-or-later without a
+runtime exception for now. [NOTICE](NOTICE) has the per-path map and the
+historical note about the initial MIT commit.

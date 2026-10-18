@@ -35,7 +35,7 @@ single authority order, a grammar, and decision records for the open questions.
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
 | No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
-| No licence statement for a GCC fork | NOTICE |
+| Repository licence was MIT, incompatible with the GCC fork | LICENSE (GPL-3.0-or-later), NOTICE (per-path map); C-07 resolved by the owner on 2026-10-18 |
 | Line citations rotted as documents were revised | every citation now names a section or a gate phase and check (rule in spec/000-PRECEDENCE.md section 2) |
 
 ## Still open
@@ -45,7 +45,6 @@ single authority order, a grammar, and decision records for the open questions.
 | C-01 | Partial moves: forbidden in MVP vs required by GAPS s5 | owner ratification of ADR 0004 D4 |
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
 | C-06 | 27 phases vs 25 milestones, orphan milestones M10/M12, unlinked Phase 24 | ratification of EXIT-GATES.md |
-| C-07 | Repository licence vs GPLv3 obligation of a GCC fork | owner decision |
 | C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
 | C-09 | Kernel corpus for K0 does not exist | owner decision on kernel version + defconfig |
 | C-11 | ADR 0004 covers two required ADRs (0003 metadata storage, 0004 analysis layer) | owner decision on splitting |
@@ -58,12 +57,11 @@ single authority order, a grammar, and decision records for the open questions.
 
 1. **Ratify the five ADRs** (0001, 0002, 0004, 0005, 0018) and spec/000-PRECEDENCE.md.
    Nothing downstream is stable until the ownership model and the grammar are decided.
-2. **Decide C-07** (licence). This gates the first line of GCC-derived code.
-3. **Decide C-11** (split ADR 0004 into required 0003 + 0004 files) while the text is
+2. **Decide C-11** (split ADR 0004 into required 0003 + 0004 files) while the text is
    still fresh; splitting after ratification costs a re-review.
-4. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
+3. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
    marker, object list. Without it K0 is unclaimable.
-5. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
+4. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
    `make baseline` supplies the pinned build; the phase-0 checks that still fail are
    the baseline testsuite run and the comparison against a pre-fork result set,
    because neither has been produced yet. The gate's two baseline checks were

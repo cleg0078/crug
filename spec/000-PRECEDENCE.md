@@ -64,7 +64,7 @@ not yet absorbed:
 | C-04 | Drop across non-local control flow is an escape ("MUST NOT claim ... through abnormal control flow it does not model") vs. a drop policy | RFC-0001 section 19, MASTER_SPEC section 14.8 vs. ROADMAP section 10/13 work items | Documented domain of guaranteed cleanup; everything outside it is a diagnostic under `-fcrug-strict`. | ADR 0005 |
 | C-05 | P1 is defined by "the 1.0 production matrix published by the release RFC" which does not exist | RFC-0001 section 7.8 vs. ROADMAP section 2 | P1 is unclaimable until RFC-0010 exists and is published. | RFC-0010 (not written) |
 | C-06 | 27 phases vs. 25 milestones; Phase 23 assigned to M23 in one section and M25 in another; Phase 24 has no milestone; M10 and M12 reach release from nowhere | ROADMAP section 28, section 30, section 33 | Phase-to-milestone mapping is authoritative only after EXIT-GATES.md is ratified. | docs/crug/EXIT-GATES.md |
-| C-07 | Repository licence (MIT) vs. the GPLv3 obligation of a GCC fork and an unselected libcrug licence | LICENSE, ROADMAP Risk J, MASTER_SPEC section 80 | The MIT licence can only be correct while this repository contains no GCC-derived code. | DECISION-REQUIRED (owner) |
+| C-07 | Repository licence (originally MIT) vs. the GPLv3 obligation of a GCC fork and an unselected libcrug licence | LICENSE, ROADMAP Risk J, MASTER_SPEC section 80 | Resolved 2026-10-18: the whole repository is GPL-3.0-or-later; imported GCC files keep their own headers; libcrug is GPL-3.0-or-later without a runtime exception. MIT applies only to the historical initial commit 707909c. | resolved by the owner (LICENSE, NOTICE) |
 | C-08 | "Strict mode" is used as a load-bearing condition but is never defined | RFC-0001 sections 10, 20, 32 and Appendix C; MASTER_SPEC section 6 | `-fcrug-strict` = ownership + borrow + all diagnostics that are warnings under hybrid become errors. Nothing else. | ADR 0018 D10 (diagnostics) |
 | C-09 | Kernel corpus is required by K0 but exists in no artefact | RFC-0001 sections 7.2 and 38.2 | K0 is unclaimable until a pinned corpus exists. | EXIT-GATES.md phase 0K |
 | C-10 | Ownership copy may be "explicitly allowed" but no mechanism is named | RFC-0001 sections 7.3 and 17 | MVP has no copy mechanism for owned values; release-and-readopt is the only escape. | ADR 0004 |
@@ -81,8 +81,10 @@ not yet absorbed:
 
 ## 6. DECISION-REQUIRED (owner only)
 
-1. Whether this repository becomes the GCC fork. If yes, C-07 resolves toward
-   GPLv3 for all compiler code and the spec tree needs a separate licence grant.
+1. **Resolved 2026-10-18.** The repository becomes the GCC fork. All
+   project-authored files are GPL-3.0-or-later, imported GCC files keep their own
+   headers, and libcrug is GPL-3.0-or-later without a runtime exception (C-07,
+   LICENSE, NOTICE).
 2. Whether MVP tracks field-granular places (C-01) or is restricted as stated.
 3. Whether the kernel qualification target is a specific version plus defconfig
    (C-09), and which one.
