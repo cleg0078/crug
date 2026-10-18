@@ -1,0 +1,38 @@
+CRUG - licensing status
+========================
+
+This repository is being built in two layers with different licensing
+obligations. Read this before adding code.
+
+1. Specification documents (spec/, docs/)
+   Currently distributed under the MIT licence in LICENSE, Copyright (c) 2026
+   CLEG0078. They contain no GCC source.
+
+2. Compiler implementation (gcc/crug/ and any file derived from GCC)
+   If this repository adopts the GCC fork plan, every file that is derived from
+   or linked with GCC code must be GPLv3-or-later. That includes copyright
+   headers such as:
+
+       Copyright (C) 2026 Free Software Foundation, Inc.
+       This file is part of GCC. GCC is free software; you can redistribute it
+       and/or modify it under the terms of the GNU General Public License as
+       published by the Free Software Foundation; either version 3, or (at your
+       option) any later version.
+
+   Adding such code under MIT alone is a licence violation. This is recorded as
+   conflict C-07 in spec/000-PRECEDENCE.md and is DECISION-REQUIRED by the
+   project owner before the first line of GCC-derived code lands.
+
+3. Runtime library (libcrug/)
+   The licence is not yet selected. It must be chosen before libcrug ships,
+   because it determines whether Crug-produced binaries can be linked into
+   GPL-incompatible programs.
+
+4. Generated and third-party content
+   - Kernel corpus used for K0 qualification: GPLv2, must never be vendored into
+     this repository; the corpus is a checked-out external tree referenced by
+     pin file.
+   - Benchmark inputs: licence must be recorded per benchmark in bench/NOTICE.
+
+This NOTICE does not change LICENSE. It states the obligation that a GCC fork
+creates.

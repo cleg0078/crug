@@ -1,0 +1,31 @@
+# Build output
+/build/
+*.o
+*.a
+*.so
+*.so.*
+*.lo
+*.la
+*.d
+*.gch
+*.dwo
+*.gcno
+*.gcda
+
+# GCC-style in-tree build directories
+/objdir/
+/install/
+
+# Test and benchmark artefacts
+/gcc/testsuite/crug.dg/**/*.exe
+/bench/results/
+/tmp/
+*.s
+*.s.orig
+
+# Editor / OS
+*~
+*.swp
+.DS_Store
+.idea/
+.vscode/
