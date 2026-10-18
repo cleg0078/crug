@@ -1,0 +1,43 @@
+name: kernel-compat
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel-compat:
+    name: kernel-compat
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Require disk headroom
+        run: |
+          available=$(df --output=avail -k . | tail -n 1)
+          echo "available_kib=$available"
+          if [ "$available" -lt 12582912 ]; then
+            echo "kernel-compat: need at least 12 GiB free, found $available KiB" >&2
+            exit 1
+          fi
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd
+      - name: Configure and build the pinned GCC baseline
+        run: make baseline JOBS=4
+      - name: Run the kernel compatibility suite
+        run: make check-KERNEL_COMPAT
