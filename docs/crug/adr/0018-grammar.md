@@ -564,11 +564,13 @@ R5 - **No Crug construct hides behind a macro silently.** Because R2 and R3 are 
 directions, a token sequence either reaches the parser as the word or does not; there is no third state.
 `-Wcrug-word-macro` and `-Wcrug-keyword-shadowed` cover the two surprises.
 
-R6 - **Feature macros.** The driver predefines `__CRUG__` (always, value 1) and one macro per flag
-(`__CRUG_OWNERSHIP__`, `__CRUG_BORROW__`, `__CRUG_GOROUTINES__`, `__CRUG_CHANNELS__`,
-`__CRUG_SLICES__`, `__CRUG_RESULT__`, `__CRUG_ADT__`, `__CRUG_STRICT__`) with value 1 when the flag is
-on. They are additions to the predefined set, not changes to the token stream of a program that does not
-test them; version macros belong to ADR 0013.
+R6 - **Feature macros.** When at least one `-fcrug-*` option is active the driver predefines
+`__CRUG__` (value 1) and one macro per flag (`__CRUG_OWNERSHIP__`, `__CRUG_BORROW__`,
+`__CRUG_GOROUTINES__`, `__CRUG_CHANNELS__`, `__CRUG_SLICES__`, `__CRUG_RESULT__`,
+`__CRUG_ADT__`, `__CRUG_STRICT__`, and `__CRUG_KERNEL__` for the kernel mode) with value 1 when that
+feature is on after closure. With no `-fcrug-*` option at all the predefined set is byte-identical to
+upstream GCC: the flags-off identity guarantee of D1 covers predefined macros as much as it covers
+parsing, so `__CRUG__` is not defined for a plain C compilation. Version macros belong to ADR 0013.
 
 **Forbids.** Lexer-level keyword recognition; parsing that depends on whether a token came from a macro;
 a `#define` of a Crug word that silently changes a Crug construct's meaning without
@@ -779,3 +781,11 @@ below and elsewhere in this documentation set names the section, not a line.
 8. Should `enum E { A(), B() };` stay an error (D8), or become sugar for unit variants? **Recommended:**
    keep the error until a use case appears, so that adding a payload to a variant later is never an
    incompatible change.
+
+## Amendment record
+
+| # | Date | Change | Why |
+| --- | --- | --- | --- |
+| A-1 | 2026-10-19 | D9 R6: the feature macros are predefined only when at least one `-fcrug-*` option is active. `__CRUG__` is not defined for a plain C compilation, and `__CRUG_KERNEL__` is part of the per-feature set. | The original "always" wording contradicted D1's flags-off identity guarantee, the Phase 1 gate and class C0: a plain C compilation must see the upstream predefined set byte for byte. Phase 3 implements the amended rule; see `spec/000-PRECEDENCE.md` C-12 and `docs/crug/FLAGS.md`. |
+| A-2 | 2026-10-19 | D1 clarification: `-fcrug-kernel` together with `-fcrug-goroutines`, `-fcrug-channels` or `-fcrug-modern` is a hard error at option-processing time, not a silent removal of the conflicting feature. | A kernel build that silently dropped the request would hide a build-system mistake until the goroutine runtime was linked into a kernel; the error names both flags. |
+

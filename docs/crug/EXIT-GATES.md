@@ -95,12 +95,12 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 3 — Feature Flags and Contextual Syntax Infrastructure
 **Closes:** M3 — Contextual Crug syntax.
-**Prerequisite:** Phase 2 gate archived and the `kernel-compat` CI job mandatory at HEAD (roadmap §7: parser work must not begin until that baseline is CI-protected).
+**Prerequisite:** Phase 2 gate archived and the `kernel-compat` CI job mandatory at HEAD (roadmap §7: parser work must not begin until that baseline is CI-protected). Artefacts: `docs/crug/FLAGS.md`, `scripts/check-crug-flags.sh`, `scripts/check-gnu-c-compat.sh`, `scripts/diff-obj.sh` and the fixtures in `gcc/testsuite/crug.dg/flags/`.
 **Exit gate:**
-- `CHECK: for f in -fcrug-ownership -fcrug-borrow -fcrug-strict -fcrug-goroutines -fcrug-channels -fcrug-modern; do crugc "$f" -fsyntax-only t.c; done` => exit 0; `crugc -fcrug-nonexistent t.c` => exit 1 with an option diagnostic.
-- `CHECK: scripts/diff-obj.sh corpus/ "-O2" "-O2 -fcrug-modern"` => 0 differences (unused flags must not change codegen).
-- `CHECK: printf 'int own=1; int go=2;' | crugc -fcrug-ownership -fsyntax-only -x c -` => exit 0 under every flag combination.
-- `CHECK: make check-GNU_C_COMPAT` => exit 0 (kernel macro regression clean).
+- `CHECK: scripts/check-crug-flags.sh` => exit 0, printed `crug-flags: <n>/<n> work items PASS`. Covers every flag alone, the exact feature-macro closure of each, every accepted pair, the three `-fcrug-kernel` conflicts, the unknown-option rejection, and the contextual-words fixture.
+- `CHECK: scripts/diff-obj.sh corpus/ "-O2" "-O2 -fcrug-modern"` => exit 0, printed `diff-obj: 30 files, 0 differing (-O2 | -O2 -fcrug-modern)` (an unused flag must not change codegen).
+- `CHECK: for f in -fcrug-ownership -fcrug-borrow -fcrug-slices -fcrug-result -fcrug-adt -fcrug-goroutines -fcrug-channels -fcrug-strict -fcrug-modern -fcrug-kernel; do crugc "$f" -fsyntax-only gcc/testsuite/crug.dg/flags/words-as-identifiers.c; done` => exit 0 (every contextual word stays an ordinary C identifier under every single flag).
+- `CHECK: make check-GNU_C_COMPAT` => exit 0, printed `GNU_C_COMPAT: 50 files, 0 FAIL` (the 30-program GNU C corpus and the 18-file kernel corpus still compile with the flag sets on, plus the macro fixture).
 **Non-goals:** flags gate parsing only — no ownership state (P4), no borrow rules (P6), no drop (P5), no goroutine lowering (P14), no channel types (P16).
 **Risk of skipping:** globally reserving `own`/`ref`/`mut`/`go` breaks kernel macros and is a one-way C compatibility break.
 
@@ -465,5 +465,6 @@ is an open gate by section 2.5; this list is the subset known to be exploitable.
 | A-1 | 2026-10-19 | Status changed from Proposed to Accepted; C-06 settled by section 7 (phase-to-milestone mapping is authoritative as written there). | The owner ratified the gate set. Phases 0 and 1 were adjudicated before ratification; their evidence is archived at the commits recorded in each gate directory. |
 | A-2 | 2026-10-19 | Phase 2 checks 2-4 replaced by scripted observables: `scripts/check-kernel-objects.sh out`, `scripts/check-kernel-freestanding.sh`, `scripts/check-ci-gate.sh`. The prerequisite now names `docs/crug/KERNEL-COMPATIBILITY.md` and `make check-KERNEL_COMPAT`. | The original check 2 was a shell loop with no `out/` provenance and no exit status, check 3 described prose observables of a compile that produced no named object, and check 4 embedded a `gh api` pipeline with placeholders (`<owner>/<repo>`, `HEAD`) that could not be run verbatim. Each is now one command with one printed observable that `scripts/gate.sh` can adjudicate. |
 | A-3 | 2026-10-19 | Phase 9 checks 4-5 now spell the sidecar flag as `-fcrug-ffi=<path>` and give check 4 a C input file. | ADR 0007 defines `-fcrug-ffi=<path>` (repeatable) and forbids a bare `-fcrug-ffi` from meaning "discover everything"; the old check passed the `.crugffi` file to `-fsyntax-only` as if it were C and the diff-obj arm passed `-fcrug-ffi` with no file. Both are now commands that run verbatim. |
+| A-4 | 2026-10-19 | Phase 3 checks 1-4 rewritten as four runnable commands; the acceptance arm moved into `scripts/check-crug-flags.sh` and the GNU C arm into `scripts/check-gnu-c-compat.sh`. | Check 1 compiled a file named `t.c` that the gate never creates, and mixed acceptance with the unknown-option rejection; check 3 said "under every flag combination" as prose and used an inline program that the floor cannot reproduce from a clean checkout; check 4 named a Make target that did not exist. The scripts now assert the same facts, including the macro closure and the kernel conflicts, and print one countable line each. |
 
 

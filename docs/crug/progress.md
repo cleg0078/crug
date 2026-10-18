@@ -38,6 +38,15 @@ hidden runtime (`scripts/check-kernel-freestanding.sh`). The CI half is written
 (`.github/workflows/kernel-compat.yml`, `scripts/check-ci-gate.sh`) but cannot run
 until the owner pushes and enables branch protection.
 
+Phase 3 is implemented: the ten `-fcrug-*` options are declared and closed over
+their implications, the feature macros exist only in Crug mode, and the flag
+machinery changes no parse and no object byte. `docs/crug/FLAGS.md` is the
+digest; `scripts/check-crug-flags.sh` (149 work items) and
+`scripts/check-gnu-c-compat.sh` (50 files) are the local checks. The
+productions the flags will gate - `own`, `move`, `borrow`, `slice`, `chan`,
+`match` - do not exist yet: that is Phase 4 onward, and the contextual words
+still parse as ordinary C identifiers under every combination.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -87,6 +96,8 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | No single place recorded ABI facts, while the Phase 10 gate already required one | docs/crug/ABI.md: C-ABI-transparent guarantees recorded, Crug-native rows pending, registry rules and layout-assertion obligation |
 | The C FFI sidecar was illustrative only, so Level 2 ownership had no decidable format | docs/crug/adr/0007-ffi-metadata-format.md (v1 grammar, clause semantics, discovery, versioning, trust model) + reference fixture gcc/testsuite/crug.dg/ffi/libc.crugffi |
 | The Phase 9 gate invoked the sidecar flag in a form the format does not define | docs/crug/EXIT-GATES.md phase 9 checks 4-5 now use `-fcrug-ffi=<path>` (amendment A-3) |
+| No feature flag existed, so no later phase could be gated on one and no build could say which Crug features it wanted | ten `-fcrug-*` options in `gcc/common.opt` with closure in `gcc/c-family/crug-common.cc`; `docs/crug/FLAGS.md`; `scripts/check-crug-flags.sh` (149 work items), `scripts/check-gnu-c-compat.sh` (50 files), `scripts/diff-obj.sh`; fixtures in `gcc/testsuite/crug.dg/flags/` |
+| Predefined feature macros contradicted the flags-off identity guarantee | ADR 0018 D9 R6 amendment A-1 and spec/000-PRECEDENCE.md C-12: `__CRUG__` and the feature macros exist only when a `-fcrug-*` option is active |
 
 ## Still open
 
@@ -99,6 +110,8 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Phase 2 gate check 4 (`kernel-compat` CI required at HEAD) has never passed: the repository has not been pushed, the workflow has never run, and the job is not in branch protection | Owner: push, enable Actions, require `kernel-compat`, then `GH_TOKEN=... scripts/check-ci-gate.sh` |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
+| -  | No Crug production exists: the flags are accepted but nothing parses `own`, `move`, `borrow` or the rest, and no `-Wcrug-*` option is declared | Phase 4 (ownership MVP) onward |
+| -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
@@ -106,10 +119,10 @@ the corpus are Phase 9 work; nothing consumes the format yet.
    must push, enable the `kernel-compat` CI job and branch protection, then run
    `GH_TOKEN=... scripts/check-ci-gate.sh`. Phase 2 stays open until that check
    passes at HEAD (docs/crug/KERNEL-COMPATIBILITY.md).
-2. **Start Phase 3** (contextual keywords and feature flags): it is the first phase
-   that needs a Crug front end, and every later phase depends on its flag closure
-   and word recognition. ADRs 0002 and 0018 are now binding and state exactly what
-   the front end must recognise. Phase 9's FFI parser comes after Phases 5 and 8.
+2. **Start Phase 4** (ownership MVP: `own` and `move`): the flags and the
+   contextual-word infrastructure are in place, and ADRs 0003 and 0004 are binding
+   on where ownership lives and what a move may do. Phase 5 (drop) follows Phase 4,
+   and Phase 9's FFI parser comes after Phases 5 and 8.
 3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree.
 

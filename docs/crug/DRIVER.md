@@ -43,18 +43,22 @@ The gate makes the guarantee measurable rather than declared:
 ## What it does not do
 
 It does not add include paths, link `libcrug`, or change diagnostics. Since
-Phase 2 the driver accepts `-fcrug-kernel` (declared as a `Driver` option in
-`gcc/common.opt`) and ignores it: the flag has no C semantics, no predefined
-macro and no runtime, and objects built with and without it are byte-identical,
-which `scripts/test-kernel-compat.sh` checks. No other `-fcrug-*` flag exists
-yet. The contextual words (for example `own`, `go`, `mut`) remain ordinary
-identifiers, which `make check-C_COMPAT` also asserts.
+Phase 3 the driver accepts the ten `-fcrug-*` options declared in
+`gcc/common.opt` and passes them to the compiler, where
+`crug_apply_option_closure` closes the set over its implications and
+`c_cpp_builtins` defines the feature macros. None of the options has C
+semantics yet: `-fcrug-modern` changes no parse and no object byte
+(`scripts/diff-obj.sh`), and `-fcrug-kernel` is a mode marker whose conflict
+with the goroutine options is an error. The contextual words (for example
+`own`, `go`, `mut`) remain ordinary identifiers under every flag, which
+`make check-CRUG_FLAGS` asserts. `docs/crug/FLAGS.md` is the digest.
 
 ## How it evolves
 
-Phase 3 introduces the feature flags and the contextual-syntax infrastructure;
-at that point the driver needs its own option handling and, before the ABI work
-of Phase 4, its own specs. The launcher is then replaced by (or reduced to) a
+Phase 3 introduced the feature flags and the contextual-syntax infrastructure
+(see `docs/crug/FLAGS.md`); the launcher still only forwards arguments. Before
+the ABI work of Phase 4 the driver needs its own specs, and if Crug ever wants
+different default warnings or include paths it needs its own option handling. The launcher is then replaced by (or reduced to) a
 driver built from the GCC driver sources with a Crug specs file, so that
 `crugc` and `xgcc` share the option table but not necessarily the defaults.
 The resolution rules above are the part worth keeping: the build tree must be
