@@ -1329,6 +1329,14 @@ fcrossjumping
 Common Var(flag_crossjumping) Optimization
 Perform cross-jumping optimization.
 
+fcrug-kernel
+Common Ignore
+; Phase 2: accepted by the driver and by every front end, and intentionally
+; ignored: no C semantics, no predefined macro, no runtime. Common (rather than
+; Driver) because the driver forwards -f options to cc1, which would otherwise
+; reject the flag as "valid for the driver but not for C". Phase 3 gives it
+; meaning; it then becomes a Common option with a Var.
+
 fcse-follow-jumps
 Common Var(flag_cse_follow_jumps) Optimization
 When running CSE, follow jumps to their targets.
