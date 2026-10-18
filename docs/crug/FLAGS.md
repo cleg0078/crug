@@ -31,11 +31,12 @@ its flag is on.
 
 ## 2. Closure
 
-The driver closes the set over the implications above and never errors because
-a prerequisite was written implicitly: `-fcrug-borrow` alone means
+The C front end closes the set over the implications above and never errors
+because a prerequisite was written implicitly: `-fcrug-borrow` alone means
 `-fcrug-borrow -fcrug-ownership`. Closure runs once per compilation, in
 `c_common_post_options`, before any front-end parsing, and the result is the bit
-mask `crug_features`.
+mask `crug_features`. The driver only forwards the options; it adds no default
+of its own, which is what keeps `crugc` argument-transparent (DRIVER.md).
 
 `-fcrug-modern` is the closure of the eight feature flags. It deliberately does
 not include `-fcrug-kernel`: the two are contradictory, so asking for both is a
