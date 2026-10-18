@@ -67,7 +67,7 @@ not yet absorbed:
 | C-06 | 27 phases vs. 25 milestones; Phase 23 assigned to M23 in one section and M25 in another; Phase 24 has no milestone; M10 and M12 reach release from nowhere | ROADMAP section 28, section 30, section 33 | Phase-to-milestone mapping is authoritative only after EXIT-GATES.md is ratified. | docs/crug/EXIT-GATES.md |
 | C-07 | Repository licence (originally MIT) vs. the GPLv3 obligation of a GCC fork and an unselected libcrug licence | LICENSE, ROADMAP Risk J, MASTER_SPEC section 80 | Resolved 2026-10-18: the whole repository is GPL-3.0-or-later; imported GCC files keep their own headers; libcrug is GPL-3.0-or-later without a runtime exception. MIT applies only to the historical initial commit 707909c. | resolved by the owner (LICENSE, NOTICE) |
 | C-08 | "Strict mode" is used as a load-bearing condition but is never defined | RFC-0001 sections 10, 20, 32 and Appendix C; MASTER_SPEC section 6 | `-fcrug-strict` = ownership + borrow + all diagnostics that are warnings under hybrid become errors. Nothing else. | ADR 0018 D10 (diagnostics) |
-| C-09 | Kernel corpus is required by K0 but exists in no artefact | RFC-0001 sections 7.2 and 38.2 | K0 is unclaimable until a pinned corpus exists. | EXIT-GATES.md phase 0K |
+| C-09 | Kernel corpus is required by K0 but exists in no artefact | RFC-0001 sections 7.2 and 38.2 | Source pin recorded 2026-10-18 (Linux 6.18.57, tag/commit/digest/defconfig/boot in `docs/crug/KERNEL-BASELINE.md`); the per-object corpus list still does not exist, so K0 is unclaimable until `kernel/KERNEL-CORPUS.md`. | `docs/crug/KERNEL-BASELINE.md`, EXIT-GATES.md phase 19 |
 | C-10 | Ownership copy may be "explicitly allowed" but no mechanism is named | RFC-0001 sections 7.3 and 17 | MVP has no copy mechanism for owned values; release-and-readopt is the only escape. | ADR 0004 |
 | C-11 | ADR numbering: MASTER_SPEC section 79 fixes 17 required file names, `docs/crug/adr/README.md` proposed a different topic order, and the grammar ADR has no required slot | MASTER_SPEC section 79 vs. docs/crug/adr/README.md | A required topic keeps its required number; a new topic takes the next free number above 0017; no number is reused. The mapping is in `docs/crug/adr/README.md`. | resolved 2026-10-18: split into ADR 0003 (metadata) and ADR 0004 (analysis); ADR 0005 renamed to the required file name. Mapping in `docs/crug/adr/README.md`. |
 
@@ -87,8 +87,10 @@ not yet absorbed:
    headers, and libcrug is GPL-3.0-or-later without a runtime exception (C-07,
    LICENSE, NOTICE).
 2. **Resolved 2026-10-18.** MVP tracks places at variable granularity; field-granular places and partial moves are post-MVP (ADR 0004 D4, C-01).
-3. Whether the kernel qualification target is a specific version plus defconfig
-   (C-09), and which one.
+3. **Resolved 2026-10-18.** The kernel target is Linux 6.18.57 LTS, tag
+   `v6.18.57`, commit `2ff600d29ee478d0a8d46ef8a58afb5e038fe692`,
+   `x86_64_defconfig`, qemu x86_64 boot smoke; recorded with its digest in
+   `docs/crug/KERNEL-BASELINE.md` (C-09).
 4. **Resolved 2026-10-18.** ADR 0004 is split into the required
    0003-ownership-metadata-storage (metadata, ABI erasure, forbidden
    representations) and 0004-ownership-analysis-layer topics (aggregates,

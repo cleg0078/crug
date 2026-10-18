@@ -34,6 +34,7 @@ single authority order, a grammar, and decision records for the open questions.
 | RFC-0001 stated syntax without deciding ambiguity, attachment or ABI erasure | spec/CRUG_RFC_0001.md 0.2-draft sections 13-25 + Appendix H |
 | ADR numbering conflicted with MASTER_SPEC §79 | resolved 2026-10-18: ADR 0003/0004 split + ADR 0005 renamed; mapping in docs/crug/adr/README.md |
 | The decision set was unratified, so nothing could be cited as settled | six ADRs and spec/000-PRECEDENCE.md carry Status Accepted (2026-10-18) |
+| No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
 | No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (62 planned codes) + scripts/check-diagnostics.sh |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
@@ -49,7 +50,7 @@ single authority order, a grammar, and decision records for the open questions.
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
 | C-06 | 27 phases vs 25 milestones, orphan milestones M10/M12, unlinked Phase 24 | ratification of EXIT-GATES.md |
 | C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
-| C-09 | Kernel corpus for K0 does not exist | decision taken: Linux 6.18.57 LTS + x86_64_defconfig; pin being written |
+| -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No ABI document; ADR 0003 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
 | -  | The pre-fork baseline testsuite (phase-0 check 3) has never been run | dejagnu (`runtest`) is not installed and cannot be installed without root here |
@@ -57,14 +58,12 @@ single authority order, a grammar, and decision records for the open questions.
 
 ## Next actions, in dependency order
 
-1. **Pin the kernel** (C-09): record Linux 6.18.57 (tag, commit, tarball digest),
-   x86_64_defconfig, qemu boot command and object list. Without it K0 is unclaimable.
-2. **Import the pinned GCC tree** into the repository and tag it
+1. **Import the pinned GCC tree** into the repository and tag it
    `releases/gcc-16.2`, so the fork base is reproducible from git rather than from
    a tarball on one machine.
-3. **Make the C testsuite runnable** (`make check-c` is currently an empty recipe)
+2. **Make the C testsuite runnable** (`make check-c` is currently an empty recipe)
    through a root-free local DejaGnu, with the run summarised by a script.
-4. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log;
+3. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log;
    the baseline testsuite run and the comparison against a pre-fork result set are
    the checks that still fail.
 

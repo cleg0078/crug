@@ -90,17 +90,23 @@ is a patched C frontend and the language name is not accepted by configure.
 
 A triple not listed here is untested; adding one needs a gate entry.
 
-## 4. Kernel baseline: NOT PINNED
+## 4. Kernel baseline: PINNED
 
 `docs/crug/EXIT-GATES.md` Phase 2 and Phase 19 require a fixed kernel version,
-defconfig and boot harness. None exists yet (conflict C-09 in
-`spec/000-PRECEDENCE.md`). Until the owner pins them, K0 conformance cannot be
-claimed and the kernel gates are open by construction. The pin must name:
+defconfig and boot harness. They are pinned in `docs/crug/KERNEL-BASELINE.md`
+(conflict C-09 in `spec/000-PRECEDENCE.md`, resolved 2026-10-18):
 
-- upstream tag and its commit id,
-- defconfig path and any reduced-config fragment,
-- the exact qemu/boot command and expected console marker,
-- object-file list used for differential comparison.
+- Linux 6.18.57 LTS, tag `v6.18.57`, commit
+  `2ff600d29ee478d0a8d46ef8a58afb5e038fe692`, tarball digest in
+  `docs/crug/kernel-baseline.sha256` (`scripts/kernel-pin.sh --verify`);
+- `arch/x86/configs/x86_64_defconfig`, no fragment;
+- the qemu boot command and the two console markers;
+- the subsystem scope; the per-object corpus list that Phase 19 needs is still
+  missing (`kernel/KERNEL-CORPUS.md`), so `class K0` remains unclaimable until
+  that file exists.
+
+The kernel source is GPLv2 and is never vendored: it lives under `sources/`
+(ignored) and only the digest enters the repository.
 
 ## 5. Repository-derived inputs
 
@@ -109,7 +115,7 @@ claimed and the kernel gates are open by construction. The pin must name:
 | Language decisions | `docs/crug/adr/` (index in `docs/crug/adr/README.md`) |
 | Conflict resolution | `spec/000-PRECEDENCE.md` |
 | Gate definitions | `docs/crug/EXIT-GATES.md` |
-| Licences | `NOTICE` (spec text MIT; GCC-derived code GPLv3-or-later; libcrug undecided) |
+| Licences | `NOTICE` (project files and libcrug GPL-3.0-or-later; imported GCC files keep their own headers) |
 
 ## 6. Update policy
 

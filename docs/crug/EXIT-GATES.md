@@ -281,7 +281,7 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 19 — Linux Kernel Build Qualification
 **Closes:** M19 — Linux kernel build milestone.
-**Prerequisite:** Phase 2 gate archived (stage K0 microtests green in mandatory CI) plus a pinned kernel source tag and a Kbuild wrapper (roadmap §24 stage K5: `make CC=crugc ...`).
+**Prerequisite:** Phase 2 gate archived (stage K0 microtests green in mandatory CI) plus the pinned kernel source of `docs/crug/KERNEL-BASELINE.md` and a Kbuild wrapper (roadmap §24 stage K5: `make CC=crugc ...`).
 **Exit gate:**
 - `CHECK: for s in K1 K2 K3 K5 K6 K7; do ./scripts/kernel-stage.sh $s; done` => each stage exits 0; stage K4 uses the pinned corpus list in `kernel/KERNEL-CORPUS.md`.
 - `CHECK: make CC=crugc -j$(nproc)` (pinned kernel tree) => `vmlinux` produced, 0 errors.
