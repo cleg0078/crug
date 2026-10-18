@@ -89,7 +89,7 @@ check-host: ## verify the host has the tools GCC needs (read-only)
 	else echo "  C++14  ok ($$(g++ -dumpfullversion -dumpversion))"; fi; \
 	avail=$$(df -Pk . | awk 'NR==2 {print $$4}'); \
 	if [ "$$avail" -lt 8000000 ]; then echo "  disk    WARNING: $$((avail/1024)) MiB free; a full build wants ~10 GiB"; fi; \
-	command -v runtest >/dev/null 2>&1 || echo '  note    dejagnu (runtest) not found: make check-c needs it'; \
+	command -v runtest >/dev/null 2>&1 || echo '  note    dejagnu (runtest) not found: run make bootstrap-dejagnu (no root needed)'; \
 	exit $$fail
 
 ##@ Pinned GCC baseline
@@ -150,9 +150,23 @@ install: build ## install into $(PREFIX) (may need root; DESTDIR is supported)
 ##@ Tests
 
 check: build ## run the GCC testsuite (heavy; RUNTESTFLAGS selects)
-	$(MAKE) -C $(OBJ_DIR)/gcc check RUNTESTFLAGS='$(RUNTESTFLAGS)'
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check RUNTESTFLAGS='$(RUNTESTFLAGS)' 2>&1 | tee $(OBJ_DIR)/check.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )' || true
+
+bootstrap-dejagnu: ## install DejaGnu into tools/ without root (no sudo needed)
+	scripts/bootstrap-dejagnu.sh
 
 check-c: build ## run the gcc.dg C regression suite
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='$(RUNTESTFLAGS)' 2>&1 | tee $(OBJ_DIR)/check-c.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
+baseline-phase0: check-c ## run gcc.dg and archive the result under docs/crug/baseline/phase0/
+	scripts/record-baseline.sh phase0 $(OBJ_DIR)/check-c.log
 
 ##@ Maintenance
 
@@ -189,5 +203,5 @@ distclean: ## remove build/ and sources/ entirely
 # should stay thin wrappers over $(OBJ_DIR) rather than a parallel build system.
 
 .PHONY: help check-host download verify extract deps configure build build-full \
-	baseline xgcc-version install check check-c status print-config reconfigure \
-	clean distclean
+	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
+	status print-config reconfigure clean distclean

@@ -60,6 +60,7 @@ is to record the exact versions actually used.
 | zstd | 1.4 | optional compression support |
 | Python | 3.8 | build scripts |
 | flex, bison | current | only if .l/.y files change |
+| DejaGnu, Expect, Tcl | 1.6.3, 5.45.4, 8.6 | testsuite only; `scripts/bootstrap-dejagnu.sh` installs the Debian packages under `tools/` without root and writes `tools/dejagnu.env`, which `make check-c` sources |
 
 Configure baseline for development (no bootstrap, assertions on):
 

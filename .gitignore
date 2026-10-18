@@ -1,11 +1,11 @@
 # ---------------------------------------------------------------------------
 # CRUG repository ignore rules.
 #
-# This repository is a GCC fork: the upstream tree lives under gcc/ and keeps
-# the conventions it was published with. The second half of this file is the
-# .gitignore shipped in the gcc-16.2.0 tarball, with its root-anchored
-# in-tree-prerequisite paths moved under gcc/. Do not delete a rule from the
-# second half without an upstream rebase reason: it is what upstream expects.
+# This repository is a GCC fork: the imported GCC 16.2.0 tree is the repository
+# root (the compiler proper is gcc/), so upstream's rules apply at the root. The
+# second half of this file is the .gitignore shipped in the gcc-16.2.0 tarball,
+# kept as published. Do not delete a rule from the second half without an
+# upstream rebase reason: it is what upstream expects.
 # ---------------------------------------------------------------------------
 
 # Build output produced by this repository's Makefile and helpers.
@@ -13,6 +13,7 @@
 /sources/
 /objdir/
 /install/
+/tools/
 *.part
 
 # CRUG test and benchmark artefacts.
@@ -99,6 +100,7 @@ stamp-*
 *.stamp
 
 # in-tree prerequisites, unpacked at the top level by download_prerequisites
+# (upstream's own root-anchored rules)
 /gmp*
 /mpfr*
 /mpc*
