@@ -31,7 +31,7 @@ eight findings; this file tracks what has been resolved and what blocks progress
 | C-07 | Repository licence vs GPLv3 obligation of a GCC fork | owner decision |
 | C-08 | "Strict mode" used but never defined | folded into ADR 0002/0004/0005 diagnostics; needs a line in LANGUAGE.md |
 | C-09 | Kernel corpus for K0 does not exist | owner decision on kernel version + defconfig |
-| -  | No grammar for normatively cited syntax | RFC-0001 amendment (ADR 0002 is the seed) |
+| -  | Syntax is sketched but ambiguous: MASTER_SPEC §8 gives intent-level EBNF and does not resolve qualifier attachment, `option<T>` angle brackets, `chan T name;` declarations, `go (expr);`, or ADT `enum` payloads | docs/crug/adr/0003-grammar.md (in preparation); RFC-0001 amendment after ratification |
 | -  | No destructor syntax before this revision | resolved by ADR 0005 D2 |
 
 ## Next actions, in dependency order
@@ -39,13 +39,17 @@ eight findings; this file tracks what has been resolved and what blocks progress
 1. **Ratify the four ADRs** (0002, 0004, 0005) and spec/000-PRECEDENCE.md. Nothing
    downstream is stable until the ownership model is decided.
 2. **Decide C-07** (licence). This gates the first line of GCC-derived code.
-3. **Write the grammar.** A single EBNF file covering declarations, qualifiers,
-   aggregates, borrow syntax, task syntax, and the word-collision forms of ADR
-   0002. It is a prerequisite for TASK 008/010 and for any parser work.
+3. **Write the grammar.** docs/crug/adr/0003-grammar.md turns the master spec's
+   §8 sketches into implementation decisions: qualifier attachment, intrinsic
+   forms, `go`/`scope`/`select`/`match` statement shapes, `chan T name;`,
+   angle-bracket types in type context only, and the collision corpus. It is a
+   prerequisite for TASK 008/010 and for any parser work.
 4. **Amend RFC-0001** to cite the grammar and to adopt ADR 0004/0005 rules, so that
    conformance classes O1/B1 stop depending on implied semantics.
-5. **Pin the environment** (GCC 16.2 source hash, build triple, kernel version and
-   defconfig) in a single file, e.g. docs/crug/ENVIRONMENT.md.
+5. **Pin the environment.** docs/crug/ENVIRONMENT.md now records the GCC 16.2.0
+   tarball checksum, host prerequisites and target triples; the kernel version
+   and defconfig are still owner decisions (C-09) and must be added before any
+   K0 claim.
 6. Only then start Phase 0 per the roadmap.
 
 ## Working rules

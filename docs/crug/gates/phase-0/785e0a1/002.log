@@ -1,0 +1,5 @@
+phase-0 #2 rc=127
+cmd: bash scripts/bootstrap.sh --prefix=/tmp/crug-a && bash scripts/bootstrap.sh --prefix=/tmp/crug-b
+expected: both exit 0; each `/tmp/crug-{a,b}/bin/xgcc --version` prints `16.2.0`.
+---
+bash: scripts/bootstrap.sh: No such file or directory

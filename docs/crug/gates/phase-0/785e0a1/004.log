@@ -1,0 +1,5 @@
+phase-0 #4 rc=128
+cmd: git diff --stat releases/gcc-16.2..HEAD -- gcc/
+expected: empty output (no Crug semantic or codegen change).
+---
+fatal: bad revision 'releases/gcc-16.2..HEAD'
