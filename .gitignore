@@ -17,6 +17,7 @@
 *.part
 
 # CRUG test and benchmark artefacts.
+/out/
 /gcc/testsuite/crug.dg/**/*.exe
 /bench/results/
 *.gch

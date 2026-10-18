@@ -171,6 +171,12 @@ baseline-phase0: check-c ## run gcc.dg and archive the result under docs/crug/ba
 check-C_COMPAT: ## compile the C compatibility corpus with crugc and baseline xgcc
 	scripts/check-c-compat.sh
 
+check-KERNEL_COMPAT: ## run the Phase 2 kernel/GNU C compatibility suite (writes out/)
+	scripts/test-kernel-compat.sh
+
+check-kernel-objects: ## scan out/*.o for __crug_ symbols and libcrug dependencies
+	scripts/check-kernel-objects.sh out
+
 crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1
@@ -212,5 +218,5 @@ distclean: ## remove build/ and sources/ entirely
 
 .PHONY: help check-host download verify extract deps configure build build-full \
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
-	check-C_COMPAT crugc \
+	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	status print-config reconfigure clean distclean
