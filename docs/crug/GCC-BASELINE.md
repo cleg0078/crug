@@ -1,7 +1,8 @@
-# CRUG build environment baseline
+# CRUG GCC baseline and build environment
 
 Status: Proposed, 2026-10-18. This file pins the external inputs that every
-gate in `docs/crug/EXIT-GATES.md` assumes. Nothing here is a language decision;
+gate in `docs/crug/EXIT-GATES.md` assumes. Phase 0's first check reads this
+filename, so the baseline must stay here rather than in a general notes file. Nothing here is a language decision;
 changing a pin is a build-infrastructure change and must be a separate commit
 with the old and new values quoted.
 

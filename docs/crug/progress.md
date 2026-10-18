@@ -46,7 +46,7 @@ eight findings; this file tracks what has been resolved and what blocks progress
    prerequisite for TASK 008/010 and for any parser work.
 4. **Amend RFC-0001** to cite the grammar and to adopt ADR 0004/0005 rules, so that
    conformance classes O1/B1 stop depending on implied semantics.
-5. **Pin the environment.** docs/crug/ENVIRONMENT.md now records the GCC 16.2.0
+5. **Pin the environment.** docs/crug/GCC-BASELINE.md now records the GCC 16.2.0
    tarball checksum, host prerequisites and target triples; the kernel version
    and defconfig are still owner decisions (C-09) and must be added before any
    K0 claim.

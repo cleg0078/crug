@@ -61,7 +61,7 @@ P25→M23 (closes)                 P26→M24
 **Closes:** M0 — Reproducible GCC baseline.
 **Prerequisite:** upstream GCC 16.2 source obtainable at tag `releases/gcc-16.2` with its tarball digest recorded (roadmap §5 says "None" — the only prerequisite is the external artefact plus a host bootstrap toolchain).
 **Exit gate:**
-- `CHECK: grep -q 'releases/gcc-16.2' docs/crug/GCC-BASELINE.md && sha256sum -c docs/crug/gcc-baseline.sha256` => `gcc-16.2.tar.xz: OK`, exit 0.
+- `CHECK: grep -q 'releases/gcc-16.2.0' docs/crug/GCC-BASELINE.md && sha512sum -c docs/crug/gcc-baseline.sha512` => `gcc-16.2.0.tar.xz: OK`, exit 0 (run with the verified tarball in the repository root; upstream publishes SHA512, not SHA256).
 - `CHECK: bash scripts/bootstrap.sh --prefix=/tmp/crug-a && bash scripts/bootstrap.sh --prefix=/tmp/crug-b` => both exit 0; each `/tmp/crug-{a,b}/bin/xgcc --version` prints `16.2.0`.
 - `CHECK: make -C gcc check RUNTESTFLAGS='gcc.dg/*.exp'` => run summary archived to `docs/crug/baseline/phase0/` with 0 FAIL lines absent from the pre-fork baseline.
 - `CHECK: git diff --stat releases/gcc-16.2..HEAD -- gcc/` => empty output (no Crug semantic or codegen change).
