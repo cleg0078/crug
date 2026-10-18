@@ -1,33 +1,106 @@
-# Build output
+# ---------------------------------------------------------------------------
+# CRUG repository ignore rules.
+#
+# This repository is a GCC fork: the upstream tree lives under gcc/ and keeps
+# the conventions it was published with. The second half of this file is the
+# .gitignore shipped in the gcc-16.2.0 tarball, with its root-anchored
+# in-tree-prerequisite paths moved under gcc/. Do not delete a rule from the
+# second half without an upstream rebase reason: it is what upstream expects.
+# ---------------------------------------------------------------------------
+
+# Build output produced by this repository's Makefile and helpers.
 /build/
 /sources/
+/objdir/
+/install/
 *.part
-*.o
-*.a
-*.so
-*.so.*
-*.lo
-*.la
-*.d
+
+# CRUG test and benchmark artefacts.
+/gcc/testsuite/crug.dg/**/*.exe
+/bench/results/
 *.gch
 *.dwo
 *.gcno
 *.gcda
 
-# GCC-style in-tree build directories
-/objdir/
-/install/
-
-# Test and benchmark artefacts
-/gcc/testsuite/crug.dg/**/*.exe
-/bench/results/
-/tmp/
-*.s
-*.s.orig
-
-# Editor / OS
+# Editor and OS noise.
 *~
 *.swp
 .DS_Store
 .idea/
 .vscode/
+
+# ---------------------------------------------------------------------------
+# Upstream GCC 16.2.0 .gitignore (verbatim except the /gcc/ prefix on the
+# in-tree-prerequisite and stamp rules, which are root-anchored upstream).
+# ---------------------------------------------------------------------------
+*.diff
+*.patch
+*.orig
+*.rej
+
+.#*
+*#
+
+*.flt
+*.gmo
+*.info
+*.la
+*.lo
+*.o
+*.pyc
+*.tmp
+*.a
+
+.deps
+.libs
+
+autom4te.cache
+config.cache
+# GCC does not support in-tree builds, do not conceal a stray config.h:
+# config.h
+config.intl
+config.log
+config.status
+libtool
+POTFILES
+*-POTFILES
+
+TAGS
+TAGS.sub
+cscope.out
+
+.local.vimrc
+.lvimrc
+
+.clang-format
+.clang-tidy
+.clangd
+.cache
+compile_commands.json
+
+.gdbinit
+.gdb_history
+
+perf.data
+perf.data.old
+
+# ignore core files, but not java/net/protocol/core/
+core
+!core/
+
+lost+found
+
+# ignore ./contrib/gcc_update output
+LAST_UPDATED
+REVISION
+
+stamp-*
+*.stamp
+
+# in-tree prerequisites, if ever unpacked into gcc/ by download_prerequisites
+/gcc/mpfr*
+/gcc/mpc*
+/gcc/gmp*
+/gcc/isl*
+/gcc/gettext*
