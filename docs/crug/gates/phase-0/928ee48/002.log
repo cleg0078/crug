@@ -1,0 +1,5 @@
+phase-0 #2 rc=0
+cmd: test -x build/obj/gcc/xgcc && build/obj/gcc/xgcc -Bbuild/obj/gcc/ --version | grep -q '16\.2\.0'
+expected: exit 0 (`make baseline` must have completed; the gate does not rebuild).
+---
+

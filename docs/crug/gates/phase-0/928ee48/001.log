@@ -1,0 +1,6 @@
+phase-0 #1 rc=0
+cmd: grep -q 'releases/gcc-16.2.0' docs/crug/GCC-BASELINE.md && make verify
+expected: `gcc-16.2.0.tar.xz: OK`, exit 0 (`make` downloads into `sources/` on demand; upstream publishes SHA512, not SHA256).
+---
+cd sources && sha512sum --check --strict /home/cleg/MyDev/crug/docs/crug/gcc-baseline.sha512
+gcc-16.2.0.tar.xz: OK

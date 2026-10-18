@@ -1,0 +1,5 @@
+phase-0 #3 rc=0
+cmd: scripts/check-baseline.sh docs/crug/baseline/phase0
+expected: exit 0, output `baseline phase0: PASS 224481 FAIL 84 XPASS 23 ...` (the archived summary is validated against `known-fail.txt`; the suite is not re-run by the gate, its full run is archived under that directory with a README naming the commit and compiler version, and any FAIL outside the reviewed allowlist fails this check).
+---
+baseline phase0: PASS 224481 FAIL 84 XPASS 23 XFAIL 1649 UNRESOLVED 0 UNSUPPORTED 4049

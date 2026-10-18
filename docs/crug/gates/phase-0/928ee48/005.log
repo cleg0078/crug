@@ -1,0 +1,5 @@
+phase-0 #5 rc=0
+cmd: test -d gcc/crug && test -d gcc/testsuite/crug.dg && test -d docs/crug/adr && test -d scripts && test -d bench && test -s docs/crug/progress.md
+expected: exit 0.
+---
+
