@@ -26,6 +26,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "c-target.h"
 #include "c-common.h"
+#include "crug-common.h"
 #include "memmodel.h"
 #include "tm_p.h"		/* For C_COMMON_OVERRIDE_OPTIONS.  */
 #include "diagnostic.h"
@@ -861,6 +862,10 @@ c_common_post_options (const char **pfilename)
     check_deps_environment_vars ();
 
   handle_deferred_opts ();
+
+  /* Close the -fcrug-* option set over the dependencies in ADR 0018 D1
+     before any front-end decision reads crug_features.  */
+  crug_apply_option_closure ();
 
   sanitize_cpp_opts ();
 

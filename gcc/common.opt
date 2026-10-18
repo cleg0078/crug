@@ -1329,13 +1329,53 @@ fcrossjumping
 Common Var(flag_crossjumping) Optimization
 Perform cross-jumping optimization.
 
+fcrug-ownership
+Common Var(crug_flag_ownership)
+Recognise the Crug ownership words: the 'own' and 'raw' qualifiers, the
+'move', 'drop', 'adopt' and 'release' intrinsics, and 'unsafe' blocks.
+The words stay ordinary C identifiers until the ownership analysis lands;
+the flag enables no code generation.
+
+fcrug-borrow
+Common Var(crug_flag_borrow)
+Recognise the Crug borrowing words: the 'ref' and 'mut' qualifiers and the
+'borrow' and 'borrow_mut' intrinsics.  Implies -fcrug-ownership.
+
+fcrug-goroutines
+Common Var(crug_flag_goroutines)
+Recognise 'go' and 'scope'.
+
+fcrug-channels
+Common Var(crug_flag_channels)
+Recognise 'chan', 'send', 'recv', 'close', 'channel' and 'select'.
+Implies -fcrug-goroutines.
+
+fcrug-slices
+Common Var(crug_flag_slices)
+Recognise the 'slice<T>' type constructor.
+
+fcrug-result
+Common Var(crug_flag_result)
+Recognise 'option<T>', 'result<T,E>', 'some', 'none', 'ok' and 'err'.
+Implies -fcrug-adt.
+
+fcrug-adt
+Common Var(crug_flag_adt)
+Recognise payload enums and 'match'.
+
+fcrug-strict
+Common Var(crug_flag_strict)
+Promote Crug warnings to errors.  Implies -fcrug-ownership and
+-fcrug-borrow.
+
+fcrug-modern
+Common Var(crug_flag_modern)
+Enable every Crug production.  Does not include -fcrug-kernel.
+
 fcrug-kernel
-Common Ignore
-; Phase 2: accepted by the driver and by every front end, and intentionally
-; ignored: no C semantics, no predefined macro, no runtime. Common (rather than
-; Driver) because the driver forwards -f options to cc1, which would otherwise
-; reject the flag as "valid for the driver but not for C". Phase 3 gives it
-; meaning; it then becomes a Common option with a Var.
+Common Var(crug_flag_kernel)
+Enable kernel mode: remove 'go', 'scope', 'chan' and 'select'.  Giving it
+with -fcrug-goroutines, -fcrug-channels or -fcrug-modern is an error.
 
 fcse-follow-jumps
 Common Var(flag_cse_follow_jumps) Optimization

@@ -22,6 +22,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "coretypes.h"
 #include "target.h"
 #include "c-common.h"
+#include "crug-common.h"
 #include "memmodel.h"
 #include "tm_p.h"		/* For TARGET_CPU_CPP_BUILTINS & friends.  */
 #include "stringpool.h"
@@ -926,6 +927,35 @@ c_cpp_builtins (cpp_reader *pfile)
 
   /* For stddef.h.  They require macros defined in c-common.cc.  */
   c_stddef_cpp_builtins ();
+
+  /* Crug feature discovery (ADR 0018 D9 R6, RFC-0001 section 10).  The
+     macros are defined only in Crug mode: with every -fcrug-* option off
+     the predefined set is upstream GCC's, which the phase 1 identity gate
+     and the monotonicity clause of ADR 0018 D1 require.  Version discovery
+     macros belong to ADR 0013 and are not defined yet.  */
+  if (crug_features)
+    {
+      cpp_define (pfile, "__CRUG__=1");
+      cpp_define (pfile, "__CRUG_COMPILER__=1");
+      if (crug_features & CRUG_FEAT_OWNERSHIP)
+	cpp_define (pfile, "__CRUG_OWNERSHIP__=1");
+      if (crug_features & CRUG_FEAT_BORROW)
+	cpp_define (pfile, "__CRUG_BORROW__=1");
+      if (crug_features & CRUG_FEAT_SLICES)
+	cpp_define (pfile, "__CRUG_SLICES__=1");
+      if (crug_features & CRUG_FEAT_RESULT)
+	cpp_define (pfile, "__CRUG_RESULT__=1");
+      if (crug_features & CRUG_FEAT_ADT)
+	cpp_define (pfile, "__CRUG_ADT__=1");
+      if (crug_features & CRUG_FEAT_GOROUTINES)
+	cpp_define (pfile, "__CRUG_GOROUTINES__=1");
+      if (crug_features & CRUG_FEAT_CHANNELS)
+	cpp_define (pfile, "__CRUG_CHANNELS__=1");
+      if (crug_features & CRUG_FEAT_STRICT)
+	cpp_define (pfile, "__CRUG_STRICT__=1");
+      if (crug_features & CRUG_FEAT_KERNEL)
+	cpp_define (pfile, "__CRUG_KERNEL__=1");
+    }
 
   /* Variant of cpp_define which arranges for diagnostics on user #define
      or #undef of the macros.  */
