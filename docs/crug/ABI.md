@@ -1,6 +1,6 @@
 # CRUG ABI registry
 
-**Status:** Draft - governed by ADR 0006 (Proposed). No Crug-native layout is
+**Status:** Draft registry - governed by ADR 0006 (Accepted 2026-10-19). No Crug-native layout is
 frozen yet; the rows below mark what is guaranteed today and what a phase must
 fill in before its gate can pass.
 

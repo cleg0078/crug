@@ -7,9 +7,9 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Six were ratified on 2026-10-18 by CLEG0078 (project owner) and are cited by
-number throughout `spec/` and `docs/crug/`. ADRs 0006 and 0007 are new and are
-Proposed: they need the owner's ratification like the others did.
+All eight written ADRs are Accepted and are cited by number throughout `spec/`
+and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18 and ADRs
+0006 and 0007 on 2026-10-19.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -19,8 +19,8 @@ Proposed: they need the owner's ratification like the others did.
 | 0004 | 0004-ownership-analysis-layer.md | owning aggregates, field places, drop order, unions, arrays, adoption | Accepted (2026-10-18) |
 | 0005 | 0005-drop-lowering.md | where drops run, setjmp/exit/abort, task scopes | Accepted (2026-10-18) |
 | 0018 | 0018-grammar.md | productions, qualifier attachment, go/scope/select/match, payload enums | Accepted (2026-10-18) |
-| 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Proposed (2026-10-19) |
-| 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Proposed (2026-10-19) |
+| 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Accepted (2026-10-19) |
+| 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Accepted (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in

@@ -1,6 +1,7 @@
 # ADR 0006 - C ABI Policy
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-19)
+- **Ratified:** 2026-10-19 by CLEG0078 (project owner)
 - **Date:** 2026-10-19
 - **Deciders:** project owner (ratification), frontend, FFI, kernel-profile and optimizer owners
 - **Context docs:** RFC-0001 sections 14, 16, 17, 22, 23, 24 and 25; MASTER_SPEC

@@ -1,8 +1,8 @@
 # ADR 0007 - C FFI Metadata: the .crugffi v1 Format
 
-**Status:** Proposed
+**Status:** Accepted (2026-10-19)
 **Date:** 2026-10-19
-**Ratification:** pending (the project owner ratifies ADRs; see `docs/crug/adr/README.md`)
+**Ratification:** 2026-10-19 by CLEG0078 (project owner)
 **Related:** ADR 0003 (ownership metadata storage), ADR 0004 (aggregate ownership and adoption), ADR 0005 (drop lowering), ADR 0006 (C ABI policy, `docs/crug/ABI.md`), ADR 0018 (surface grammar), RFC-0001 sections 23-24, MASTER_SPEC section 16, RUST_MEMORY_GAPS section 26, ROADMAP Phase 9, `docs/crug/DIAGNOSTICS.md`
 **Supersedes:** nothing. The conceptual sketches in MASTER_SPEC section 16.3 and RUST_MEMORY_GAPS section 26 are examples, not a format.
 

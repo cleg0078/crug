@@ -165,7 +165,7 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 9 — Production C FFI Layer
 **Closes:** M9 — C FFI production layer.
-**Prerequisite:** Phase 5 and Phase 8 gates archived; `.crugffi` grammar v1 ADR accepted and the metadata parser test corpus exists. ADR 0007 (Proposed) now defines that format; it must be ratified before this gate can close, and the parser corpus it lists is the test corpus.
+**Prerequisite:** Phase 5 and Phase 8 gates archived; `.crugffi` grammar v1 ADR accepted and the metadata parser test corpus exists. ADR 0007 (Accepted 2026-10-19) defines that format, and the parser corpus it lists is the test corpus.
 **Exit gate:**
 - `CHECK: make check-FFI` => exit 0 for ownership-return, consuming-arg, shared/mutable borrow, out-owned, nullability, destructor, callback, and conflicting-metadata diagnostics.
 - `CHECK: sha256sum lib/libsqlite3.so.0 lib/libcurl.so.4 lib/libssl.so.3 lib/libc.so.6` => digests identical before and after building the four integration tests (no recompilation of the C library).
