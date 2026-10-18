@@ -11,7 +11,11 @@ architecture decisions, and the pinned GCC 16.2.0 tree that the fork modifies
 (the repository root is the GCC top level; the compiler is `gcc/`; the import
 is tagged `releases/gcc-16.2`). Phase 1 of the release gates is implemented:
 `gcc/crugc` is the CRUG driver, which for now behaves exactly like the GCC it
-is built from, so plain C compiles and links identically. Crug syntax,
+is built from, so plain C compiles and links identically. Phase 2 (kernel/GNU C
+compatibility) is implemented locally: the driver accepts `-fcrug-kernel` as a
+no-op, the kernel corpus and its no-runtime checks live in
+`gcc/testsuite/crug.dg/kernel/`, and the `kernel-compat` CI job is defined but
+still has to be enabled and made mandatory by the repository owner. Crug syntax,
 ownership checking, drop and concurrency are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -69,6 +73,8 @@ from the repository root: `gcc/crugc -O2 -c file.c`. `make check-C_COMPAT`
 compiles the `corpus/` programs with both `gcc/crugc` and the baseline `xgcc`
 at `-O0`, `-O2` and `-Os` and fails on any difference in exit status or object
 bytes; `scripts/diff-cc.sh` runs the same comparison with custom flags.
+`make check-KERNEL_COMPAT` runs the Phase 2 kernel/GNU C compatibility suite and
+writes `out/` (ignored); see [docs/crug/KERNEL-COMPATIBILITY.md](docs/crug/KERNEL-COMPATIBILITY.md).
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

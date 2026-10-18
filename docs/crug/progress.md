@@ -6,8 +6,8 @@ Last updated: 2026-10-19
 
 The repository contains specification text, a phase-gate adjudicator, a
 reproducible GCC build and, from Phase 1, the `crugc` driver; there is no Crug
-syntax implementation, no `libcrug`, no Crug test suite and no continuous
-integration. Four specification
+syntax implementation, no `libcrug`, no Crug test suite, and a CI workflow that
+has been defined but never run. Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
 gaps analysis, and the production roadmap. An analysis of those documents produced
 eight findings; this file tracks what has been resolved and what blocks progress.
@@ -30,7 +30,13 @@ pass with archived checks, and `docs/crug/EXIT-GATES.md` was ratified on 2026-10
 so the gate definitions are binding and the phase-to-milestone mapping (C-06) is
 settled. `gcc/crugc` is a launcher around the built GCC driver
 for now, so plain C compatibility is measured rather than assumed
-(`make check-C_COMPAT`, `scripts/diff-cc.sh`).
+(`make check-C_COMPAT`, `scripts/diff-cc.sh`). Phase 2's local half is in place:
+`-fcrug-kernel` is accepted and ignored, the 21 roadmap work items run against a
+named kernel-style corpus (`make check-KERNEL_COMPAT`), object scans show no
+`__crug_` symbol and no `libcrug` dependency, and freestanding units carry no
+hidden runtime (`scripts/check-kernel-freestanding.sh`). The CI half is written
+(`.github/workflows/kernel-compat.yml`, `scripts/check-ci-gate.sh`) but cannot run
+until the owner pushes and enables branch protection.
 
 ## Resolved in this revision
 
@@ -58,6 +64,8 @@ for now, so plain C compatibility is measured rather than assumed
 | Phase 0 was unadjudicated | `scripts/gate.sh --run phase-0` passed 5/5 checks; logs under docs/crug/gates/phase-0/ |
 | No driver existed, so plain-C compatibility could not be measured | `gcc/crugc` launcher (docs/crug/DRIVER.md) + `corpus/` (30 programs) + `scripts/diff-cc.sh` + `make check-C_COMPAT`; phase-1 gate archived under docs/crug/gates/phase-1/ |
 | Exit gates were Proposed, so no gate definition was binding, and the phase-to-milestone mapping (C-06) was unsettled | docs/crug/EXIT-GATES.md Status Accepted (2026-10-19); C-06 settled by its section 7; amendment record in section 12 |
+| There was no kernel-mode flag, corpus or local runner, so the kernel constraint was untested | `-fcrug-kernel` in `gcc/common.opt` (Common Ignore); 18-source corpus under `gcc/testsuite/crug.dg/kernel/`; `scripts/test-kernel-compat.sh` (21/21), `scripts/check-kernel-objects.sh`, `scripts/check-kernel-freestanding.sh`; `make check-KERNEL_COMPAT`; phase-2 gate archived for checks 1-3 |
+| Nothing would have protected the kernel baseline in CI | `.github/workflows/kernel-compat.yml` (builds the pinned baseline, runs the suite, 180-minute timeout) + `scripts/check-ci-gate.sh` (asserts the check concluded success and is required) |
 
 ## Still open
 
@@ -69,6 +77,7 @@ for now, so plain C compatibility is measured rather than assumed
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No ABI document; ADR 0003 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
+| -  | Phase 2 gate check 4 (`kernel-compat` CI required at HEAD) has never passed: the repository has not been pushed, the workflow has never run, and the job is not in branch protection | Owner: push, enable Actions, require `kernel-compat`, then `GH_TOKEN=... scripts/check-ci-gate.sh` |
 
 ## Next actions, in dependency order
 

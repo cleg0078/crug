@@ -42,9 +42,12 @@ The gate makes the guarantee measurable rather than declared:
 
 ## What it does not do
 
-It does not accept `-fcrug-*` flags, add include paths, link `libcrug`, or
-change diagnostics: Phase 1 has no Crug syntax and no semantic flags. The
-contextual words (for example `own`, `go`, `mut`) remain ordinary
+It does not add include paths, link `libcrug`, or change diagnostics. Since
+Phase 2 the driver accepts `-fcrug-kernel` (declared as a `Driver` option in
+`gcc/common.opt`) and ignores it: the flag has no C semantics, no predefined
+macro and no runtime, and objects built with and without it are byte-identical,
+which `scripts/test-kernel-compat.sh` checks. No other `-fcrug-*` flag exists
+yet. The contextual words (for example `own`, `go`, `mut`) remain ordinary
 identifiers, which `make check-C_COMPAT` also asserts.
 
 ## How it evolves

@@ -83,12 +83,13 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 2 — Linux Kernel / GNU C Compatibility Baseline
 **Closes:** M2 — Linux-kernel/GNU-C baseline (also the basis for `class K0`, RFC 0001 §7.2).
-**Prerequisite:** Phase 1 gate archived (C_COMPAT green); `scripts/test-kernel-compat.sh` and the kernel-style microtest corpus exist under `gcc/testsuite/crug.dg/kernel/`.
+**Prerequisite:** Phase 1 gate archived (C_COMPAT green); `scripts/test-kernel-compat.sh`, `scripts/check-kernel-objects.sh`, `scripts/check-kernel-freestanding.sh`, the kernel-style microtest corpus under `gcc/testsuite/crug.dg/kernel/`, and `docs/crug/KERNEL-COMPATIBILITY.md` exist; `make check-KERNEL_COMPAT` is the local entry point.
 **Exit gate:**
-- `CHECK: bash scripts/test-kernel-compat.sh` => exit 0 across all 21 §7 work items (statement expressions, `typeof`, `__auto_type`, attributes, sections, packed/zero-length/flexible arrays, computed goto, asm, `asm goto`, volatile/MMIO, atomics, `container_of`, `-ffreestanding`, `-nostdlib`).
-- `CHECK: for o in out/*.o; do nm -u "$o" | grep -c '__crug_'; done` => 0 for every object; `readelf -d` shows no `libcrug`.
-- `CHECK: crugc -fcrug-kernel -ffreestanding -nostdlib -c gcc/testsuite/crug.dg/kernel/freestanding.c` => exit 0, undefined symbols contain no `malloc`, `pthread_*`, `__cxa_*`, and no `.init_array` entry is emitted.
-- `CHECK: gh api repos/<owner>/<repo>/commits/HEAD/check-runs --jq '.check_runs[] | select(.name=="kernel-compat") | .conclusion'` => `success` and the job is marked required in branch protection.
+- `CHECK: bash scripts/test-kernel-compat.sh` => exit 0 across all 21 section 7 work items (statement expressions, `typeof`, `__auto_type`, attributes, sections, packed/zero-length/flexible arrays, computed goto, asm, `asm goto`, volatile/MMIO, atomics, `branch prediction`, `container_of`, `-ffreestanding`, `-nostdlib`, no-runtime scan), printed `kernel-compat: 21/21 work items PASS`.
+- `CHECK: scripts/check-kernel-objects.sh out` => exit 0, printed `kernel-objects: <n> objects, __crug_=0, libcrug=0`.
+- `CHECK: scripts/check-kernel-freestanding.sh` => exit 0, printed `freestanding: no runtime symbols, no init_array` (no `malloc`/`pthread_*`/`__cxa_*`, no `.init_array`).
+- `CHECK: scripts/check-ci-gate.sh` => exit 0, printed `ci-gate: kernel-compat success=<sha> required=true` (the `kernel-compat` job concluded success on HEAD and is a required status check on the branch).
+- Checks 2 and 3 consume the `out/` objects written by check 1, so they must run after it in order; `scripts/gate.sh` does. Check 4 needs `GH_TOKEN`/`GITHUB_TOKEN` and repository admin access for the protection endpoint, and is the only check that can only pass after the owner pushes and configures the repository (docs/crug/KERNEL-COMPATIBILITY.md section 6).
 **Non-goals:** no real kernel source (P19), no ownership in kernel mode (master-spec 8K, optional per §33), no codegen-parity benchmarking (P21), no -O-level tuning.
 **Risk of skipping:** syntax compatibility is assumed rather than measured, and later kernel build failures get misattributed to the optimizer or to ownership work.
 
@@ -462,5 +463,6 @@ is an open gate by section 2.5; this list is the subset known to be exploitable.
 | # | Date | Change | Why |
 |---|------|--------|-----|
 | A-1 | 2026-10-19 | Status changed from Proposed to Accepted; C-06 settled by section 7 (phase-to-milestone mapping is authoritative as written there). | The owner ratified the gate set. Phases 0 and 1 were adjudicated before ratification; their evidence is archived at the commits recorded in each gate directory. |
+| A-2 | 2026-10-19 | Phase 2 checks 2-4 replaced by scripted observables: `scripts/check-kernel-objects.sh out`, `scripts/check-kernel-freestanding.sh`, `scripts/check-ci-gate.sh`. The prerequisite now names `docs/crug/KERNEL-COMPATIBILITY.md` and `make check-KERNEL_COMPAT`. | The original check 2 was a shell loop with no `out/` provenance and no exit status, check 3 described prose observables of a compile that produced no named object, and check 4 embedded a `gh api` pipeline with placeholders (`<owner>/<repo>`, `HEAD`) that could not be run verbatim. Each is now one command with one printed observable that `scripts/gate.sh` can adjudicate. |
 
 
