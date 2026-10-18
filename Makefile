@@ -168,6 +168,13 @@ check-c: build ## run the gcc.dg C regression suite
 baseline-phase0: check-c ## run gcc.dg and archive the result under docs/crug/baseline/phase0/
 	scripts/record-baseline.sh phase0 $(OBJ_DIR)/check-c.log
 
+check-C_COMPAT: ## compile the C compatibility corpus with crugc and baseline xgcc
+	scripts/check-c-compat.sh
+
+crugc: ## print the in-tree driver and its version
+	@printf '%s\n' 'gcc/crugc'
+	@gcc/crugc --version | head -n 1
+
 ##@ Maintenance
 
 status: ## show where the build stands
@@ -195,7 +202,8 @@ distclean: ## remove build/ and sources/ entirely
 ##@ Future CRUG targets (placeholders)
 #
 # crug-frontend: build gcc/crug/ as part of the compiler once it exists.
-# crugc:         build the driver binary gcc/crugc.
+#                gcc/crugc is the phase-1 launcher; it becomes a driver built
+#                with its own specs when Crug needs different defaults.
 # check-crug:    run gcc/testsuite/crug.dg/ via the GCC dejagnu harness.
 # libcrug:       build the PAL under libcrug/ (its own Makefile).
 #
@@ -204,4 +212,5 @@ distclean: ## remove build/ and sources/ entirely
 
 .PHONY: help check-host download verify extract deps configure build build-full \
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
+	check-C_COMPAT crugc \
 	status print-config reconfigure clean distclean

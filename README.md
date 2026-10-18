@@ -6,10 +6,13 @@ requirement.
 
 ## Status
 
-Design phase. The repository contains specification documents, architecture
-decisions, and the pinned GCC 16.2.0 tree that the fork modifies (the
-repository root is the GCC top level; the compiler is `gcc/`; the import is
-tagged `releases/gcc-16.2`). There is no Crug compiler yet. See
+Early implementation. The repository contains specification documents,
+architecture decisions, and the pinned GCC 16.2.0 tree that the fork modifies
+(the repository root is the GCC top level; the compiler is `gcc/`; the import
+is tagged `releases/gcc-16.2`). Phase 1 of the release gates is implemented:
+`gcc/crugc` is the CRUG driver, which for now behaves exactly like the GCC it
+is built from, so plain C compiles and links identically. Crug syntax,
+ownership checking, drop and concurrency are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -60,6 +63,12 @@ libraries built by `make build-full`. `make install PREFIX=...` installs the
 compiler. `make check-c` runs the `gcc.dg` C testsuite; it needs DejaGnu, which
 `scripts/bootstrap-dejagnu.sh` installs into `tools/` without root. Nothing
 generated is tracked.
+
+The driver is `gcc/crugc`. It finds the build tree itself, so it can be used
+from the repository root: `gcc/crugc -O2 -c file.c`. `make check-C_COMPAT`
+compiles the `corpus/` programs with both `gcc/crugc` and the baseline `xgcc`
+at `-O0`, `-O2` and `-Os` and fails on any difference in exit status or object
+bytes; `scripts/diff-cc.sh` runs the same comparison with custom flags.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

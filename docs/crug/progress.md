@@ -4,9 +4,10 @@ Last updated: 2026-10-19
 
 ## Where the project stands
 
-The repository contains specification text, a phase-gate adjudicator and a
-reproducible GCC build; there is no compiler code, no CRUG test suite, and no
-continuous integration. Four specification
+The repository contains specification text, a phase-gate adjudicator, a
+reproducible GCC build and, from Phase 1, the `crugc` driver; there is no Crug
+syntax implementation, no `libcrug`, no Crug test suite and no continuous
+integration. Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
 gaps analysis, and the production roadmap. An analysis of those documents produced
 eight findings; this file tracks what has been resolved and what blocks progress.
@@ -24,8 +25,10 @@ The pinned GCC 16.2.0 tree is imported into git and tagged `releases/gcc-16.2`,
 so the repository root is the GCC top level and the fork base is reproducible
 from a clone rather than from a tarball on one machine. The C testsuite runs
 through a root-free DejaGnu (`scripts/bootstrap-dejagnu.sh`), and its 224,481-pass
-result is archived at `docs/crug/baseline/phase0/`; the phase-0 gate passes with
-five archived checks.
+result is archived at `docs/crug/baseline/phase0/`; the phase-0 and phase-1 gates
+pass with archived checks. `gcc/crugc` is a launcher around the built GCC driver
+for now, so plain C compatibility is measured rather than assumed
+(`make check-C_COMPAT`, `scripts/diff-cc.sh`).
 
 ## Resolved in this revision
 
@@ -51,6 +54,7 @@ five archived checks.
 | Line citations rotted as documents were revised | every citation now names a section or a gate phase and check (rule in spec/000-PRECEDENCE.md section 2) |
 | The C testsuite could not run (no root, no DejaGnu) | `make bootstrap-dejagnu` installs DejaGnu/Expect/Tcl under `tools/`; `make check-c` runs the suite; result archived at docs/crug/baseline/phase0/ (224,481 pass, 84 environmental fail) |
 | Phase 0 was unadjudicated | `scripts/gate.sh --run phase-0` passed 5/5 checks; logs under docs/crug/gates/phase-0/ |
+| No driver existed, so plain-C compatibility could not be measured | `gcc/crugc` launcher (docs/crug/DRIVER.md) + `corpus/` (30 programs) + `scripts/diff-cc.sh` + `make check-C_COMPAT`; phase-1 gate archived under docs/crug/gates/phase-1/ |
 
 ## Still open
 
@@ -66,11 +70,10 @@ five archived checks.
 
 ## Next actions, in dependency order
 
-1. **Run Phase 1** (plain C compatibility): add the `crugc` driver that fronts an
-   upgraded GCC, `scripts/diff-cc.sh` and the `check-C_COMPAT` target, then
-   `scripts/gate.sh --run phase-1`.
-2. **Ratify EXIT-GATES.md** so the gate definitions stop being Proposed, which
+1. **Ratify EXIT-GATES.md** so the gate definitions stop being Proposed, which
    also settles C-06 (27 phases vs 25 milestones).
+2. **Run Phase 2** (kernel / GNU C compatibility): `scripts/test-kernel-compat.sh`
+   and the kernel-style corpus under `gcc/testsuite/crug.dg/kernel/`.
 3. **Write ADR 0006 (C ABI policy)**, which ADR 0003 D3 defers to, then ADR 0007
    for the `.crugffi` sidecar.
 4. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top

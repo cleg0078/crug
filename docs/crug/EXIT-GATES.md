@@ -26,7 +26,7 @@ A gate is not satisfied by a declaration, anywhere: not by a commit message, a P
 ## 4. Reading the CHECK lines
 
 - `CHECK: <command or observable> => <expected>` — run from repo root; `=>` names the exact expected observable (exit code, diff count, symbol count, printed marker).
-- `crugc` = `gcc/crugc`, the driver introduced by P1. `make check-<SUITE>` = the roadmap §36 suite of that exact name. `nm`/`objdump`/`readelf` = host binutils on the produced object or binary.
+- `crugc` = `gcc/crugc`, the driver introduced by P1. `scripts/gate.sh` prepends the repository's `gcc/` directory to `PATH`, so the CHECK lines can use the bare name; outside the adjudicator use `gcc/crugc` (see docs/crug/DRIVER.md). `make check-<SUITE>` = the roadmap §36 suite of that exact name. `nm`/`objdump`/`readelf` = host binutils on the produced object or binary.
 - Kernel build stages are written `stage K0`…`stage K7` (roadmap §24); conformance classes are written `class K0`, `class C0`, etc. (RFC 0001 §7). The token K0 is overloaded in the source documents; this file always disambiguates.
 
 ## 5. What fails today
@@ -73,13 +73,13 @@ P25→M23 (closes)                 P26→M24
 **Closes:** M1 — Plain C compatibility baseline.
 **Prerequisite:** Phase 0 gate archived; the baseline `xgcc` build tree and its recorded result set exist at the same commit.
 **Exit gate:**
-- `CHECK: scripts/diff-cc.sh corpus/` => 0 differing files between `gcc/crugc -O2` and baseline `xgcc -O2` (object code and exit status).
+- `CHECK: scripts/diff-cc.sh corpus/` => exit 0, output `diff-cc: 30 files, 0 differing (-O2)` (object code and exit status of `gcc/crugc -O2` equal to baseline `xgcc -O2` over the named corpus).
 - `CHECK: printf 'int own=1; int class_ref; int mut=2; int go=3;' | crugc -x c -fsyntax-only -` => exit 0 (contextual words still ordinary identifiers).
-- `CHECK: nm -u hello.o | grep -c '__crug_'` => 0; `readelf -d hello | grep -c libcrug` => 0; `readelf -s hello | grep -c '__crug_'` => 0 (no hidden constructors, no TLS).
-- `CHECK: make check-C_COMPAT` => exit 0, 0 unexpected FAIL.
+- `CHECK: scripts/check-no-hidden-state.sh` => exit 0, output `hidden-state: undefined-symbols=0 defined-symbols=0 dynamic-libcrug=0` (no hidden constructors, no TLS, no `libcrug`).
+- `CHECK: make check-C_COMPAT` => exit 0, output `C_COMPAT: 3 option matrices plus 2 checks, 0 FAIL` (the C_COMPAT suite of roadmap section 36: the corpus at `-O0`, `-O2` and `-Os`, contextual words, and the hidden-state check).
 **Non-goals:** no Crug syntax, no semantic flags (P3), no kernel mode (P2), no `libcrug` linkage, no diagnostics redesign (P20).
 **Risk of skipping:** driver drift (extra defaults, changed include paths) silently alters plain-C semantics for every downstream test, and nobody can tell the difference later.
-`VAGUE:` "Representative GCC C tests pass under crugc" fixes no corpus size; the weakest defensible check is a full `gcc/testsuite/gcc.dg` run with 0 new FAIL against the Phase 0 baseline. The owner must ratify a named corpus in an ADR.
+**Corpus (was `VAGUE`).** "Representative GCC C tests pass under crugc" fixed no corpus size. Adjudication: the named corpus is (a) `corpus/`, 30 programs covering C17 and the GNU C constructs the kernel mode depends on, compiled by both drivers at `-O0`, `-O2` and `-Os`; and (b) the full `gcc/testsuite/gcc.dg` run archived at `docs/crug/baseline/phase0/`, whose 224,481 passes and 84 allowlisted environmental failures are the pre-fork result of the same driver binary. `scripts/check-baseline.sh docs/crug/baseline/phase0` validates that archive and fails on any FAIL outside the allowlist. The owner still ratifies the corpus when ratifying this file (C-06).
 
 ## Phase 2 — Linux Kernel / GNU C Compatibility Baseline
 **Closes:** M2 — Linux-kernel/GNU-C baseline (also the basis for `class K0`, RFC 0001 §7.2).

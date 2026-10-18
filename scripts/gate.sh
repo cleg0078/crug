@@ -16,6 +16,9 @@
 #   --timeout N   per-check timeout in seconds (default 120)
 #   --dry-run     print commands, do not run them
 #
+# The repository's gcc/ directory is prepended to PATH, so the CHECK lines can
+# write `crugc` as the gate document does; it resolves to gcc/crugc.
+#
 # Exit status: 0 when no check failed, 1 when a check failed or timed out,
 # 2 on usage or repository errors. MANUAL means the expected observable is
 # prose and a human must adjudicate the captured output.
@@ -78,6 +81,9 @@ fi
 total_fail=0
 total_timeout=0
 ran=0
+
+# EXIT-GATES.md section 4 defines `crugc` as gcc/crugc; make that name live.
+export PATH="$ROOT/gcc:$PATH"
 
 while IFS=$'\t' read -r ph line; do
   want_phase "$ph" || continue
