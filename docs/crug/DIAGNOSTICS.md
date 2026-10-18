@@ -57,10 +57,12 @@ crug-<AREA>-<NNN>
 | `ADT` | payload enums and match | 001-099 | ADR 0018 D8 |
 | `TYPE` | declarator formation, qualifiers, generic types | 001-099 | ADR 0018 D2, D7 |
 | `GRAMMAR` | parsing, keyword and intrinsic shadowing, macros | 001-099 | ADR 0002, ADR 0018 D9 |
-| `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (unwritten) |
+| `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (format v1 defined; codes allocated with the parser) |
 | `KERNEL` | freestanding and kernel-mode restrictions | 001-099 | ADR 0016, ADR 0017 (unwritten) |
 
-Reserved areas have no allocated codes yet. Allocating one before its owning ADR
+Reserved areas have no allocated codes yet. ADR 0007 now exists, so `FFI` codes may
+be allocated when the Phase 9 parser lands; `KERNEL` still waits for ADR 0016 and
+ADR 0017. Allocating one before its owning ADR
 exists is refused by review, because the code would encode semantics nobody has
 decided.
 
@@ -262,7 +264,8 @@ caught by the script.
 
 All 62 codes above are **planned**: no Crug frontend exists yet, so none is
 implemented. The count per area is: UAM 7, OWN 9, BORROW 8, DROP 5, CONC 9,
-ADT 10, TYPE 8, GRAMMAR 6. FFI and KERNEL have reserved ranges and no codes.
+ADT 10, TYPE 8, GRAMMAR 6. FFI has a defined format (ADR 0007) but no allocated
+codes yet; KERNEL's owning ADRs are still unwritten. Both have reserved ranges.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
 the same commit.

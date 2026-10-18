@@ -1,0 +1,26 @@
+# Reference .crugffi: the small libc catalog of MASTER_SPEC section 16.5, minus
+# realloc (ADR 0007 D9: realloc needs conditional ownership, which v1 cannot
+# express). This is a test fixture for the Phase 9 parser; it is not installed
+# and is not discovered by default. Supply it explicitly:
+#
+#   crugc -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi -c file.c
+#
+# 'FILE' is the stdio.h typedef, so a driver for this fixture must include
+# <stdio.h>.
+
+crugffi 1.0;
+
+fn malloc
+    returns owned void nullable drop free;
+
+fn calloc
+    returns owned void nullable drop free;
+
+fn free
+    consumes arg0 nullable;
+
+fn fopen
+    returns owned FILE nullable drop fclose;
+
+fn fclose
+    consumes arg0;

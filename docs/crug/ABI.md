@@ -99,7 +99,7 @@ depend on a guessed layout for any of these types.
 | Function-pointer compatibility after erasure | `gcc/testsuite/crug.dg/abi/qualifier-erasure.c` |
 | Symbol names against `nm` | `gcc/testsuite/crug.dg/abi/symbols.c` |
 | Every frozen size/alignment in this file | `gcc/testsuite/crug.dg/safe-types/layout.c` |
-| Metadata changes no binary ABI | `scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi"` |
+| Metadata changes no binary ABI | `scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi"` |
 
 ## 8. Changelog
 

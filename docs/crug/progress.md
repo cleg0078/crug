@@ -45,6 +45,16 @@ already hold and leaves every Crug-native layout (`slice`, `option`, `result`,
 payload enum, `chan`) pending until the phase that ships it freezes it. ADR 0006
 is not yet ratified, so no ABI policy is binding until the owner accepts it.
 
+The FFI metadata question is now answered on paper: ADR 0007 (Proposed) defines the
+`.crugffi` v1 format - a versioned, line-oriented sidecar that states ownership,
+borrowing, destructors, out-parameters, nullability, callbacks, blocking and
+thread affinity for C functions, and nothing about layout. It cannot change
+codegen, is never loaded at run time, rejects conflicts deterministically, and
+under `-fcrug-strict` must be named explicitly rather than discovered. A reference
+fixture, `gcc/testsuite/crug.dg/ffi/libc.crugffi`, implements the small libc
+catalog of MASTER_SPEC section 16.5 minus `realloc`. The parser and the rest of
+the corpus are Phase 9 work; nothing consumes the format yet.
+
 ## Resolved in this revision
 
 | Item | Artefact |
@@ -75,6 +85,8 @@ is not yet ratified, so no ABI policy is binding until the owner accepts it.
 | Nothing would have protected the kernel baseline in CI | `.github/workflows/kernel-compat.yml` (builds the pinned baseline, runs the suite, 180-minute timeout) + `scripts/check-ci-gate.sh` (asserts the check concluded success and is required) |
 | No C ABI policy existed, so qualifier erasure, Crug-native type layouts and boundary moves were unsettled | docs/crug/adr/0006-c-abi-policy.md (two ABI classes, erasure, boundary moves, targets, versioning, test obligations) |
 | No single place recorded ABI facts, while the Phase 10 gate already required one | docs/crug/ABI.md: C-ABI-transparent guarantees recorded, Crug-native rows pending, registry rules and layout-assertion obligation |
+| The C FFI sidecar was illustrative only, so Level 2 ownership had no decidable format | docs/crug/adr/0007-ffi-metadata-format.md (v1 grammar, clause semantics, discovery, versioning, trust model) + reference fixture gcc/testsuite/crug.dg/ffi/libc.crugffi |
+| The Phase 9 gate invoked the sidecar flag in a form the format does not define | docs/crug/EXIT-GATES.md phase 9 checks 4-5 now use `-fcrug-ffi=<path>` (amendment A-3) |
 
 ## Still open
 
@@ -84,22 +96,26 @@ is not yet ratified, so no ABI policy is binding until the owner accepts it.
 | C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
 | -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
-| -  | No ABI document; ADR 0003 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
-| -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
+| -  | ADR 0007 is Proposed, so the `.crugffi` v1 format is not binding and no parser may rely on it | Owner ratification of ADR 0007 |
+| -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Phase 2 gate check 4 (`kernel-compat` CI required at HEAD) has never passed: the repository has not been pushed, the workflow has never run, and the job is not in branch protection | Owner: push, enable Actions, require `kernel-compat`, then `GH_TOKEN=... scripts/check-ci-gate.sh` |
 | -  | ADR 0006 is Proposed, so the C ABI policy is not binding and `docs/crug/ABI.md` is a draft registry | Owner ratification of ADR 0006 |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
 
 ## Next actions, in dependency order
 
-1. **Close Phase 2** (kernel / GNU C compatibility): run the kernel corpus and the
-   no-runtime checks locally (`make check-KERNEL_COMPAT`), then have the owner push
-   and enable the `kernel-compat` CI job and branch protection. Phase 2 stays open
-   until the CI check passes at HEAD (docs/crug/KERNEL-COMPATIBILITY.md).
-2. **Ratify ADR 0006**, then write ADR 0007 for the `.crugffi` sidecar, which
-   Phase 9 requires before its gate and which ADR 0006 now bounds (metadata
-   describes ownership, never layout).
-3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
+1. **Close Phase 2** (kernel / GNU C compatibility): the local half passes; the owner
+   must push, enable the `kernel-compat` CI job and branch protection, then run
+   `GH_TOKEN=... scripts/check-ci-gate.sh`. Phase 2 stays open until that check
+   passes at HEAD (docs/crug/KERNEL-COMPATIBILITY.md).
+2. **Ratify ADR 0006 and ADR 0007.** Nothing may cite the ABI policy or the
+   `.crugffi` format as settled until the owner accepts them, and both are
+   prerequisites of the phases that consume them (Phase 9 for FFI, Phase 10 for
+   layout rows).
+3. **Start Phase 3** (contextual keywords and feature flags): it is the first phase
+   that needs a Crug front end, and every later phase depends on its flag closure
+   and word recognition. Phase 9's FFI parser comes after Phases 5 and 8.
+4. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree.
 
 ## Working rules

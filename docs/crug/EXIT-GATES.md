@@ -165,13 +165,13 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 9 — Production C FFI Layer
 **Closes:** M9 — C FFI production layer.
-**Prerequisite:** Phase 5 and Phase 8 gates archived; `.crugffi` grammar v1 ADR accepted and the metadata parser test corpus exists.
+**Prerequisite:** Phase 5 and Phase 8 gates archived; `.crugffi` grammar v1 ADR accepted and the metadata parser test corpus exists. ADR 0007 (Proposed) now defines that format; it must be ratified before this gate can close, and the parser corpus it lists is the test corpus.
 **Exit gate:**
 - `CHECK: make check-FFI` => exit 0 for ownership-return, consuming-arg, shared/mutable borrow, out-owned, nullability, destructor, callback, and conflicting-metadata diagnostics.
 - `CHECK: sha256sum lib/libsqlite3.so.0 lib/libcurl.so.4 lib/libssl.so.3 lib/libc.so.6` => digests identical before and after building the four integration tests (no recompilation of the C library).
 - `CHECK: gcc/testsuite/crug.dg/ffi/integration-sqlite` => runs, and the owned handle from `sqlite3_open` is freed exactly once (`allocs=1 frees=1`).
-- `CHECK: crugc -fcrug-ffi -fsyntax-only gcc/testsuite/crug.dg/ffi/conflict.crugffi` => exit 1 with a deterministic, stable error code (repeat twice, byte-identical stderr).
-- `CHECK: scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi"` => 0 differences (metadata never changes binary ABI).
+- `CHECK: crugc -fcrug-ffi=gcc/testsuite/crug.dg/ffi/conflict.crugffi -fsyntax-only gcc/testsuite/crug.dg/ffi/conflict.c` => exit 1 with a deterministic, stable error code (repeat twice, byte-identical stderr).
+- `CHECK: scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi"` => 0 differences (metadata never changes binary ABI).
 **Non-goals:** no ABI changes to annotated libraries, no run-time metadata loading, no general binding generator, no blocking/thread-affinity enforcement (placeholder fields only; enforced at P17).
 **Risk of skipping:** FFI metadata that perturbs codegen breaks the "existing .so/.a need no recompilation" promise and every integration claim with it.
 `VAGUE:` "several real external libraries" is unspecified; weakest defensible check: exactly the four named in §14 (libc, SQLite, libcurl-or-SDL, OpenSSL-or-FFmpeg). The owner must not substitute easier libraries after the fact.
@@ -464,5 +464,6 @@ is an open gate by section 2.5; this list is the subset known to be exploitable.
 |---|------|--------|-----|
 | A-1 | 2026-10-19 | Status changed from Proposed to Accepted; C-06 settled by section 7 (phase-to-milestone mapping is authoritative as written there). | The owner ratified the gate set. Phases 0 and 1 were adjudicated before ratification; their evidence is archived at the commits recorded in each gate directory. |
 | A-2 | 2026-10-19 | Phase 2 checks 2-4 replaced by scripted observables: `scripts/check-kernel-objects.sh out`, `scripts/check-kernel-freestanding.sh`, `scripts/check-ci-gate.sh`. The prerequisite now names `docs/crug/KERNEL-COMPATIBILITY.md` and `make check-KERNEL_COMPAT`. | The original check 2 was a shell loop with no `out/` provenance and no exit status, check 3 described prose observables of a compile that produced no named object, and check 4 embedded a `gh api` pipeline with placeholders (`<owner>/<repo>`, `HEAD`) that could not be run verbatim. Each is now one command with one printed observable that `scripts/gate.sh` can adjudicate. |
+| A-3 | 2026-10-19 | Phase 9 checks 4-5 now spell the sidecar flag as `-fcrug-ffi=<path>` and give check 4 a C input file. | ADR 0007 defines `-fcrug-ffi=<path>` (repeatable) and forbids a bare `-fcrug-ffi` from meaning "discover everything"; the old check passed the `.crugffi` file to `-fsyntax-only` as if it were C and the diff-obj arm passed `-fcrug-ffi` with no file. Both are now commands that run verbatim. |
 
 
