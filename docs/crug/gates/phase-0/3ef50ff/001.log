@@ -1,0 +1,7 @@
+phase-0 #1 rc=1
+cmd: grep -q 'releases/gcc-16.2.0' docs/crug/GCC-BASELINE.md && sha512sum -c docs/crug/gcc-baseline.sha512
+expected: `gcc-16.2.0.tar.xz: OK`, exit 0 (run with the verified tarball in the repository root; upstream publishes SHA512, not SHA256).
+---
+sha512sum: gcc-16.2.0.tar.xz: No such file or directory
+gcc-16.2.0.tar.xz: FAILED open or read
+sha512sum: WARNING: 1 listed file could not be read

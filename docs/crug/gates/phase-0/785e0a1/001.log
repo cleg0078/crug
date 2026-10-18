@@ -1,5 +1,0 @@
-phase-0 #1 rc=2
-cmd: grep -q 'releases/gcc-16.2' docs/crug/GCC-BASELINE.md && sha256sum -c docs/crug/gcc-baseline.sha256
-expected: `gcc-16.2.tar.xz: OK`, exit 0.
----
-grep: docs/crug/GCC-BASELINE.md: No such file or directory
