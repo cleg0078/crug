@@ -4,8 +4,9 @@ Last updated: 2026-10-18
 
 ## Where the project stands
 
-The repository contains specification text only. There is no compiler code, no
-build system, no test suite, and no continuous integration. Four specification
+The repository contains specification text, a phase-gate adjudicator and a
+reproducible GCC build; there is no compiler code, no CRUG test suite, and no
+continuous integration. Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
 gaps analysis, and the production roadmap. An analysis of those documents produced
 eight findings; this file tracks what has been resolved and what blocks progress.
@@ -27,7 +28,7 @@ single authority order, a grammar, and decision records for the open questions.
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
-| No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, build; `make help`) |
+| No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
 | No licence statement for a GCC fork | NOTICE |
 
 ## Still open
@@ -43,6 +44,7 @@ single authority order, a grammar, and decision records for the open questions.
 | C-11 | ADR 0004 covers two required ADRs (0003 metadata storage, 0004 analysis layer) | owner decision on splitting |
 | -  | Diagnostics: EXIT-GATES phase 4/20 greps for stable codes such as `crug-UAM-001`; ADR 0018 D10 defines the `-Wcrug-*` option plus code scheme, but docs/crug/DIAGNOSTICS.md (the code register) is not written | ADR 0018 ratification |
 | -  | No ABI document; ADR 0004 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
+| -  | The pre-fork baseline testsuite (phase-0 check 3) has never been run | dejagnu (`runtest`) is not installed and cannot be installed without root here |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
 
 ## Next actions, in dependency order
