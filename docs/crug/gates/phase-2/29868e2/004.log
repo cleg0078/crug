@@ -1,0 +1,5 @@
+phase-2 #4 rc=2
+cmd: scripts/check-ci-gate.sh
+expected: exit 0, printed `ci-gate: kernel-compat success=<sha> required=true` (the `kernel-compat` job concluded success on HEAD and is a required status check on the branch).
+---
+ci-gate: no token. Set GH_TOKEN or GITHUB_TOKEN to a token with repo read access.

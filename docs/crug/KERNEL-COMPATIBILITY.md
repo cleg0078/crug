@@ -134,7 +134,7 @@ in this order:
    currently fail on this host with `Bad owner or permissions on
    /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`. Either fix that file's
    ownership or push over HTTPS with a personal access token.
-2. Push `main` (it is 28+ commits ahead of `origin/main` at the time of writing).
+2. Push `main` (it is ahead of `origin/main`, which still has only the initial commit).
 3. Enable GitHub Actions for the repository and wait for the first
    `kernel-compat` run on `main`.
 4. In Settings → Branches, add a branch protection rule for `main` and require the
@@ -166,6 +166,17 @@ Checks 2 and 3 consume the objects written by check 1, so the gate must run them
 in order (it does). Phase 2 is **open** until check 4 passes; local green checks are
 evidence for checks 1–3 only, and a declaration that CI is "set up" satisfies
 nothing.
+
+Recorded runs:
+
+| Date | Commit | Checks 1–3 | Check 4 | Archive |
+|------|--------|------------|---------|---------|
+| 2026-10-19 | 29868e2 | PASS | FAIL — no `GH_TOKEN` (CI never ran) | `docs/crug/gates/phase-2/29868e2/` |
+
+The 29868e2 run is the state this document describes: the local baseline is green
+and archived, and the phase cannot close until the owner pushes and requires the
+job. Re-running the gate on a later commit records a new archive; the old one stays
+as history.
 
 ## 8. Known limits
 

@@ -1,0 +1,5 @@
+phase-2 #3 rc=0
+cmd: scripts/check-kernel-freestanding.sh
+expected: exit 0, printed `freestanding: no runtime symbols, no init_array` (no `malloc`/`pthread_*`/`__cxa_*`, no `.init_array`).
+---
+freestanding: no runtime symbols, no init_array
