@@ -1,6 +1,6 @@
 # ADR 0018 - Surface Grammar: productions, disambiguation and attachment
 
-- **Status:** Proposed
+- **Status:** Proposed; normative text implemented in RFC-0001 0.2-draft sections 13-25 (RFC Appendix H)
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), compiler frontend owner
 - **Context docs:** MASTER_SPEC s6.2-s6.4, s7, s8.1-s8.10, s9.1-s9.3, s13-s15, s18-s22, s25.6, s42-s43; RFC-0001 s13-s27 (L445-760); ADR 0002; ADR 0004; ADR 0005; spec/000-PRECEDENCE.md; docs/crug/EXIT-GATES.md phases 1-10
@@ -18,8 +18,9 @@ class catches the disagreement.
 
 This ADR is the missing layer: productions, disambiguation procedures and attachment rules precise
 enough to implement in `gcc/c-family` plus the C frontend's recursive-descent parser with bounded
-lookahead, and precise enough to test. It is a decision record; the normative document remains
-`docs/crug/GRAMMAR.md`, which EXIT-GATES phase 23 requires. C0 (RFC L216-223) and the phase 1 and 3
+lookahead, and precise enough to test. It is a decision record; the normative text now lives in RFC-0001 0.2-draft
+sections 13, 14, 16, 18, 19, 22 and 25 (RFC Appendix H), and `docs/crug/GRAMMAR.md` remains the
+phase-23 digest, derived from those sections. C0 (RFC L216-223) and the phase 1 and 3
 gates require flags-off to be byte-identical to C; ABI transparency (RFC L465-487, L641-668)
 requires qualifiers to change no layout, `sizeof` or calling representation. Where a decision spends
 one of those, it says so.
@@ -721,28 +722,31 @@ Each file also runs in its gate suite (`make check-<SUITE>` from EXIT-GATES phas
 without a green test blocks the phase that needs it. Tests are added in the phase that implements the
 construct, not all at once.
 
-## RFC-0001 amendments proposed
+## RFC-0001 amendments (implemented in 0.2-draft)
 
-This ADR proposes; it adds no MUST. RFC-0001 carries obligation only in uppercase (section 1, L45), and
-nothing above is uppercase-normative. The following RFC text would have to change for the grammar to be
-citable:
+This ADR is a decision record; it adds no MUST. RFC-0001 carries obligation only in uppercase (section 1),
+and nothing above is uppercase-normative. RFC-0001 0.2-draft implements the seven amendments below
+(RFC Appendix H). The list is kept so the reasoning stays traceable; the RFC text governs where it
+differs from this ADR. The RFC was revised from 0.1-draft, so its line numbers changed: every reference
+below and elsewhere in this documentation set names the section, not a line.
 
-1. Section 13 (L445-461): replace the bare word list with a pointer to this ADR and to
-   `docs/crug/GRAMMAR.md`, and state that Crug adds no preprocessing token.
-2. Section 14 (L465-487): add the attachment rule (D2 R2) and the erasure rule at type boundaries
-   (D2 R4); the `sizeof` equalities at L479-483 stay correct and become derivable.
-3. Section 16 (L510-532): state that `move`, `borrow`, `borrow_mut`, `adopt`, `release` and `drop` are
+1. Section 13: replaced the bare word list with the classification, positions and productions of
+   13.1-13.4, states that Crug adds no preprocessing token, and cites this ADR as rationale;
+   `docs/crug/GRAMMAR.md` stays the phase-23 digest.
+2. Section 14: added the attachment rule (D2 R2) and the erasure rule at type boundaries (D2 R4); the
+   `sizeof` equalities stay correct and become derivable rather than stipulated.
+3. Section 16: states that `move`, `borrow`, `borrow_mut`, `adopt`, `release` and `drop` are
    intrinsic identifiers in call position, not keywords (D3), so "MUST NOT call a hidden move runtime
-   function" (L522) keeps its meaning.
-4. Section 18 (L551-567): add the operand rules for `borrow`/`borrow_mut` (D3 R3); B1 currently cites
+   function" keeps its meaning.
+4. Section 18: added the operand rules for `borrow`/`borrow_mut` (D3 R3); B1 otherwise cites
    syntax only.
-5. Section 19 (L604-611): fix the spellings of `adopt` (two arguments), `release` and `drop` (D3); the
-   non-claim at L611 is unaffected.
-6. Section 22 (L641-668): add that qualifiers are erased for type compatibility and name `option`,
+5. Section 19: fixed the spellings of `adopt` (two arguments), `release` and `drop` (D3); the
+   non-claim about abnormal control flow is unaffected.
+6. Section 22: adds that qualifiers are erased for type compatibility and names `option`,
    `result`, `slice`, `chan` and payload enums as the Crug-native types whose ABI needs documentation.
-7. Section 25 (L721-748): replace the "conceptually" descriptions with the productions of D6 and D7;
-   the ABI and `?`-propagation sentence at L741 ("require a focused RFC") stays, so `option`/`result`
-   syntax is fixed here but their layout is not.
+7. Section 25: replaced the "conceptually" descriptions with the productions of D6 and D7; the ABI and
+   `?`-propagation sentence ("require a focused RFC") stays, so `option`/`result` syntax is fixed here
+   but their layout is not.
 
 ## Open questions
 

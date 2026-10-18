@@ -5,12 +5,12 @@
 **Intended status:** Crug Project Standard  
 **Current status:** Draft / Experimental  
 **Category:** Standards Track (Crug Project)  
-**Version:** 0.1-draft  
-**Date:** 2026-10-17  
+**Version:** 0.2-draft  
+**Date:** 2026-10-18  
 **Reference compiler baseline:** GCC 16.2  
 **Editors:** Crug Project  
 **Supersedes:** None  
-**Updates:** None  
+**Updates:** CRUG-RFC-0001 0.1-draft (normative grammar revision; Appendix H)  
 
 ---
 
@@ -21,6 +21,8 @@ This document defines the initial standards framework for the Crug programming l
 This document is **not an IETF RFC**. It adopts selected RFC editorial and requirements conventions to make Crug specifications precise, reviewable, testable, and suitable for long-term standardization.
 
 The current status is **Draft / Experimental**. Implementations are encouraged for validation, but provisional behavior may change before Crug 1.0.
+
+This revision (0.2-draft) implements the seven amendments recorded in Appendix H. Sections 13, 14, 16, 18, 19, 22 and 25 now state the surface grammar and the operand rules that conformance classes C0, O1, B1 and T1 cited only by example. The revision adds no construct, changes no conformance class definition and changes no ABI rule; it makes existing obligations decidable.
 
 ---
 
@@ -442,23 +444,98 @@ This MUST NOT imply the user-space task runtime.
 
 ---
 
-# 13. Contextual Keywords
+# 13. Contextual Words and Surface Grammar
 
-Candidate contextual words include:
+## 13.1 No new tokens
+
+Crug adds no preprocessing token and reserves no word. The lexer, the preprocessing token kinds and the C parser action tables are unchanged. In particular:
+
+```text
+=>   is the two tokens "=" ">"   (a match arm separator only, 25.4)
+>>   is one punctuator           (split into two ">" only in type arguments, 25.5)
+<-   is not a Crug token
+?    is not a Crug operator in the MVP
+```
+
+Every Crug construct is recognised from post-preprocessing tokens in a position listed in 13.2. A translation unit compiled with every Crug feature disabled MUST tokenise, parse and mean exactly as the corresponding C translation unit (conformance class C0).
+
+## 13.2 Words and their positions
+
+The contextual words are:
 
 ```text
 own ref mut raw move borrow borrow_mut unsafe
 go chan scope select match some none ok err shared
 ```
 
-Existing C such as:
+| Kind | Words | Position in which the word carries Crug meaning |
+|------|-------|--------------------------------------------------|
+| Qualifier | `own` `ref` `mut` `raw` | declaration-specifier list of a declaration or a type-name (14) |
+| Intrinsic | `move` `borrow` `borrow_mut` `adopt` `release` `drop` | callee of a call expression, with no visible declaration of the name (16, 18, 19) |
+| Statement form | `go` `scope` `unsafe` `select` `match` | statement position (13.4, 20, 25, 28-30) |
+| Channel type | `chan` | start of a type-name (30) |
+| Safe-type constructor | `option` `result` `slice` | type position only (25) |
+| Value constructor | `some` `none` `ok` `err` | type-directed call or value position, and match patterns (25) |
+| Not in the MVP | `shared` | no production; `shared Foo *x;` is a syntax error under every flag |
+
+Outside those positions a word is an ordinary identifier, and existing C such as:
 
 ```c
 int own = 1;
 int go = 2;
 ```
 
-MUST remain valid where grammar makes them ordinary identifiers.
+MUST remain valid (class C0). Recognition happens after macro expansion (9.2): a macro definition at the use site wins over every Crug reading, including a macro that expands to one of these words.
+
+## 13.3 Productions
+
+The productions below are the complete surface grammar of the MVP constructs. They are enabled by the flags of section 12. Section 13.4 fixes how each is told apart from a C construct; qualifier attachment and intrinsic operands are fixed in sections 14, 16, 18 and 19.
+
+```ebnf
+type-qualifier   ::= "own" | "ref" | "mut" | "raw"
+
+intrinsic-call   ::= intrinsic-name "(" [ argument-list ] ")"
+intrinsic-name   ::= "move" | "borrow" | "borrow_mut" | "adopt" | "release" | "drop"
+
+go-statement     ::= "go" go-call ";"
+go-call          ::= identifier "(" [ argument-list ] ")"
+                 |   "(" postfix-expression ")"
+
+scope-statement  ::= "scope" compound-statement
+unsafe-statement ::= "unsafe" compound-statement
+
+channel-type     ::= "chan" type-name
+
+select-statement ::= "select" "{" select-arm* "}"
+select-arm       ::= "case" select-comm ":" statement-list
+                 |   "default" ":" statement-list
+select-comm      ::= [ identifier "=" ] "recv" "(" expression ")"
+                 |   "send" "(" expression "," expression ")"
+
+generic-type     ::= generic-name "<" type-argument-list ">"
+generic-name     ::= "option" | "result" | "slice"
+
+payload-enum     ::= "enum" identifier? "{" payload-variant ("," payload-variant)* ","? "}"
+payload-variant  ::= identifier [ "(" type-name ")" ]
+
+match-statement  ::= "match" "(" expression ")" "{" match-arm* "}"
+match-arm        ::= match-pattern "=>" ( expression | compound-statement ) ","?
+match-pattern    ::= variant-name [ "(" identifier ")" ] | "_"
+```
+
+Two productions need a consumption rule. In `go-call` form B the parenthesised expression must be a call (28). In `channel-type` the type-name is the longest prefix that is a valid type-name and does not consume the declared identifier, so `chan int *jobs` declares a channel of `int *` and `chan own Job *jobs` declares a channel of owning pointers (30).
+
+## 13.4 Ambiguity resolution
+
+R1 - **The C parse is attempted first.** Where a token sequence admits both a C and a Crug reading, the C reading wins when it parses; the Crug reading applies only when the C parse fails, or when the construct is unambiguously marked. Two consequences: `chan(x);` is a call, and `typedef int chan; chan x;` is a C declaration.
+
+R2 - **Statement forms that begin with a brace.** `scope {`, `unsafe {` and `select {` cannot begin a C declaration or expression statement, so they are unambiguous. `match (e) { ... }` is a call statement followed by a compound statement in C, so it is a match statement only when `match` has no visible declaration; a declared `match` keeps the C reading and is reported by `-Wcrug-keyword-shadowed`.
+
+R3 - **`go` has an explicit procedure.** At statement position, in order: (i) feature off, C only; (ii) `go` declared as an object, function, typedef or enumerator, C only; (iii) next token `:`, C label; (iv) next token identifier followed by `(`, attempt the C declaration parse, which wins when `go` is a typedef-name; (v) next token `(`, go-statement form B, with `-Wcrug-go-ambiguous` when the C declaration parse also succeeds; (vi) otherwise C only.
+
+R4 - **Generic types are type position only.** `NAME <` opens a type-argument list only in a type position of 25 and only for `option`, `result` or `slice`. In expression position `a < b` is less-than and `a >> b` is a right shift, under every flag.
+
+R5 - **Select labels are not C labels.** Inside `select { }` the words `case` and `default` introduce select arms, not C labels, and a `switch` inside an arm body restores C label meaning.
 
 ---
 
@@ -473,6 +550,26 @@ mut Foo *writer;
 raw Foo *unchecked;
 ```
 
+A qualifier is a declaration specifier: it is well-formed only in the declaration-specifier list of a declaration or a type-name, interleaved in any order with storage-class specifiers and C qualifiers, so `static own Foo *p;` and `own static Foo *p;` are the same declaration. `Foo *own p;` is an error.
+
+The qualifier attaches to the outermost pointer level of the declared type, with three refinements: if the declarator declares a function it applies to the outermost pointer level of the return type; if the declared type is an array it applies to the element type; if the declared type has no pointer, no array and is not an owning aggregate (ADR 0004), the qualifier is an error. Consequently:
+
+| Declaration | Meaning |
+|-------------|---------|
+| `own Foo *a;` | `a` owns one `Foo`; the destructor has type `void (*)(Foo *)` |
+| `own Foo **a;` | `a` owns one `Foo *` object; the inner `Foo` is not owned |
+| `own Foo a[4];` | array of four owned `Foo`, dropped from index 3 down to 0 |
+| `own Foo (*fp)(void);` | error: the outermost pointer is a function pointer, not a pointer to an object |
+| `struct S { own char *name; };` | owning field; layout and `offsetof` identical to `char *name` |
+| `typedef Foo *P; own P a;` | owning pointer to `Foo`; the qualifier is written at the use site |
+| `typedef own Foo *P;` | error: a typedef cannot carry ownership |
+| `own Foo *create(void);` | the caller becomes the owner of the returned object |
+| `void consume(own Foo *p);` | consuming parameter: the caller must `move`, the callee drops |
+| `int f(own Foo a[4]);` | adjusted to `own Foo *a` by array decay; the pointer does not own elements |
+| `own int i;` | error: no pointer, no array and no owned member |
+
+At most one Crug qualifier may appear in a declaration: `own ref Foo *p;` and `own raw Foo *p;` are errors, and `raw` is the absence of checking, not an extra flag. `own` and `raw` MAY qualify a return type; `ref` and `mut` MUST NOT, because the lifetime of the lender is not provable.
+
 For ordinary pointer-qualified forms:
 
 ```text
@@ -485,6 +582,10 @@ sizeof(raw Foo*) == sizeof(Foo*)
 on the same target.
 
 These qualifiers MUST NOT add hidden struct fields or hidden reference counts.
+
+The qualifier is not part of the type, so the equalities above are derivable rather than stipulated. For assignment compatibility, parameter lists, function-pointer assignment, composite types and `_Generic`, Crug qualifiers are erased: `void (*)(own Foo *)` is compatible with `void (*)(Foo *)`, and `void f(own Foo *p)` has the type of `void f(Foo *p)`.
+
+A cast or a compound literal MUST NOT create ownership; ownership is created only by an owning declaration or return, by `adopt`, or by `move` from an existing owner (19). A typedef MUST NOT carry a Crug qualifier.
 
 ---
 
@@ -514,6 +615,8 @@ Conceptual syntax:
 ```c
 move(x)
 ```
+
+`move` is not a keyword. It is a Crug intrinsic: the name is recognised only as the callee of a call expression, with no visible declaration of that name in scope and with `-fcrug-ownership` active. `int move = 3;` and `void move(void *);` compile exactly as C and make the intrinsic unavailable under that name in that scope; `-Wcrug-intrinsic-shadowed` reports the declaration (a warning in hybrid mode, an error under `-fcrug-strict`). The operand of `move` MUST be a modifiable lvalue of owned type that is OWNED and not borrowed, or an owned prvalue; any other operand is rejected. The intrinsic has no address, so `&move`, `(move)(x)` and `x = move;` are errors.
 
 A move:
 
@@ -558,6 +661,10 @@ ref Foo *r = borrow(owner);
 
 Multiple compatible shared borrows MAY coexist.
 
+The operand of `borrow` MUST be an lvalue whose storage outlives the borrow: an owned lvalue or a `ref` value. Borrowing a `ref` is a reborrow. A `mut` value is not an accepted operand in the MVP.
+
+A shared borrow MUST NOT be used to write. It conflicts with a mutable borrow, a move, a drop and an assignment of the owner for as long as it is live (18.4).
+
 ## 18.2 Mutable Borrow
 
 ```c
@@ -565,6 +672,8 @@ mut Foo *m = borrow_mut(owner);
 ```
 
 A mutable borrow MUST be exclusive against conflicting checked access.
+
+The operand of `borrow_mut` MUST be a modifiable lvalue of owned type with no live borrow. While a mutable borrow is live the owner MUST NOT be borrowed again, moved, dropped or assigned. A mutable borrow does not extend its operand lifetime past the borrow.
 
 ## 18.3 No Runtime Borrow Tracking
 
@@ -604,9 +713,11 @@ destroy(x);
 Requirements:
 
 - destructor MUST execute at most once per owned responsibility;
-- move MUST suppress source-owner drop;
-- `release` MAY relinquish ownership;
-- `adopt` MAY create ownership from unmanaged resource + destructor contract.
+- move MUST suppress the drop of the source owner;
+- `adopt(e, d)` MUST take exactly two arguments: an unmanaged pointer prvalue `e` and a designator `d` of type `void (*)(typeof(e))`. A null destructor MUST be rejected; not adopting is spelled by not calling `adopt`;
+- `release(e)` MUST take one argument, relinquish ownership without running the destructor, and leave the operand MOVED;
+- `drop(e)` MUST take one argument, run the destructor immediately and leave the operand DROPPED; `drop` returns `void`;
+- `adopt`, `release` and `drop` are intrinsic identifiers recognised in call position (16), not keywords.
 
 The compiler MUST NOT claim deterministic cleanup through abnormal control flow it does not model.
 
@@ -642,6 +753,8 @@ A Crug compiler MAY derive optimizer information from Crug qualifiers only when 
 
 ABI-transparent Crug pointer qualifiers MUST have the ordinary pointer calling representation.
 
+Because a qualifier is not part of the type (14), it is erased for assignment compatibility, parameter lists, function-pointer assignment, composite types and `_Generic`. A function pointer of type `void (*)(own Foo *)` is compatible with one of type `void (*)(Foo *)`, and the calling representation below follows from that erasure.
+
 Example:
 
 ```c
@@ -666,6 +779,8 @@ struct S {
 MUST have the same layout as the equivalent C structure with `Foo *p`.
 
 Crug-native types such as slices, Results, ADTs, and channels MAY have a Crug-specific ABI that MUST be documented before stability is claimed.
+
+The types concerned are `slice<T>`, `option<T>`, `result<T,E>`, `chan T` and payload enums (25). Their size, alignment, calling convention and the representation of an inactive variant MUST be recorded in the project ABI document before the release gate that claims the type closes. A Crug qualifier MUST NOT change the size, alignment, offset or calling representation of any type (14).
 
 ---
 
@@ -722,7 +837,7 @@ Breaking format changes require a new major metadata version.
 
 ## 25.1 Slice
 
-A slice conceptually contains pointer + length.
+`slice<T>` is a generic type written in type position only (25.5). A slice is a borrowed view that conceptually contains a pointer and a length. `slice<own Foo *>` is a view of a sequence of owning pointers; the slice does not own the elements.
 
 Checked indexing MAY have runtime bounds checks.
 
@@ -730,21 +845,27 @@ Plain C pointer indexing MUST NOT gain hidden bounds checks.
 
 ## 25.2 Option
 
-`option<T>` models present/absent values.
+`option<T>` is a generic type written in type position only. `some(v)` constructs a present value and `none` the absent value; both are type-directed constructors, and a visible declaration of the name wins over the constructor.
 
-Niche optimization MAY be used when semantically valid.
+Niche optimization MAY be used when semantically valid. In the MVP, `sizeof(option<T>)` MAY exceed `sizeof(T)`; a niche representation MUST NOT be assumed until 25.5 records it.
 
 ## 25.3 Result
 
-`result<T,E>` models explicit success/error.
+`result<T,E>` is a generic type written in type position only. `ok(v)` and `err(e)` construct the two variants.
 
-Final ABI and propagation syntax require a focused RFC.
+Final ABI and propagation syntax require a focused RFC; the `?` propagation operator is not syntax in the MVP.
 
 ## 25.4 ADTs
 
-Tagged Crug enums MAY carry data.
+With `-fcrug-adt`, an `enum` declaration whose enumerator list contains at least one parenthesised payload is a payload enum; a payload is exactly one type-name; empty parentheses are not a payload and MUST be rejected. An `enum` with no payload remains an ordinary C enum, so enabling the feature never changes an existing C program. Construction of a payload variant is `Variant(value)`; a unit variant is the bare enumerator.
 
-Only the active variant's owned resources may be dropped.
+`match` is a statement (production in 13.3): arms are `pattern => expression` or `pattern => block`, separated by `,`, with an optional trailing comma. Every variant MUST be covered or a final `_` arm MUST be present, and `match` is not an expression in the MVP. Only the owned resources of the active variant may be dropped; matching an owned scrutinee requires `move(lvalue)`.
+
+## 25.5 Generic type recognition and layout
+
+Recognition: `NAME <` opens a type-argument list only in a type position of 25.1-25.4 and only when `NAME` is `option`, `result` or `slice`; the token sequence up to the matching `>` MUST parse as a type-argument list followed by a token that can begin or continue a declarator. In expression position `<` is less-than and `>>` is a right shift under every flag. A `>>` token closes two argument lists only in type position and only when the angle depth is at least 2. Whitespace and comments between the constructor and `<` and between arguments are insignificant.
+
+Layout: `slice<T>` is `{ T *ptr; size_t len; }` in the MVP. The layout of `option<T>`, `result<T,E>`, `chan T` and payload enums is not fixed by this document; it MUST be documented in the project ABI document before stability is claimed. No niche representation is specified in the MVP.
 
 ---
 
@@ -2024,3 +2145,32 @@ Future authors SHOULD:
 The defining promise is:
 
 > **Crug extends C without taking C away.**
+
+---
+
+# Appendix H. Amendment Record
+
+## H.1 Revision 0.2-draft (2026-10-18)
+
+This revision implements the seven amendments that ADR 0018 (`docs/crug/adr/0018-grammar.md`) proposed. It adds no construct, changes no conformance class definition and renumbers nothing.
+
+| # | Section | Change | Decision record | Class affected |
+|---|---------|--------|-----------------|----------------|
+| 1 | 13 | Contextual words classified by position; productions fixed; disambiguation procedure stated; no preprocessing token | ADR 0018 D1-D8 | C0 |
+| 2 | 14 | Qualifier attachment to the outermost pointer level; erasure at type boundaries; combination and return rules | ADR 0018 D2 | T1 |
+| 3 | 16 | `move` and the other intrinsics are identifiers in call position, not keywords | ADR 0018 D3 | O1 |
+| 4 | 18 | Operand and conflict rules for `borrow` and `borrow_mut` | ADR 0018 D3 | B1 |
+| 5 | 19 | Spellings and arity of `adopt`, `release` and `drop` | ADR 0018 D3 | O1 |
+| 6 | 22 | Erasure for type compatibility; the Crug-native types whose ABI needs documentation | ADR 0018 D2, D6, D7 | T1, F1 |
+| 7 | 25 | Productions for `slice`, `option`, `result`, payload enums and `match`; generic recognition and layout obligations | ADR 0018 D6-D8 | O1, B1 |
+
+## H.2 What did not change
+
+- Section 1 (only uppercase use is normative) and every conformance class definition in section 7.
+- The zero-runtime and ABI obligations of sections 16, 19 and 22; the non-claim of section 19.
+- No section outside 13, 14, 16, 18, 19, 22 and 25 was edited. Line numbers in 0.1-draft, and in documents that cite them, have moved: cite sections, not lines.
+- This document is normative. `docs/crug/GRAMMAR.md` is the phase-23 digest of sections 13 and 25, derived from this text.
+
+## H.3 Compatibility
+
+A program accepted by 0.1-draft under a given feature set is accepted by this revision with the same meaning, because 0.1-draft rejected every construct whose meaning was not fixed. The revision makes that accepting behavior decidable; it does not add a reading that could change a program 0.1-draft accepted. With all flags off, tokenisation, parsing and diagnostics remain identical to the C baseline (13.1).
