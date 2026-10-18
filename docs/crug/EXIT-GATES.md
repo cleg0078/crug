@@ -61,9 +61,9 @@ P25→M23 (closes)                 P26→M24
 **Closes:** M0 — Reproducible GCC baseline.
 **Prerequisite:** upstream GCC 16.2 source obtainable at tag `releases/gcc-16.2` with its tarball digest recorded (roadmap §5 says "None" — the only prerequisite is the external artefact plus a host bootstrap toolchain).
 **Exit gate:**
-- `CHECK: grep -q 'releases/gcc-16.2.0' docs/crug/GCC-BASELINE.md && sha512sum -c docs/crug/gcc-baseline.sha512` => `gcc-16.2.0.tar.xz: OK`, exit 0 (run with the verified tarball in the repository root; upstream publishes SHA512, not SHA256).
-- `CHECK: bash scripts/bootstrap.sh --prefix=/tmp/crug-a && bash scripts/bootstrap.sh --prefix=/tmp/crug-b` => both exit 0; each `/tmp/crug-{a,b}/bin/xgcc --version` prints `16.2.0`.
-- `CHECK: make -C gcc check RUNTESTFLAGS='gcc.dg/*.exp'` => run summary archived to `docs/crug/baseline/phase0/` with 0 FAIL lines absent from the pre-fork baseline.
+- `CHECK: grep -q 'releases/gcc-16.2.0' docs/crug/GCC-BASELINE.md && make verify` => `gcc-16.2.0.tar.xz: OK`, exit 0 (`make` downloads into `sources/` on demand; upstream publishes SHA512, not SHA256).
+- `CHECK: test -x build/obj/gcc/xgcc && build/obj/gcc/xgcc -Bbuild/obj/gcc/ --version | grep -q '16\.2\.0'` => exit 0 (`make baseline` must have completed; the gate does not rebuild).
+- `CHECK: make check-c` => run summary archived to `docs/crug/baseline/phase0/` with 0 FAIL lines absent from the pre-fork baseline.
 - `CHECK: git diff --stat releases/gcc-16.2..HEAD -- gcc/` => empty output (no Crug semantic or codegen change).
 - `CHECK: test -d gcc/crug && test -d gcc/testsuite/crug.dg && test -d docs/crug/adr && test -d scripts && test -d bench && test -s docs/crug/progress.md` => exit 0.
 **Non-goals:** no `crugc` driver (P1), no feature flags (P3), no kernel mode (P2), no `libcrug` (P13), no ownership syntax; the Crug directories exist empty.

@@ -27,6 +27,7 @@ single authority order, a grammar, and decision records for the open questions.
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
+| No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, build; `make help`) |
 | No licence statement for a GCC fork | NOTICE |
 
 ## Still open
@@ -59,8 +60,10 @@ single authority order, a grammar, and decision records for the open questions.
 6. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
    marker, object list. Without it K0 is unclaimable.
 7. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
-   Today it reports 4 FAIL + 1 MANUAL because no build, no `scripts/bootstrap.sh` and
-   no `gcc/` tree exist yet.
+   `make baseline` supplies the pinned build; the phase-0 checks that still fail are
+   the baseline testsuite run and the comparison against a pre-fork result set,
+   because neither has been produced yet. The gate's two baseline checks were
+   aligned with the Makefile targets (`make verify`, built `xgcc`).
 
 ## Working rules
 

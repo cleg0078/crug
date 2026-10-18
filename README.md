@@ -37,9 +37,20 @@ Architecture decisions live in [docs/crug/adr/](docs/crug/adr/); release gates i
 
 ## Building
 
-Not yet applicable. There is no build system. When the compiler lands it will be a
-GCC 16.2-source fork built with the standard GCC bootstrap; see
-[NOTICE](NOTICE) for the licensing consequence of that fork.
+The fork tracks GCC 16.2.0, pinned in [docs/crug/GCC-BASELINE.md](docs/crug/GCC-BASELINE.md)
+by checksum. The top-level [Makefile](Makefile) reproduces that baseline:
+
+    make baseline      # download, verify, extract, fetch prerequisites, configure, build
+    make help          # every target
+    make check-host    # required host tools, read-only
+
+The first run downloads the 102 MiB tarball, unpacks it under `build/`, fetches
+GCC's own GMP/MPFR/MPC/ISL prerequisites, and builds `all-gcc` out of tree into
+`build/obj`. Later runs are incremental. `make baseline` stops at the compiler
+binaries: `xgcc` compiles (`-S`, `-c`) but linking needs the target libraries
+built by `make build-full`. `make install PREFIX=...` installs the compiler, and
+`make check-c` runs `gcc.dg` (it needs dejagnu). Nothing generated is tracked.
+See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
 

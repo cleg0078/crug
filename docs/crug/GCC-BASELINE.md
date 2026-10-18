@@ -20,16 +20,21 @@ The fork tracks upstream GCC 16.2, released 2026-08-07.
 
 The checksum above was read from upstream `sha512.sum` on 2026-10-18 and
 recorded here so that the import commit can be checked without network access.
-Verification before the first import:
+Verification is automated: `make download` fetches the tarball into `sources/`
+and `make verify` runs `sha512sum --check --strict` against
+`docs/crug/gcc-baseline.sha512`. The standalone equivalent is:
 
 ```sh
+cd sources
 curl -fSLO https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/gcc-16.2.0.tar.xz
 curl -fSLO https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/gcc-16.2.0.tar.xz.sig
-sha512sum -c <<'EOF'
-c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1  gcc-16.2.0.tar.xz
-EOF
+sha512sum -c ../docs/crug/gcc-baseline.sha512
 gpg --verify gcc-16.2.0.tar.xz.sig gcc-16.2.0.tar.xz   # key per https://gcc.gnu.org/develop.html
 ```
+
+`make baseline` runs download, verify, extract, prerequisite fetch, configure and
+`all-gcc` in that order; it is the reproducible entry point the phase 0 gate
+calls.
 
 Do not substitute a git checkout of upstream for the tarball in a gate: the
 tarball is the artefact the checksum and signature cover.
@@ -52,15 +57,25 @@ is to record the exact versions actually used.
 
 Configure baseline for development (no bootstrap, assertions on):
 
+The Makefile runs exactly this from `build/obj` against the unpacked tree in
+`build/gcc-16.2.0`; `make print-config` prints the flags and `make baseline`
+runs them.
+
 ```sh
-mkdir build && cd build
+mkdir -p build/obj && cd build/obj
 ../gcc-16.2.0/configure \
   --prefix=/opt/crug \
   --enable-languages=c,c++ \
   --disable-bootstrap \
+  --disable-multilib \
   --enable-checking=yes \
-  --with-arch=x86_64 --with-tune=generic
+  --with-arch=x86-64 --with-tune=generic
 ```
+
+`--disable-multilib` because CRUG targets one triple per build and a host without
+32-bit development libraries otherwise fails configure's multilib probe.
+`--with-arch` takes the GCC CPU name `x86-64`, not the triple fragment `x86_64`:
+the latter is rejected while configuring `gcc/`.
 
 `--enable-languages` gains `crug` when the frontend exists; until then the fork
 is a patched C frontend and the language name is not accepted by configure.

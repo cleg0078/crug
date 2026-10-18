@@ -1,5 +1,7 @@
 # Build output
 /build/
+/sources/
+*.part
 *.o
 *.a
 *.so
