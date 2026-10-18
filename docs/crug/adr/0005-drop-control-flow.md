@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), frontend + ownership pass owners
-- **Context docs:** RFC-0001 s19 L585-611, s20 L615-623, s42; MASTER_SPEC s14.8;
+- **Context docs:** RFC-0001 sections 19, 20 and 42; MASTER_SPEC s14.8;
   RUST_MEMORY_GAPS s7, s22
 
 ## Context
@@ -11,7 +11,7 @@
 The spec promises deterministic destruction but never says where in the pipeline
 it happens, what syntax attaches a destructor, or what happens on `goto`,
 `switch`, `setjmp`/`longjmp`, `exit`, `fork`, thread cancellation and signal
-return. RFC-0001 L611 turns this into an escape: the compiler "MUST NOT claim
+return. RFC-0001 section 19 turns this into an escape: the compiler "MUST NOT claim
 deterministic cleanup through abnormal control flow it does not model". Without a
 defined model, every implementation gets to choose, and the O1 conformance class
 becomes unmeasurable. This ADR defines the model.
@@ -68,7 +68,7 @@ The frontend cannot intercept `longjmp`; therefore the language defines a domain
   `longjmp` are not run".
 - If the `setjmp` buffer escapes the function or is passed to `longjmp` from
   unknown code, the compiler cannot see it; that is the documented boundary and is
-  what L611 permits.
+  what section 19 permits.
 
 The rule is therefore: Crug never claims cleanup across `longjmp`; it rejects the
 statically visible cases under strict and warns otherwise.
@@ -96,7 +96,7 @@ handler; doing so would add hidden runtime and change ordering.
 
 When `scope` (MASTER_SPEC s17) is used, child tasks own their captures; a task's
 destructors run at the end of the task body, and the scope does not complete until
-children complete (RFC-0001 L799). A captured owned value is moved into the child;
+children complete (RFC-0001 section 29). A captured owned value is moved into the child;
 the parent may not drop it. If a task is cancelled before completion, its owned
 values are dropped at the cancellation point in reverse order - this is the only
 asynchronous drop in the language, and it is bounded by "the task body ends here".

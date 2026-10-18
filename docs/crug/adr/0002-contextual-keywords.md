@@ -3,13 +3,13 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), compiler frontend owner
-- **Context doc:** MASTER_SPEC section 7, section 8, section 42; RFC-0001 L223, L445-461, L470
+- **Context doc:** MASTER_SPEC section 7, section 8, section 42; RFC-0001 sections 7.1 and 13
 
 ## Context
 
 Crug adds words to C without reserving them: `int own = 42;` and `go = 7;` must
 remain legal (MASTER_SPEC section 7), while `own Foo *p;` and `go worker(a);` must
-parse as Crug. RFC-0001 L223 requires that contextual words stay ordinary
+parse as Crug. RFC-0001 section 7.1 requires that contextual words stay ordinary
 identifiers "where C grammar permits", and the master spec requires collision tests
 (section 42) without defining the procedure. Two implementations that choose
 different lookahead produce incompatible compilers. This ADR fixes the procedure.
@@ -100,8 +100,8 @@ They are ordinary identifiers that name compiler intrinsics when:
 
 A user declaration wins silently (C compatibility). Under `-fcrug-strict`, shadowing
 one of them is an error (`error: declaration of 'move' shadows a Crug intrinsic`).
-This preserves the RFC's position that these are calls (RFC-0001 L515-532,
-L556-564, L608-609) without adding reserved words.
+This preserves the RFC's position that these are calls (RFC-0001 sections 16,
+18.1 and 19) without adding reserved words.
 
 ### D7 - Feature gating
 
@@ -121,7 +121,7 @@ escape hatch that makes silent reinterpretation impossible to miss.
 - The frontend needs no backtracking: every rule is bounded lookahead plus scope
   lookup at a declaration-specifier or statement position.
 - `own`/`ref`/`mut` can appear as struct fields and parameters, which is required
-  by RFC-0001 L470 and by ADR 0004.
+  by RFC-0001 section 13 and by ADR 0004.
 - Keyword tests become mechanical: one test per row of the D3 table plus one per
   D4/D5 form, in `gcc/testsuite/crug.dg/parser/keyword-collision/`.
 - Cost: two named idioms in the language (`go (expr);` and the strict-mode

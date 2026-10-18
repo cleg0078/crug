@@ -36,6 +36,7 @@ single authority order, a grammar, and decision records for the open questions.
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
 | No way to reproduce the toolchain | Makefile (`make baseline`: download, verify, extract, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
 | No licence statement for a GCC fork | NOTICE |
+| Line citations rotted as documents were revised | every citation now names a section or a gate phase and check (rule in spec/000-PRECEDENCE.md section 2) |
 
 ## Still open
 
@@ -52,7 +53,6 @@ single authority order, a grammar, and decision records for the open questions.
 | -  | No ABI document; ADR 0004 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
 | -  | The pre-fork baseline testsuite (phase-0 check 3) has never been run | dejagnu (`runtest`) is not installed and cannot be installed without root here |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
-| -  | Several ADRs and EXIT-GATES.md still cite RFC-0001 0.1-draft line numbers; 0.2-draft moved them although the sections are unchanged | a mechanical pass to cite sections (RFC Appendix H.2) |
 
 ## Next actions, in dependency order
 
@@ -61,12 +61,9 @@ single authority order, a grammar, and decision records for the open questions.
 2. **Decide C-07** (licence). This gates the first line of GCC-derived code.
 3. **Decide C-11** (split ADR 0004 into required 0003 + 0004 files) while the text is
    still fresh; splitting after ratification costs a re-review.
-4. **Replace the stale RFC line references.** ADRs 0001, 0002, 0004, 0005 and 0018 and
-   EXIT-GATES.md cite 0.1-draft line numbers; 0.2-draft moved them. Cite sections instead
-   (RFC Appendix H.2), before ratification copies freeze the text.
-5. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
+4. **Pin the kernel** (C-09): version + commit, defconfig, qemu boot command, console
    marker, object list. Without it K0 is unclaimable.
-6. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
+5. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log.
    `make baseline` supplies the pinned build; the phase-0 checks that still fail are
    the baseline testsuite run and the comparison against a pre-fork result set,
    because neither has been produced yet. The gate's two baseline checks were

@@ -3,14 +3,14 @@
 - **Status:** Proposed; normative text implemented in RFC-0001 0.2-draft sections 13-25 (RFC Appendix H)
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), compiler frontend owner
-- **Context docs:** MASTER_SPEC s6.2-s6.4, s7, s8.1-s8.10, s9.1-s9.3, s13-s15, s18-s22, s25.6, s42-s43; RFC-0001 s13-s27 (L445-760); ADR 0002; ADR 0004; ADR 0005; spec/000-PRECEDENCE.md; docs/crug/EXIT-GATES.md phases 1-10
+- **Context docs:** MASTER_SPEC s6.2-s6.4, s7, s8.1-s8.10, s9.1-s9.3, s13-s15, s18-s22, s25.6, s42-s43; RFC-0001 s13-s27; ADR 0002; ADR 0004; ADR 0005; spec/000-PRECEDENCE.md; docs/crug/EXIT-GATES.md phases 1-10
 
 ## Context
 
 MASTER_SPEC section 8 sketches ten constructs and says the grammar "is normative in intent but may
 be adjusted to fit GCC frontend structures" (L614). It never decides what a token sequence means
-where two readings exist, and RFC-0001 cites the same syntax normatively (L445-461, L465-487,
-L510-532, L604-611, L721-748) without a grammar. ADR 0002 fixes how a contextual word is
+where two readings exist, and RFC-0001 cites the same syntax normatively (sections 13, 14, 16, 19 and 25)
+without a grammar. ADR 0002 fixes how a contextual word is
 recognised, ADR 0004 fixes aggregate ownership and the ABI, ADR 0005 fixes destruction; none of
 them fixes a production. Two implementers following the documents as written will disagree about
 `own Foo **a`, `go (f(x));`, `chan int *p`, `option<option<int>>` and `close(ch)`, and no conformance
@@ -20,8 +20,8 @@ This ADR is the missing layer: productions, disambiguation procedures and attach
 enough to implement in `gcc/c-family` plus the C frontend's recursive-descent parser with bounded
 lookahead, and precise enough to test. It is a decision record; the normative text now lives in RFC-0001 0.2-draft
 sections 13, 14, 16, 18, 19, 22 and 25 (RFC Appendix H), and `docs/crug/GRAMMAR.md` remains the
-phase-23 digest, derived from those sections. C0 (RFC L216-223) and the phase 1 and 3
-gates require flags-off to be byte-identical to C; ABI transparency (RFC L465-487, L641-668)
+phase-23 digest, derived from those sections. C0 (RFC-0001 section 7.1) and the phase 1 and 3
+gates require flags-off to be byte-identical to C; ABI transparency (RFC-0001 sections 14 and 22)
 requires qualifiers to change no layout, `sizeof` or calling representation. Where a decision spends
 one of those, it says so.
 
@@ -42,7 +42,7 @@ contextual words stay `CPP_NAME`, `<` and `>` are separate punctuators, `>>` is 
 and no C token is reinterpreted by the lexer.
 
 Productions are enabled per flag. The driver closes the flag set over these dependencies and never
-errors because a prerequisite is missing, so EXIT-GATES phase 3 (L99) can run each flag alone:
+errors because a prerequisite is missing, so EXIT-GATES phase 3 can run each flag alone:
 
 | Flag | Productions enabled |
 |------|---------------------|
@@ -73,7 +73,7 @@ changes.
 
 **Forbids.** New tokens (`=>`, `<-`, `::`, `?`, `|T|`); reserving words; changing a token kind; any
 production with its flag off; option names outside `-fcrug-`; silently ignoring an unknown
-`-fcrug-*` option (EXIT-GATES L99 requires an option error); `-fownership`-style aliases in MVP
+`-fcrug-*` option (EXIT-GATES phase 3 requires an option error); `-fownership`-style aliases in MVP
 (MASTER_SPEC 6.2 L432-440 permits them, this ADR does not ship them); a `shared` qualifier or
 `arc<T>` constructor (MASTER_SPEC 18 L1612-1637 says "possible"; `shared Foo *x;` is a syntax error
 under every flag in MVP).
@@ -106,7 +106,7 @@ qualifier is an error.
 | `own Foo **a;` | `a` owns one `Foo *` object; destructor `void (*)(Foo **)`; the inner `Foo` is not owned |
 | `own Foo a[4];` | array of four owned `Foo` (ADR 0004 D7), dropped from index 3 down to 0 |
 | `own Foo (*fp)(void);` | error: the outermost pointer is a function pointer, not a pointer to an object |
-| `struct S { own char *name; };` | owning field; layout and `offsetof` identical to `char *name` (RFC L657-666) |
+| `struct S { own char *name; };` | owning field; layout and `offsetof` identical to `char *name` (RFC-0001 section 22) |
 | `typedef Foo *P; own P a;` | owning pointer to `Foo`; the qualifier is at the use site |
 | `typedef own Foo *P;` | error: a typedef cannot carry ownership, because the qualifier is not a type |
 | `own Foo *create(void);` | the caller becomes the owner of the returned object |
@@ -116,7 +116,7 @@ qualifier is an error.
 
 R3 - **Type-names are erased, except in generic arguments.** In a type-name (`sizeof`, `alignof`,
 `_Atomic(...)`, `va_arg`) a qualifier parses and is erased: `sizeof(own Foo*) == sizeof(Foo*)`
-(RFC L479-483) with no diagnostic. A cast or compound literal cannot create ownership:
+(RFC-0001 section 14) with no diagnostic. A cast or compound literal cannot create ownership:
 `(own Foo *)p` is an error, because `adopt` is the only constructor of ownership (ADR 0004 D10);
 `(raw volatile uint32_t *)0x40000000` (MASTER_SPEC 8.4 L692-693) is allowed and is exactly the C cast
 with checked-pointer rules suspended. Type arguments of `option`, `result`, `slice` and the element
@@ -124,8 +124,8 @@ of `chan` are *owning* type-names, where a qualifier is meaningful (D7 R5).
 
 R4 - **Erasure at type boundaries.** For assignment compatibility, parameter lists, function-pointer
 assignment, composite types and `_Generic`, qualifiers are erased: `void (*)(own Foo *)` is
-compatible with `void (*)(Foo *)`, and `void f(own Foo *p)` has the type of `void f(Foo *p)`. RFC 22
-(L641-655) requires the same calling representation, and an unannotated C header must keep matching a
+compatible with `void (*)(Foo *)`, and `void f(own Foo *p)` has the type of `void f(Foo *p)`. RFC-0001 section 22
+requires the same calling representation, and an unannotated C header must keep matching a
 Crug definition. Consequence: a C callback installed into a Crug-annotated function pointer consumes
 without dropping; ADR 0004 D3 closes that with `.crugffi` metadata, not with types.
 
@@ -135,7 +135,7 @@ cannot (error).
 
 R6 - **Combination.** At most one Crug qualifier per declaration: `own ref Foo *p;` and
 `own raw Foo *p;` are errors; `raw` is the absence of checking, not an extra flag. C qualifiers compose
-normally: `own const char *p` points to const char, `const != ref`, `restrict != mut` (RFC L627-633).
+normally: `own const char *p` points to const char, `const != ref`, `restrict != mut` (RFC-0001 section 21).
 A qualifier inside `_Atomic(...)` is erased per R3.
 
 R7 - **Return position.** `own` and `raw` may qualify a return type. `ref` and `mut` may not:
@@ -195,7 +195,7 @@ of an rvalue are rejected: there is no place to leave in a moved or dropped stat
 destructor is rejected: not adopting is spelled by not calling `adopt` (ADR 0004 D8).
 
 R4 - **Conditional expressions.** `c ? move(a) : move(b)` is legal; after the join both operands are
-MAYBE_MOVED and any later use or unconditional drop is rejected (RFC L506, ADR 0004 D2). The grammar
+MAYBE_MOVED and any later use or unconditional drop is rejected (RFC-0001 section 15, ADR 0004 D2). The grammar
 does not restrict `?:`; the ownership pass does. A conditional's ownership kind is the meet of its
 arms, and arms that disagree are an error (`-Wcrug-conditional-ownership`): otherwise an owned arm's
 value would become unmanaged and leak.
@@ -209,7 +209,7 @@ override therefore cannot silently produce an unchecked program; it can only tur
 the checker refuses.
 
 **Forbids.** Keywords; intrinsic names as values; `move` of unmanaged or const values; `drop` or
-`release` of rvalues; `adopt` with one argument or a null destructor; hidden runtime calls (RFC L522);
+`release` of rvalues; `adopt` with one argument or a null destructor; hidden runtime calls (RFC-0001 section 16);
 a conditional that produces ownership from mixed arms; recognising an intrinsic at a declaration site.
 
 **Diagnostics and tests.** `-Wcrug-intrinsic-shadowed` (warn/error), `-Wcrug-intrinsic-operand`,
@@ -290,7 +290,7 @@ R4 - **Jumps.** `goto` into a `scope` block is an error for the reason in ADR 00
 state and no drop state on entry). `goto` out is legal and gets the wait and drops duplicated on the
 edge. `return` inside a scope waits and drops on the return edge.
 
-R5 - **`unsafe` is a marker.** It creates a C block, has no codegen (RFC L621, MASTER_SPEC 15.3
+R5 - **`unsafe` is a marker.** It creates a C block, has no codegen (RFC-0001 section 20, MASTER_SPEC 15.3
 L1253-1255), may be nested, and suppresses exactly the strict-mode checks of MASTER_SPEC 15.2 (raw
 dereference, integer/pointer casts, forced aliasing, inline asm touching owned state, unknown FFI,
 `longjmp` across owned cleanup). It does not suspend O1 or B1: double move, use-after-move and borrow
@@ -431,16 +431,16 @@ keeps enabling a flag from changing a valid C program (D1).
 R5 - **Ownership in arguments and the constructors.** Type arguments are *owning* type-names (D2 R3),
 so `result<own Foo *, Error>` (MASTER_SPEC 8.9 L788) has an owned payload: the ok payload is transferred
 by move or return, dropped with the value, and only the active variant's owned fields are dropped
-(RFC L743-748, MASTER_SPEC 22 L1759-1763). `option<own Foo *>` likewise. `some(v)`, `none`, `ok(v)` and
+(RFC-0001 section 25.4, MASTER_SPEC 22 L1759-1763). `option<own Foo *>` likewise. `some(v)`, `none`, `ok(v)` and
 `err(e)` are type-directed expression constructors like `channel(n)`, and a declaration of one of those
 names wins over the constructor (ADR 0002 D2). No niche optimisation in MVP:
 `sizeof(option<own Foo *>) != sizeof(Foo *)` is permitted, because MASTER_SPEC 20 L1711-1718 defers
 niche representation until ABI rules are formalised. Layout goes in `docs/crug/ABI.md` before phase 10
-closes (EXIT-GATES L181-184).
+closes (EXIT-GATES phase 10).
 
 R6 - **`slice<T>`** is a borrowed view `{ T *ptr; size_t len }`; the slice never owns its elements, and
 `slice<own Foo *>` is a view of a sequence of owning pointers. Bounds checks apply to slice indexing
-only, never to plain C pointers (RFC L725-729).
+only, never to plain C pointers (RFC-0001 section 25.1).
 
 R7 - **No general generics.** `vector<int>` where `vector` is a typedef is an error
 (`-Wcrug-generic-form`): only builtin constructors parse in MVP (MASTER_SPEC 23 L1769-1781).
@@ -506,7 +506,7 @@ accepted (MASTER_SPEC 8.10 L796-800 shows it). An expression body's value is dis
 call a `void` function or assign; `-Wunused-value` still applies to a pointless one.
 
 R3 - **Exhaustiveness.** Every variant of the scrutinee's type must be covered or a `_` arm must be
-present, and `_` must be last. A missing variant is an error naming the missing variant (EXIT-GATES L184
+present, and `_` must be last. A missing variant is an error naming the missing variant (EXIT-GATES phase 10
 expects exit 1 without `-fcrug-strict`). `default` is not a match arm
 (`error: use '_' for the catch-all in 'match'`), because a colon form would reintroduce C's label syntax
 next to `select`. Duplicate or unreachable arms are `-Wcrug-match-unreachable` (warn; error in strict).
@@ -583,8 +583,8 @@ that would not parse when written out literally.
 **Statement.** Every new warning has a `-Wcrug-*` option; Crug-only hard errors carry one where a test
 must name them, and every diagnostic has a stable code `crug-<AREA>-<NNN>` in the registry
 (`docs/crug/DIAGNOSTICS.md`) that
-EXIT-GATES phase 4 (L113) and phase 20 require. `-fcrug-strict` promotes exactly the options marked
-"error" in the strict column and nothing else (conflict C-08, spec/000-PRECEDENCE.md L44).
+EXIT-GATES phase 4 (the `[crug-UAM-001]` check) and phase 20 require. `-fcrug-strict` promotes exactly the options marked
+"error" in the strict column and nothing else (conflict C-08, spec/000-PRECEDENCE.md).
 
 | Option | Hybrid | Strict | Decision |
 |--------|--------|--------|----------|
@@ -615,7 +615,7 @@ EXIT-GATES phase 4 (L113) and phase 20 require. `-fcrug-strict` promotes exactly
 | `-Wcrug-drop-unreachable` | warn | error | ADR 0005 D8 |
 
 Two rules constrain how they are used: no diagnostic fires with all flags off (D1), and no diagnostic
-quotes GIMPLE, IR or sanitizer output (EXIT-GATES L301) - fix instructions name the source construct and
+quotes GIMPLE, IR or sanitizer output (EXIT-GATES phase 20) - fix instructions name the source construct and
 the flag. Every message quotes the source location, the construct name and, for a rejected operand, the
 operand's type (MASTER_SPEC 37 L2611-2617).
 
@@ -662,7 +662,7 @@ ADR adds no test there and changes none.
 ## Rejected alternatives
 
 - **Reserving the words globally.** Breaks C0 on contact: `int own = 1;` and `int go = 2;` are real C
-  (MASTER_SPEC 7.1 L581-586, RFC L454-461), and the kernel class is defined on GNU C. ADR 0002 already
+  (MASTER_SPEC 7.1 L581-586, RFC-0001 section 13), and the kernel class is defined on GNU C. ADR 0002 already
   rejects this.
 - **Making `move`/`borrow`/`drop` real keywords.** Same breakage with no gain: a keyword buys nothing
   that call-position lookup does not, and it removes the macro override D3 R5 depends on.
@@ -687,7 +687,7 @@ ADR adds no test there and changes none.
 - **Match as an expression, or `default:` in match.** Both need a value representation and a colon label
   this ADR cannot promise before `ABI.md`; the statement form is enough for phase 10.
 - **Hidden moved bits or runtime drop flags, to make `move` and `match` easier.** Forbidden by ADR 0004
-  and RFC L487; not reconsidered here.
+  and RFC-0001 section 22; not reconsidered here.
 
 ## Test obligations
 

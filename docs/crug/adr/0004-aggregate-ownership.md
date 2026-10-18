@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Deciders:** project owner (ratification), frontend + ownership pass owners
-- **Context docs:** RFC-0001 s14 L465-487, s16 L510-532, s22 L641-668, s25 L747;
+- **Context docs:** RFC-0001 sections 14, 16, 22 and 25.4;
   MASTER_SPEC s13; RUST_MEMORY_GAPS s4-s7, s41
 
 ## Context
@@ -11,9 +11,10 @@
 Crug requires three things at once:
 
 1. struct layout, `sizeof` and the calling representation stay identical to C
-   (RFC-0001 L487, L643, L666);
-2. owned values are move-only and are dropped deterministically (L538, L244);
-3. the compiler must not add hidden struct fields (L487).
+   (RFC-0001 section 22);
+2. owned values are move-only and are dropped deterministically (RFC-0001
+   sections 17 and 7.3);
+3. the compiler must not add hidden struct fields (RFC-0001 section 22).
 
 If a struct contains `own` members, a plain C assignment or `memcpy` copies the
 pointer without transferring ownership, and both copies drop it: a double free.
@@ -51,7 +52,7 @@ it, or a structural rewrite. This is the price of (3); see "Alternatives".
 - Passing/returning an owning aggregate by value uses exactly the C ABI
   classification of the underlying struct type. The move is a bitwise copy plus a
   logical transfer; no helper call, no allocation, no hidden parameter
-  (satisfies RFC-0001 L522, L523).
+  (satisfies RFC-0001 section 16).
 - An owning aggregate crossing into a non-Crug translation unit is only allowed
   through `.crugffi` metadata that names the destructor or marks the field as
   opaque. Without metadata the boundary is treated as `raw` and produces
@@ -144,9 +145,10 @@ programmer writes, with two visible destructor decisions.
 
 ## Alternatives rejected
 
-- **Hidden moved bit / drop flag.** Breaks RFC-0001 L487 and O1 zero-cost; makes
+- **Hidden moved bit / drop flag.** Breaks RFC-0001 section 22 and O1 zero-cost; makes
   the struct ABI differ from C.
-- **Copy-on-write or refcount for aggregates.** Explicitly forbidden (L487, s18).
+- **Copy-on-write or refcount for aggregates.** Explicitly forbidden (RFC-0001
+  section 22; GAPS section 18).
 - **Allow partial moves in MVP.** Requires either runtime drop tests or
   per-path forking of the type state; deferred, not hidden.
 - **Treat every struct as owning if any field is a pointer.** Rejects valid C
