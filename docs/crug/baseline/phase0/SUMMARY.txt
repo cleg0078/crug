@@ -1,0 +1,5 @@
+# of expected passes		224481
+# of unexpected failures	84
+# of unexpected successes	23
+# of expected failures		1649
+# of unsupported tests		4049

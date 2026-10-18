@@ -65,6 +65,8 @@ grep -E '^# of ' "$sum" > "$out/SUMMARY.txt" || true
   echo '- check-c.log.xz - the console log of the same run.'
   echo '- FAIL.txt - every FAIL, XPASS and UNRESOLVED line extracted from the sum.'
   echo '- SUMMARY.txt - the "# of" summary lines from the sum.'
+  echo '- known-fail.txt - the reviewed allowlist of failing tests, with the reason for' 
+  echo '  each group; scripts/check-baseline.sh fails on any FAIL outside it.'
   echo
   echo '## Adjudication note for the phase-0 gate'
   echo

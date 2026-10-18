@@ -1,6 +1,6 @@
 # CRUG Project Status
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 ## Where the project stands
 
@@ -22,7 +22,10 @@ and archives evidence, and the documentation set below gives the specification a
 single authority order, a grammar, and decision records for the open questions.
 The pinned GCC 16.2.0 tree is imported into git and tagged `releases/gcc-16.2`,
 so the repository root is the GCC top level and the fork base is reproducible
-from a clone rather than from a tarball on one machine.
+from a clone rather than from a tarball on one machine. The C testsuite runs
+through a root-free DejaGnu (`scripts/bootstrap-dejagnu.sh`), and its 224,481-pass
+result is archived at `docs/crug/baseline/phase0/`; the phase-0 gate passes with
+five archived checks.
 
 ## Resolved in this revision
 
@@ -46,6 +49,8 @@ from a clone rather than from a tarball on one machine.
 | No way to reproduce the toolchain | Makefile (`make baseline`: verify, prerequisites, configure, all-gcc; `make build-full` adds target libraries and links; `make help`) |
 | Repository licence was MIT, incompatible with the GCC fork | LICENSE (GPL-3.0-or-later), NOTICE (per-path map); C-07 resolved by the owner on 2026-10-18 |
 | Line citations rotted as documents were revised | every citation now names a section or a gate phase and check (rule in spec/000-PRECEDENCE.md section 2) |
+| The C testsuite could not run (no root, no DejaGnu) | `make bootstrap-dejagnu` installs DejaGnu/Expect/Tcl under `tools/`; `make check-c` runs the suite; result archived at docs/crug/baseline/phase0/ (224,481 pass, 84 environmental fail) |
+| Phase 0 was unadjudicated | `scripts/gate.sh --run phase-0` passed 5/5 checks; logs under docs/crug/gates/phase-0/ |
 
 ## Still open
 
@@ -57,16 +62,19 @@ from a clone rather than from a tarball on one machine.
 | -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No ABI document; ADR 0003 D3 states the C-ABI rules but required ADR 0006 (C ABI policy) is unwritten | ADR 0006 |
-| -  | The pre-fork baseline testsuite (phase-0 check 3) has never been run | dejagnu (`runtest`) is not installed and cannot be installed without root here |
 | -  | `.crugffi` sidecar is illustrative only; required ADR 0007 is unwritten | ADR 0006 |
 
 ## Next actions, in dependency order
 
-1. **Make the C testsuite runnable** (`make check-c` is currently an empty recipe)
-   through a root-free local DejaGnu, with the run summarised by a script.
-2. **Run Phase 0 for real** (`scripts/gate.sh --run phase-0`) and archive the log;
-   the baseline testsuite run and the comparison against a pre-fork result set are
-   the checks that still fail.
+1. **Run Phase 1** (plain C compatibility): add the `crugc` driver that fronts an
+   upgraded GCC, `scripts/diff-cc.sh` and the `check-C_COMPAT` target, then
+   `scripts/gate.sh --run phase-1`.
+2. **Ratify EXIT-GATES.md** so the gate definitions stop being Proposed, which
+   also settles C-06 (27 phases vs 25 milestones).
+3. **Write ADR 0006 (C ABI policy)**, which ADR 0003 D3 defers to, then ADR 0007
+   for the `.crugffi` sidecar.
+4. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
+   of the pinned Linux 6.18.57 tree.
 
 ## Working rules
 

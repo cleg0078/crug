@@ -1,0 +1,23 @@
+# Failures present in the phase-0 baseline run (commit 5bd7528, gcc.dg C testsuite).
+#
+# scripts/check-baseline.sh requires every FAIL line in the archived summary to
+# match exactly one glob below. The list is evidence, not a suppression: adding a
+# glob is a reviewed change that must state why the failure is environmental.
+#
+# 84 unexpected failures in four groups, none caused by Crug (the tree under gcc/
+# is byte-identical to the tag releases/gcc-16.2, so this is the pre-fork result
+# for this host and toolchain):
+#
+# 1. Debug-info tests. They need gdb, which this host does not have.
+gcc.dg/guality/*
+# 2. Python analyzer plugin tests. The build picked up a Python from a local
+#    miniforge prefix whose headers do not match the plugin's expectations.
+gcc.dg/plugin/cpython-plugin-test-PyList_New.c
+gcc.dg/plugin/cpython-plugin-test-PyLong_FromLong.c
+# 3. SARIF test. Its trailing check-jsonschema step is not installed.
+gcc.dg/sarif-output/bad-pragma.c
+# 4. scan-assembler tests whose expected instruction sequence depends on the
+#    host binutils version, which is newer than the one the test was written for.
+gcc.target/i386/pr115102.c
+gcc.target/i386/shift-gf2p8affine-2.c
+gcc.target/i386/xchg-4.c
