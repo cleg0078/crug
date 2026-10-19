@@ -68,6 +68,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "intl.h"
 #include "c-family/name-hint.h"
 #include "c-family/crug-common.h"
+#include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
@@ -31530,6 +31531,12 @@ c_parse_file (void)
     using_eh_for_cleanups ();
 
   c_parser_translation_unit (the_parser);
+
+  /* Every declaration is visible now, so the .crugffi entries that no call
+     resolved during parsing are validated here, while the file scope is
+     still current (ADR 0007 D5).  */
+  crug_ffi_finish ();
+
   the_parser = NULL;
 }
 

@@ -23,6 +23,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "c-common.h"
 #include "crug-common.h"
+#include "crug-ffi.h"
 #include "memmodel.h"
 #include "tm_p.h"		/* For TARGET_CPU_CPP_BUILTINS & friends.  */
 #include "stringpool.h"
@@ -955,6 +956,8 @@ c_cpp_builtins (cpp_reader *pfile)
 	cpp_define (pfile, "__CRUG_STRICT__=1");
       if (crug_features & CRUG_FEAT_KERNEL)
 	cpp_define (pfile, "__CRUG_KERNEL__=1");
+      if (crug_ffi_enabled_p ())
+	builtin_define_with_int_value ("__CRUG_FFI_VERSION__", 100);
     }
 
   /* Variant of cpp_define which arranges for diagnostics on user #define

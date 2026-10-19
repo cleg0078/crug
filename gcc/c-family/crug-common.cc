@@ -7,6 +7,7 @@
 #include "options.h"
 #include "diagnostic.h"
 #include "crug-common.h"
+#include "crug-ffi.h"
 
 /* Active features after closure; see crug-common.h.  */
 
@@ -38,6 +39,9 @@ crug_apply_option_closure (void)
     features |= CRUG_FEAT_CHANNELS;
   if (crug_flag_strict)
     features |= CRUG_FEAT_STRICT;
+  /* ADR 0007 D5: -fcrug-ffi implies -fcrug-ownership.  */
+  if (crug_ffi_enabled_p ())
+    features |= CRUG_FEAT_OWNERSHIP;
   if (crug_flag_kernel)
     features |= CRUG_FEAT_KERNEL;
 

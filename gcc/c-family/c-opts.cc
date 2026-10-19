@@ -27,6 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-target.h"
 #include "c-common.h"
 #include "crug-common.h"
+#include "crug-ffi.h"
 #include "memmodel.h"
 #include "tm_p.h"		/* For C_COMMON_OVERRIDE_OPTIONS.  */
 #include "diagnostic.h"
@@ -338,6 +339,18 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 
     case OPT_F:
       TARGET_OPTF (xstrdup (arg));
+      break;
+
+    case OPT_fcrug_ffi_:
+      /* Repeatable; each occurrence is parsed immediately so that the order
+	 of the command line is the order in which declarations are merged
+	 (ADR 0007 D5).  */
+      crug_ffi_handle_option (arg);
+      break;
+
+    case OPT_fcrug_ffi_discover:
+      /* Nothing to parse here: discovery runs from the include callback.  */
+      crug_ffi_enable_discovery ();
       break;
 
     case OPT_I:
@@ -866,6 +879,9 @@ c_common_post_options (const char **pfilename)
   /* Close the -fcrug-* option set over the dependencies in ADR 0018 D1
      before any front-end decision reads crug_features.  */
   crug_apply_option_closure ();
+  /* The include callback needs the preprocessor, so it is installed after
+     the closure has decided whether FFI mode is on.  */
+  crug_ffi_setup ();
 
   sanitize_cpp_opts ();
 

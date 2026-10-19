@@ -61,6 +61,7 @@
 #include "diagnostic-core.h"
 #include "toplev.h"
 #include "flags.h"
+#include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
 
 #include <map>
@@ -1100,6 +1101,10 @@ static bool walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t,
 		       location_t locus = UNKNOWN_LOCATION);
 static void walk_expr (crug_fn_ctx &ctx, state_map &env, tree t,
 		       location_t locus = UNKNOWN_LOCATION);
+/* The FUNCTION_DECL a call names, or NULL_TREE (defined below).  */
+static tree crug_call_fndecl (tree call);
+/* The declaration E names after removing conversions, or NULL_TREE.  */
+static tree nop_decl (tree e);
 
 static location_t
 node_location (tree t, location_t fallback = UNKNOWN_LOCATION)
@@ -1847,6 +1852,21 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       return;
     }
 
+  /* A call whose .crugffi contract says it returns an owned value hands
+     the caller that value with the destructor the sidecar names (ADR 0007
+     D3).  This is the only way a checked program can take ownership from
+     code that is not compiled by Crug.  */
+  if (TREE_CODE (r) == CALL_EXPR)
+    {
+      tree ffi_dtor;
+      if (crug_ffi_returns_owned (crug_call_fndecl (r), &ffi_dtor))
+	{
+	  walk_expr (ctx, env, expr, loc);
+	  set_owned (env, decl, ffi_dtor);
+	  return;
+	}
+    }
+
   if (is_null_pointer (r))
     {
       set_state (env, decl, CRUG_EMPTY);
@@ -2220,6 +2240,104 @@ borrow_value_origin (crug_fn_ctx &ctx, tree e)
   return UNKNOWN_LOCATION;
 }
 
+/* The FUNCTION_DECL a call names, or NULL_TREE.  */
+
+static tree
+crug_call_fndecl (tree call)
+{
+  tree fn = CALL_EXPR_FN (call);
+  if (fn == NULL_TREE)
+    return NULL_TREE;
+  tree f = fn;
+  STRIP_NOPS (f);
+  if (TREE_CODE (f) == ADDR_EXPR)
+    f = TREE_OPERAND (f, 0);
+  return TREE_CODE (f) == FUNCTION_DECL ? f : NULL_TREE;
+}
+
+/* Check the arguments of a call against its .crugffi contract (ADR 0007
+   D3).  The contract is what lets checked code hand an owned value to, or
+   take one from, code that is not compiled by Crug.  */
+
+static void
+check_ffi_call (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
+{
+  tree fndecl = crug_call_fndecl (call);
+  if (fndecl == NULL_TREE || crug_ffi_lookup (fndecl) == NULL)
+    return;
+
+  int n = call_expr_nargs (call);
+  for (int i = 0; i < n; i++)
+    {
+      tree arg = CALL_EXPR_ARG (call, i);
+      if (arg == NULL_TREE || arg == error_mark_node)
+	continue;
+      tree r = arg;
+      STRIP_NOPS (r);
+
+      if (crug_ffi_arg_consumes (fndecl, i))
+	{
+	  enum crug_intrinsic kind;
+	  bool moved = (TREE_CODE (r) == CALL_EXPR
+			&& is_intrinsic_call (r, &kind)
+			&& kind == CRUG_INTR_MOVE);
+	  bool fresh = is_allocation_call (r);
+	  bool null_ok = (is_null_pointer (r)
+			  && crug_ffi_arg_nullable (fndecl, i));
+	  if (!moved && !fresh && !null_ok)
+	    error_at (loc, "%qD takes ownership of argument %d; pass %<move%> "
+		      "of an owned value, a fresh allocation, or null "
+		      "[crug-FFI-007]", fndecl, i + 1);
+	}
+
+      if (crug_ffi_arg_out_owned (fndecl, i, NULL))
+	{
+	  tree d = NULL_TREE;
+	  if (TREE_CODE (r) == ADDR_EXPR)
+	    d = nop_decl (TREE_OPERAND (r, 0));
+	  if (d == NULL_TREE || !crug_is_owning_decl (d))
+	    error_at (loc, "%qD writes an owned value through argument %d; "
+		      "pass the address of an owned variable [crug-FFI-008]",
+		      fndecl, i + 1);
+	  else if (state_of (env, d) != CRUG_EMPTY)
+	    error_at (loc, "owned variable %qD already owns a value; drop it "
+		      "or release it before passing its address for output "
+		      "[crug-FFI-008]", d);
+	}
+
+      if (crug_ffi_arg_callback (fndecl, i))
+	{
+	  bool ok = is_null_pointer (r);
+	  if (TREE_CODE (r) == FUNCTION_DECL)
+	    ok = true;
+	  else if (TREE_CODE (r) == ADDR_EXPR)
+	    ok = (TREE_CODE (TREE_OPERAND (r, 0)) == FUNCTION_DECL);
+	  if (!ok)
+	    error_at (loc, "%qD calls back through argument %d; pass a "
+		      "function or a null pointer [crug-FFI-009]",
+		      fndecl, i + 1);
+	}
+    }
+
+  /* An output parameter initializes the owned variable it is handed.  */
+  for (int i = 0; i < n; i++)
+    {
+      tree dtor;
+      if (!crug_ffi_arg_out_owned (fndecl, i, &dtor))
+	continue;
+      tree arg = CALL_EXPR_ARG (call, i);
+      if (arg == NULL_TREE || arg == error_mark_node)
+	continue;
+      tree r = arg;
+      STRIP_NOPS (r);
+      tree d = (TREE_CODE (r) == ADDR_EXPR
+		? nop_decl (TREE_OPERAND (r, 0)) : NULL_TREE);
+      if (d != NULL_TREE && crug_is_owning_decl (d)
+	  && state_of (env, d) == CRUG_EMPTY)
+	set_owned (env, d, dtor);
+    }
+}
+
 /* A borrow may only cross a call boundary through a parameter that is itself
    declared ref or mut.  This phase has no interprocedural summary (ADR 0019:
    the summary depth is zero), so every other callee is rejected rather than
@@ -2248,6 +2366,8 @@ check_borrow_call_args (tree call, location_t loc)
 	continue;
 
       bool ok = false;
+      bool ffi_borrow = false;
+      bool ffi_mut = false;
       if (fndecl != NULL_TREE)
 	{
 	  tree parm = DECL_ARGUMENTS (fndecl);
@@ -2255,10 +2375,35 @@ check_borrow_call_args (tree call, location_t loc)
 	    parm = DECL_CHAIN (parm);
 	  if (parm != NULL_TREE && TREE_CODE (parm) == PARM_DECL)
 	    ok = crug_is_borrow_decl (parm, NULL);
+	  /* A sidecar 'borrows' or 'mut_borrows' clause is a borrow contract
+	     too (ADR 0007 D3).  */
+	  if (crug_ffi_arg_borrow (fndecl, i, &ffi_mut))
+	    ffi_borrow = true;
 	}
 
-      if (ok)
-	continue;
+      if (ok || ffi_borrow)
+	{
+	  /* A shared view may not be handed to a callee that may write
+	     through the pointer.  */
+	  if (ffi_borrow && ffi_mut)
+	    {
+	      tree a = CALL_EXPR_ARG (call, i);
+	      STRIP_NOPS (a);
+	      bool arg_mut = false;
+	      enum crug_intrinsic kind;
+	      if (TREE_CODE (a) == VAR_DECL || TREE_CODE (a) == PARM_DECL)
+		crug_is_borrow_decl (a, &arg_mut);
+	      else if (TREE_CODE (a) == CALL_EXPR
+		       && is_intrinsic_call (a, &kind))
+		arg_mut = (kind == CRUG_INTR_BORROW_MUT);
+	      if (!arg_mut)
+		{
+		  error_at (loc, "a shared borrow cannot be passed to a "
+			    "%<mut_borrows%> parameter [crug-BORROW-016]");
+		}
+	    }
+	  continue;
+	}
 
       if (fndecl != NULL_TREE)
 	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
@@ -2323,6 +2468,18 @@ check_strict_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 
   for (int i = 0; i < call_expr_nargs (call); i++)
     {
+      /* A .crugffi clause is an ownership contract, so an annotated
+	 callee is never "a function without an ownership contract".  */
+      tree ffi_dtor;
+      if (fndecl != NULL_TREE)
+	{
+	  bool ffi_mut;
+	  if (crug_ffi_arg_borrow (fndecl, i, &ffi_mut)
+	      || crug_ffi_arg_consumes (fndecl, i)
+	      || crug_ffi_arg_out_owned (fndecl, i, &ffi_dtor))
+	    continue;
+	}
+
       tree d = nop_decl (CALL_EXPR_ARG (call, i));
       if (d == NULL_TREE || !crug_is_owning_decl (d))
 	continue;
@@ -2433,6 +2590,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	  check_setjmp (ctx, env, loc, true);
 	else if (is_longjmp_call (t))
 	  check_setjmp (ctx, env, loc, false);
+	check_ffi_call (ctx, env, t, loc);
 	check_borrow_call_args (t, loc);
 	check_strict_call_args (ctx, t, loc);
 	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);

@@ -63,6 +63,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-parser.h"
 #include "gcc-urlifier.h"
 #include "c-family/crug-common.h"
+#include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
 
 #include "tree-pretty-print.h"

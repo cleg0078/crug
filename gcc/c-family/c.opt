@@ -2925,3 +2925,11 @@ Common Var(warn_crug_returned_borrow) Init(1) Warning
 Warn about a function that returns a borrow.  Reserved: returning a borrow
 is an error, not a warning, while ADR 0018 D2 R7 stands; the option exists
 so that the registry and any later relaxation have a stable name.
+
+fcrug-ffi=
+C Joined RejectNegative
+-fcrug-ffi=<file>	Read C FFI metadata from <file>; may be given more than once.
+
+fcrug-ffi-discover
+C
+-fcrug-ffi-discover	Read .crugffi metadata found next to quoted includes.
