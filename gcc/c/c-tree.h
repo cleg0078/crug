@@ -373,7 +373,8 @@ enum crug_qualifier_kind {
   CRUG_QUAL_NONE,
   CRUG_QUAL_OWN,
   CRUG_QUAL_REF,
-  CRUG_QUAL_MUT
+  CRUG_QUAL_MUT,
+  CRUG_QUAL_RAW
 };
 
 /* A sequence of declaration specifiers in C.  When a new declaration
@@ -431,7 +432,7 @@ struct c_declspecs {
      constant expressions.  */
   BOOL_BITFIELD expr_const_operands : 1;
   /* The Crug qualifier seen on this declaration, if any (ADR 0018 D2).  */
-  ENUM_BITFIELD (crug_qualifier_kind) crug_qual : 2;
+  ENUM_BITFIELD (crug_qualifier_kind) crug_qual : 3;
   /* Whether any declaration specifiers have been seen at all.  */
   BOOL_BITFIELD declspecs_seen_p : 1;
   /* Whether any declaration specifiers other than standard attributes

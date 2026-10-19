@@ -109,6 +109,14 @@ set_c_expr_source_range (c_expr *expr,
 }
 
 
+/* How many 'unsafe { }' blocks enclose the expression being parsed.  Inside
+   one the programmer accepts responsibility for the invariants, so the
+   strict-mode checks stand down (RFC-0001 section 20; ADR 0021 D3).  The
+   analysis does not use this counter: it reads the mark the parser leaves on
+   the compound statement, which needs no parse-time state.  */
+
+static int crug_unsafe_depth;
+
 /* Initialization routine for this file.  */
 
 void
@@ -584,11 +592,15 @@ c_parser_peek_nth_token (c_parser *parser, unsigned int n)
   return &parser->tokens[n - 1];
 }
 
+/* Forward declaration: defined with the declaration-specifier predicates
+   below, and used by the qualifier lookahead.  */
+static bool c_token_starts_declspecs (c_token *);
+
 /* The Crug qualifier, if any, that the token N tokens ahead (1-based) is.
    A qualifier is a contextual word: the lexer reports an ordinary identifier,
    the word is not declared, and the feature that owns the word is on (ADR
-   0018 D1 and D2).  'own' belongs to -fcrug-ownership; 'ref' and 'mut'
-   belong to -fcrug-borrow.  A C parse always wins.  */
+   0018 D1 and D2).  'own' and 'raw' belong to -fcrug-ownership; 'ref' and
+   'mut' belong to -fcrug-borrow.  A C parse always wins.  */
 
 static enum crug_qualifier_kind
 crug_qualifier_token_kind_n (c_parser *parser, unsigned int n)
@@ -602,16 +614,34 @@ crug_qualifier_token_kind_n (c_parser *parser, unsigned int n)
     return CRUG_QUAL_NONE;
 
   const char *name = IDENTIFIER_POINTER (token->value);
-  if (strcmp (name, "own") == 0)
-    return crug_ownership_enabled () ? CRUG_QUAL_OWN : CRUG_QUAL_NONE;
+  enum crug_qualifier_kind kind = CRUG_QUAL_NONE;
+  if (crug_ownership_enabled ())
+    {
+      if (strcmp (name, "own") == 0)
+	kind = CRUG_QUAL_OWN;
+      else if (strcmp (name, "raw") == 0)
+	kind = CRUG_QUAL_RAW;
+    }
 
-  if (crug_borrow_enabled ())
+  if (kind == CRUG_QUAL_NONE && crug_borrow_enabled ())
     {
       if (strcmp (name, "ref") == 0)
-	return CRUG_QUAL_REF;
-      if (strcmp (name, "mut") == 0)
-	return CRUG_QUAL_MUT;
+	kind = CRUG_QUAL_REF;
+      else if (strcmp (name, "mut") == 0)
+	kind = CRUG_QUAL_MUT;
     }
+
+  if (kind == CRUG_QUAL_NONE)
+    return CRUG_QUAL_NONE;
+
+  /* A qualifier introduces a type, so the word after it must be able to start
+     declaration specifiers (or be a second qualifier, which is reported as
+     crug-TYPE-002 when it is consumed).  Without this test the pointer
+     qualifier scan after a '*' would read the declarator name in
+     'struct Foo *own' as a qualifier (ADR 0018 D2, amendment A-3).  */
+  if (c_token_starts_declspecs (c_parser_peek_nth_token (parser, n + 1))
+      || crug_qualifier_token_kind_n (parser, n + 1) != CRUG_QUAL_NONE)
+    return kind;
   return CRUG_QUAL_NONE;
 }
 
@@ -8650,6 +8680,43 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
       if (!c_parser_pragma (parser, pragma_stmt, if_p, before_labels))
         goto restart;
       break;
+    case CPP_NAME:
+      {
+	/* 'unsafe { ... }' is a statement form, not a call (RFC-0001
+	   section 20; ADR 0018 D5).  It begins with a brace, so a C parse
+	   cannot take it, and it is recognised only while the word is not
+	   declared.  */
+	tree id = c_parser_peek_token (parser)->value;
+	if (crug_ownership_enabled ()
+	    && c_parser_peek_token (parser)->id_kind == C_ID_ID
+	    && id != NULL_TREE
+	    && lookup_name (id) == NULL_TREE
+	    && strcmp (IDENTIFIER_POINTER (id), "unsafe") == 0
+	    && c_parser_peek_2nd_token (parser)->type == CPP_OPEN_BRACE)
+	  {
+	    tree blk;
+	    c_parser_consume_token (parser);
+	    crug_unsafe_depth++;
+	    blk = c_parser_compound_statement (parser);
+	    crug_unsafe_depth--;
+	    /* c_build_bind_expr returns the body unwrapped when the block
+	       declares nothing, and add_stmt splices a STATEMENT_LIST into its
+	       parent, so the marked node would not survive to the ownership
+	       pass.  Force a BIND_EXPR that the pass can recognise.  */
+	    if (blk != NULL_TREE && TREE_CODE (blk) != BIND_EXPR)
+	      {
+		tree bind = build3 (BIND_EXPR, void_type_node, NULL_TREE,
+				    blk, NULL_TREE);
+		TREE_SIDE_EFFECTS (bind) = 1;
+		SET_EXPR_LOCATION (bind, input_location);
+		blk = bind;
+	      }
+	    crug_mark_unsafe_block (blk);
+	    add_stmt (blk);
+	    break;
+	  }
+	goto expr_stmt;
+      }
     default:
     expr_stmt:
       stmt = c_finish_expr_stmt (loc, c_parser_expression_conv (parser).value);
@@ -10736,6 +10803,18 @@ c_parser_cast_expression (c_parser *parser, struct c_expr *after)
       ret.value = c_cast_expr (cast_loc, type_name, expr.value);
       if (ret.value && expr.value)
 	set_c_expr_source_range (&ret, cast_loc, expr.get_finish ());
+      /* Strict mode refuses the casts that leave checked code: integer and
+	 pointer conversions, and owned-to-unmanaged conversions (ADR 0021
+	 D5).  Inside an unsafe block the programmer takes responsibility.  */
+      if (ret.value != NULL_TREE && ret.value != error_mark_node
+	  && expr.value != NULL_TREE && expr.value != error_mark_node
+	  && type_name->specs->type != NULL_TREE
+	  && crug_strict_enabled () && crug_unsafe_depth == 0)
+	/* The target type is the type of the cast expression itself: the
+	   declarator has been applied by c_cast_expr, and specs->type still
+	   holds only the base type.  */
+	crug_strict_check_cast (cast_loc, TREE_TYPE (ret.value),
+				TREE_TYPE (expr.value), expr.value);
       ret.original_code = ERROR_MARK;
       ret.original_type = NULL;
       ret.m_decimal = 0;

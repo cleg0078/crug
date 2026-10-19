@@ -213,6 +213,9 @@ struct crug_fn_ctx
      that a loop body can be solved without a fixpoint.  */
   std::set<tree> all_borrows;
   bool liveness_failed = false;
+  /* How many 'unsafe { }' blocks enclose the statement being analysed.
+     Strict-mode checks stand down while this is non-zero (ADR 0021 D3).  */
+  int unsafe_depth = 0;
 };
 
 /* Declarations recorded as owning during parsing, keyed by DECL_UID rather
@@ -227,6 +230,17 @@ static std::set<unsigned int> crug_owning_uids;
    nothing is attached to the type or to the object (ADR 0003 D1).  */
 static std::map<unsigned int, bool> crug_borrow_uids;
 
+/* Declarations recorded as raw (unchecked) pointers, keyed the same way.  A
+   raw pointer is a plain C pointer with a promise that it is not to be
+   dereferenced in checked code (RFC-0001 section 20; ADR 0021 D2).  */
+static std::set<unsigned int> crug_raw_uids;
+
+/* The compound statements of 'unsafe { }' blocks in the current translation
+   unit.  The parser marks them while it parses; the analysis reads the mark
+   and stands down inside them.  Nothing is attached to the tree, so the
+   mark cannot reach the middle end or the object file.  */
+static std::set<tree> crug_unsafe_blocks;
+
 /* The artificial function declarations used by the intrinsics.  They exist
    only inside the front end: every call is removed by this pass.  */
 
@@ -236,6 +250,12 @@ bool
 crug_ownership_enabled (void)
 {
   return crug_feature_enabled (CRUG_FEAT_OWNERSHIP);
+}
+
+bool
+crug_strict_enabled (void)
+{
+  return crug_feature_enabled (CRUG_FEAT_STRICT);
 }
 
 bool
@@ -458,6 +478,76 @@ crug_is_owning_decl (tree decl)
 {
   return (decl != NULL_TREE && DECL_P (decl) && DECL_NAME (decl) != NULL_TREE
 	  && crug_owning_uids.count (DECL_UID (decl)) != 0);
+}
+
+void
+crug_mark_raw_decl (tree decl, location_t loc)
+{
+  if (decl == NULL_TREE || decl == error_mark_node || !DECL_P (decl))
+    return;
+
+  if (TREE_CODE (decl) == TYPE_DECL)
+    {
+      error_at (loc, "a Crug qualifier cannot be attached to a typedef "
+		"[crug-TYPE-001]");
+      return;
+    }
+
+  if (DECL_NAME (decl) == NULL_TREE)
+    return;
+
+  if (TREE_CODE (decl) == FUNCTION_DECL)
+    {
+      /* 'raw Foo *f (void)' declares a function that returns an unmanaged
+	 pointer: the qualifier belongs to the return type, and the function
+	 itself is not raw.  */
+      crug_raw_uids.insert (DECL_UID (decl));
+      return;
+    }
+
+  tree type = TREE_TYPE (decl);
+  if (type == NULL_TREE || type == error_mark_node)
+    return;
+
+  if (TREE_CODE (type) == ARRAY_TYPE)
+    type = TREE_TYPE (type);
+
+  if (TREE_CODE (type) != POINTER_TYPE)
+    {
+      error_at (loc, "a %<raw%> declarator must have pointer type "
+		"[crug-TYPE-001]");
+      return;
+    }
+
+  if (TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
+    {
+      error_at (loc, "a %<raw%> declarator cannot have pointer-to-function "
+		"type [crug-TYPE-005]");
+      return;
+    }
+
+  crug_raw_uids.insert (DECL_UID (decl));
+}
+
+bool
+crug_is_raw_decl (tree decl)
+{
+  return (decl != NULL_TREE && DECL_P (decl) && DECL_NAME (decl) != NULL_TREE
+	  && crug_raw_uids.count (DECL_UID (decl)) != 0);
+}
+
+void
+crug_mark_unsafe_block (tree bind)
+{
+  if (bind != NULL_TREE && bind != error_mark_node)
+    crug_unsafe_blocks.insert (bind);
+}
+
+bool
+crug_is_unsafe_block (tree bind)
+{
+  return (bind != NULL_TREE && bind != error_mark_node
+	  && crug_unsafe_blocks.count (bind) != 0);
 }
 
 void
@@ -1590,6 +1680,32 @@ check_adopt (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
       warn_adopt_signature (ctx, fn, TREE_TYPE (raw), loc);
       return NULL_TREE;
     }
+
+  /* adopt takes ownership of its operand.  When that operand is an owned
+     lvalue, adopt consumes it exactly as move does; the destructor attached
+     to the new binding is the one given here (ADR 0004 D10).  */
+  tree operand = raw;
+  STRIP_NOPS (operand);
+  if ((TREE_CODE (operand) == VAR_DECL || TREE_CODE (operand) == PARM_DECL)
+      && crug_is_owning_decl (operand))
+    {
+      crug_state st = state_of (env, operand);
+      if (st == CRUG_MOVED)
+	error_at (loc, "use of moved value %qD [crug-UAM-001]", operand);
+      else if (st == CRUG_MAYBE_MOVED)
+	error_at (loc, "use of possibly-moved value %qD after a branch join "
+		  "[crug-UAM-004]", operand);
+      else
+	{
+	  bool shared = false;
+	  bool mutborrow = false;
+	  if (has_live_borrow (ctx, operand, &shared, &mutborrow))
+	    error_at (loc, "cannot move %qD while it is borrowed "
+		      "[crug-BORROW-004]", operand);
+	}
+      env[operand] = crug_ostate (CRUG_MOVED, NULL_TREE);
+    }
+
   return fn;
 }
 
@@ -1999,22 +2115,53 @@ is_setjmp_call (tree t)
 	 || strcmp (name, "__sigsetjmp") == 0;
 }
 
-static void
-warn_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc)
+static bool
+is_longjmp_call (tree t)
 {
+  tree fn = CALL_EXPR_FN (t);
+  if (fn != NULL_TREE && TREE_CODE (fn) == ADDR_EXPR)
+    fn = TREE_OPERAND (fn, 0);
+  if (fn == NULL_TREE || TREE_CODE (fn) != FUNCTION_DECL
+      || DECL_NAME (fn) == NULL_TREE)
+    return false;
+  const char *name = IDENTIFIER_POINTER (DECL_NAME (fn));
+  return strcmp (name, "longjmp") == 0
+	 || strcmp (name, "_longjmp") == 0
+	 || strcmp (name, "siglongjmp") == 0;
+}
+
+/* The policy for non-local jumps (ADR 0021 D6).  Under -fcrug-strict a
+   setjmp or longjmp bypasses automatic destruction, so the call itself is an
+   error outside an unsafe block; inside one the programmer takes
+   responsibility and nothing is reported.  In hybrid mode the earlier
+   Phase-5 warning stays: a setjmp that skips live destructors is reported
+   once per owned object (crug-DROP-003).  */
+
+static void
+check_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc,
+	      bool setjmp_p)
+{
+  if (crug_feature_enabled (CRUG_FEAT_STRICT))
+    {
+      if (ctx.unsafe_depth == 0)
+	error_at (loc, "%qs bypasses automatic destruction; call it inside an "
+		  "%<unsafe%> block under %<-fcrug-strict%> [crug-SAFE-005]",
+		  setjmp_p ? "setjmp" : "longjmp");
+      return;
+    }
+
+  if (!setjmp_p)
+    return;
+
   for (state_map::const_iterator i = env.begin (); i != env.end (); ++i)
     if (i->second.state == CRUG_OWNED && i->second.dtor != NULL_TREE)
       {
 	tree d = i->first;
 	if (!ctx.warned_setjmp.insert (d).second)
 	  continue;
-	if (crug_feature_enabled (CRUG_FEAT_STRICT))
-	  error_at (loc, "destructors between %<setjmp%> and %<longjmp%> may "
-		    "be skipped for %qD [crug-DROP-003]", d);
-	else
-	  warning_at (loc, OPT_Wcrug_setjmp_drops,
-		      "destructors between %<setjmp%> and %<longjmp%> may be "
-		      "skipped for %qD [crug-DROP-003]", d);
+	warning_at (loc, OPT_Wcrug_setjmp_drops,
+		    "destructors between %<setjmp%> and %<longjmp%> may be "
+		    "skipped for %qD [crug-DROP-003]", d);
       }
 }
 
@@ -2124,6 +2271,122 @@ check_borrow_call_args (tree call, location_t loc)
     }
 }
 
+/* The declaration E names, after removing conversions, or NULL.  Used by
+   the strict-mode checks, which reason about the object a pointer came
+   from.  */
+
+static tree
+nop_decl (tree e)
+{
+  if (e == NULL_TREE || e == error_mark_node)
+    return NULL_TREE;
+  tree r = e;
+  STRIP_NOPS (r);
+  if (TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL
+      || TREE_CODE (r) == FIELD_DECL)
+    return r;
+  return NULL_TREE;
+}
+
+/* True when the strict-mode checks apply at this point: -fcrug-strict is
+   active and the statement is not inside an 'unsafe' block (ADR 0021 D3).  */
+
+static bool
+strict_active (crug_fn_ctx &ctx)
+{
+  return crug_feature_enabled (CRUG_FEAT_STRICT) && ctx.unsafe_depth == 0;
+}
+
+/* What a call may do with an owned value under -fcrug-strict: transfer it to
+   an 'own' parameter through move(), view it through a 'ref' or 'mut'
+   parameter, or hand it to an unmanaged parameter after release().  Anything
+   else leaves checked code without an explicit act, so strict mode reports it
+   (ADR 0021 D4).  */
+
+static void
+check_strict_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
+{
+  if (!strict_active (ctx))
+    return;
+
+  tree fndecl = NULL_TREE;
+  tree fn = CALL_EXPR_FN (call);
+  if (fn != NULL_TREE)
+    {
+      tree f = fn;
+      STRIP_NOPS (f);
+      if (TREE_CODE (f) == ADDR_EXPR)
+	f = TREE_OPERAND (f, 0);
+      if (TREE_CODE (f) == FUNCTION_DECL)
+	fndecl = f;
+    }
+
+  for (int i = 0; i < call_expr_nargs (call); i++)
+    {
+      tree d = nop_decl (CALL_EXPR_ARG (call, i));
+      if (d == NULL_TREE || !crug_is_owning_decl (d))
+	continue;
+
+      tree parm = NULL_TREE;
+      if (fndecl != NULL_TREE)
+	{
+	  parm = DECL_ARGUMENTS (fndecl);
+	  for (int n = 0; parm != NULL_TREE && n < i; n++)
+	    parm = DECL_CHAIN (parm);
+	  if (parm != NULL_TREE && TREE_CODE (parm) != PARM_DECL)
+	    parm = NULL_TREE;
+	}
+
+      if (parm != NULL_TREE && crug_is_owning_decl (parm))
+	error_at (loc, "an owned value passed to an %<own%> parameter must be "
+		  "moved explicitly: write move (%qD) [crug-OWN-011]", d);
+      else if (parm != NULL_TREE && crug_is_borrow_decl (parm, NULL))
+	/* A view: the caller keeps ownership, nothing moves.  */
+	continue;
+      else if (fndecl != NULL_TREE)
+	error_at (loc, "an owned value passed to %qD has no ownership "
+		  "contract; release (%qD) first, or use an %<unsafe%> block "
+		  "[crug-OWN-012]", fndecl, d);
+      else
+	error_at (loc, "an owned value passed to a function without an "
+		  "ownership contract; release (%qD) first, or use an "
+		  "%<unsafe%> block [crug-OWN-012]", d);
+    }
+}
+
+/* Strict-mode check of an explicit cast (ADR 0021 D5).  The caller has
+   already established that the cast is not inside an unsafe block.  */
+
+void
+crug_strict_check_cast (location_t loc, tree to, tree from, tree operand)
+{
+  if (!crug_feature_enabled (CRUG_FEAT_STRICT)
+      || to == NULL_TREE || from == NULL_TREE)
+    return;
+
+  tree d = nop_decl (operand);
+  if (d != NULL_TREE && crug_is_owning_decl (d) && POINTER_TYPE_P (to))
+    {
+      error_at (loc, "an owned value cannot be converted to an unmanaged "
+		"pointer; release (%qD) first, or use an %<unsafe%> block "
+		"[crug-SAFE-003]", d);
+      return;
+    }
+
+  bool ptr_to_int = INTEGRAL_TYPE_P (to) && POINTER_TYPE_P (from);
+  bool int_to_ptr = POINTER_TYPE_P (to) && INTEGRAL_TYPE_P (from);
+  if (!ptr_to_int && !int_to_ptr)
+    return;
+
+  /* The null pointer constant is an integer that names no address.  */
+  if (operand != NULL_TREE && TREE_CODE (operand) == INTEGER_CST
+      && integer_zerop (operand))
+    return;
+
+  error_at (loc, "conversion between an integer and a pointer outside an "
+	    "%<unsafe%> block [crug-SAFE-002]");
+}
+
 static void
 walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 {
@@ -2167,8 +2430,11 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	      }
 	  }
 	if (is_setjmp_call (t))
-	  warn_setjmp (ctx, env, loc);
+	  check_setjmp (ctx, env, loc, true);
+	else if (is_longjmp_call (t))
+	  check_setjmp (ctx, env, loc, false);
 	check_borrow_call_args (t, loc);
+	check_strict_call_args (ctx, t, loc);
 	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);
 	for (int i = 0; i < call_expr_nargs (t); i++)
 	  walk_expr (ctx, env, CALL_EXPR_ARG (t, i), loc);
@@ -2257,6 +2523,22 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    walk_expr (ctx, env, rhs, loc);
 	  }
 	return;
+      }
+
+    case INDIRECT_REF:
+    case ARRAY_REF:
+    case MEM_REF:
+      {
+	/* Strict mode: a raw pointer may be dereferenced only inside an
+	   unsafe block (ADR 0021 D2).  A raw declaration is the only way the
+	   analysis knows a pointer is unchecked; pointers that arrive from
+	   elsewhere are covered by the conversion rules.  */
+	tree base = TREE_OPERAND (t, 0);
+	tree d = nop_decl (base);
+	if (d != NULL_TREE && crug_is_raw_decl (d) && strict_active (ctx))
+	  error_at (loc, "dereference of %<raw%> pointer %qD outside an "
+		    "%<unsafe%> block [crug-SAFE-001]", d);
+	break;
       }
 
     case TARGET_EXPR:
@@ -2420,6 +2702,9 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     case BIND_EXPR:
       {
 	size_t depth = ctx.frames.size ();
+	bool unsafe_block = crug_is_unsafe_block (t);
+	if (unsafe_block)
+	  ctx.unsafe_depth++;
 	push_frame (ctx, t);
 	bool reach = walk_stmt (ctx, env, BIND_EXPR_BODY (t), loc);
 	if (reach)
@@ -2431,6 +2716,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    dump_drops (CRUG_EXIT_SCOPE_END, loc, drops);
 	  }
 	pop_frame (ctx, env);
+	if (unsafe_block)
+	  ctx.unsafe_depth--;
 	return reach;
       }
 
@@ -2732,6 +3019,12 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
       }
 
     case ASM_EXPR:
+      /* An asm statement can change memory that Crug tracks without the
+	 analysis seeing it, so strict mode confines it to unsafe blocks
+	 (ADR 0021 D7).  */
+      if (strict_active (ctx))
+	error_at (loc, "an %<asm%> statement outside an %<unsafe%> block can "
+		  "change memory that Crug tracks [crug-SAFE-004]");
       return true;
 
     default:
@@ -2740,6 +3033,16 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	  enum crug_intrinsic kind;
 	  if (TREE_CODE (t) == CALL_EXPR && is_intrinsic_call (t, &kind))
 	    {
+	      /* A discarded adopt() attaches its destructor to nothing and
+		 would leak the object, so it is rejected instead of being
+		 lowered away silently (ADR 0004 D10).  */
+	      if (kind == CRUG_INTR_ADOPT)
+		{
+		  error_at (loc, "the result of %<adopt%> is discarded; "
+			    "initialize an owned declaration with it "
+			    "[crug-OWN-013]");
+		  return true;
+		}
 	      walk_expr (ctx, env, t, loc);
 	      if (kind != CRUG_INTR_DROP)
 		ctx.stmt_replace[t] = build1 (NOP_EXPR, void_type_node,

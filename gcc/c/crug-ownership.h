@@ -33,6 +33,32 @@ extern void crug_mark_owning_decl (tree decl, location_t loc);
 /* True when DECL was recorded as owning.  */
 extern bool crug_is_owning_decl (tree decl);
 
+/* Record DECL as a raw (unchecked) pointer for the current translation
+   unit.  A raw pointer carries no ownership and no borrow; in strict mode
+   it may be dereferenced only inside an unsafe block (ADR 0021).  */
+extern void crug_mark_raw_decl (tree decl, location_t loc);
+
+/* True when DECL was recorded as raw.  */
+extern bool crug_is_raw_decl (tree decl);
+
+/* Mark the compound statement of an 'unsafe { }' block, so that the
+   strict-mode checks stand down inside it.  The mark is analysis metadata:
+   it costs nothing at run time (RFC-0001 section 20).  */
+extern void crug_mark_unsafe_block (tree bind);
+
+/* True when BIND is the compound statement of an unsafe block.  */
+extern bool crug_is_unsafe_block (tree bind);
+
+/* True when -fcrug-strict (or a flag that implies it) is active.  */
+extern bool crug_strict_enabled (void);
+
+/* Strict-mode check of an explicit cast of OPERAND to TO, whose source type
+   is FROM.  Reports crug-SAFE-002 for a conversion between an integer and a
+   pointer and crug-SAFE-003 for an owned value converted to an unmanaged
+   pointer.  The caller is responsible for the unsafe-block test.  */
+extern void crug_strict_check_cast (location_t loc, tree to, tree from,
+				    tree operand);
+
 /* Record DECL as a borrow binding.  IS_MUT selects an exclusive borrow.
    Reports a diagnostic and does not record it when the declarator cannot
    hold a borrow.  */

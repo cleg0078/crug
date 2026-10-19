@@ -5801,6 +5801,8 @@ start_decl (struct c_declarator *declarator, struct c_declspecs *declspecs,
 
   if (declspecs->crug_qual == CRUG_QUAL_OWN)
     crug_mark_owning_decl (decl, DECL_SOURCE_LOCATION (decl));
+  else if (declspecs->crug_qual == CRUG_QUAL_RAW)
+    crug_mark_raw_decl (decl, DECL_SOURCE_LOCATION (decl));
   else if (declspecs->crug_qual == CRUG_QUAL_REF
 	   || declspecs->crug_qual == CRUG_QUAL_MUT)
     crug_mark_borrow_decl (decl, declspecs->crug_qual == CRUG_QUAL_MUT,
@@ -6442,6 +6444,8 @@ push_parm_decl (const struct c_parm *parm, tree *expr)
     {
       if (parm->specs->crug_qual == CRUG_QUAL_OWN)
 	crug_mark_owning_decl (decl, parm->loc);
+      else if (parm->specs->crug_qual == CRUG_QUAL_RAW)
+	crug_mark_raw_decl (decl, parm->loc);
       else if (parm->specs->crug_qual == CRUG_QUAL_REF
 	       || parm->specs->crug_qual == CRUG_QUAL_MUT)
 	crug_mark_borrow_decl (decl, parm->specs->crug_qual == CRUG_QUAL_MUT,
@@ -9139,6 +9143,16 @@ grokfield (location_t loc,
       && value != error_mark_node)
     error_at (loc, "a borrowed member cannot be stored in a structure "
 	      "[crug-BORROW-007]");
+  else if (declspecs->crug_qual == CRUG_QUAL_RAW && value != error_mark_node)
+    {
+      if (width != NULL_TREE
+	  || DECL_NAME (value) == NULL_TREE
+	  || c_flexible_array_member_type_p (TREE_TYPE (value)))
+	error_at (loc, "qualifier is not allowed on a bit-field, flexible "
+		  "array member or unnamed member [crug-TYPE-006]");
+      else
+	crug_mark_raw_decl (value, DECL_SOURCE_LOCATION (value));
+    }
   else if (declspecs->crug_qual == CRUG_QUAL_OWN && value != error_mark_node)
     {
       if (width != NULL_TREE
