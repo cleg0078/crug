@@ -1,0 +1,38 @@
+{
+  "machine": "x86_64",
+  "plain": {
+    "list -O0": 2318848,
+    "list -O2": 1738320,
+    "list -O3": 1843023,
+    "stencil -O0": 20396102,
+    "stencil -O2": 5461504,
+    "stencil -O3": 1933374,
+    "strcopy -O0": 19153257,
+    "strcopy -O2": 4854175,
+    "strcopy -O3": 349899,
+    "vadd -O0": 14399597,
+    "vadd -O2": 4164679,
+    "vadd -O3": 1481151
+  },
+  "plain_lto": {
+    "list": 1843205,
+    "stencil": 1927170,
+    "strcopy": 348491,
+    "vadd": 1452158
+  },
+  "plain_obj": {
+    "list -O0": "6722f76bb7b2c7c4db2a11e3fd2b8caa2679be1032f89e24adfe9af3cb2b1d6c",
+    "list -O2": "98f878f47ce209391c11d625a784f34ab5ce39c23a93d08660b7d9c40ef66462",
+    "list -O3": "98f878f47ce209391c11d625a784f34ab5ce39c23a93d08660b7d9c40ef66462",
+    "stencil -O0": "749fde0d9378987dc9db86ff0a9006d4be2f826bd30da94fb1cc7827cd010a77",
+    "stencil -O2": "eaf1e8a4f506f281f4b2e618b85cec7d46f6c73f6c2e5be5c64a87ce63cfa217",
+    "stencil -O3": "6fd8bdfcefeb324b4bfc27cf290ff01ad3bb9aa2aa642e6479df3bea9b4fb5e8",
+    "strcopy -O0": "d84040abf36a3a9f83a65a6025e48e3ac3133a7182a1f165b472939896a2461b",
+    "strcopy -O2": "accdf5a0f4a3d9d419e5039ebd30a8ca1d96d4868bbd6496015c79ee10504476",
+    "strcopy -O3": "58f352ee03999866f496f140791368b7f86ef747abea812fe4faa5fc6f5f3dc9",
+    "vadd -O0": "550752a2725ff4928445d313f6fe1674155ae3847a15ab323bbacdec916818c3",
+    "vadd -O2": "1987291d70a90f0547fd20f426d82b4999010fce230442f3907adeadb7295c42",
+    "vadd -O3": "1fd5764a77619a04b0b79309ca9a4598db1426f81af73bad61afce8650dcd012"
+  },
+  "recorded": "2026-10-19"
+}

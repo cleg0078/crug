@@ -1,10 +1,41 @@
 # Benchmarks
 
-This directory holds the CRUG benchmark corpus and its driver. It is empty in
-the initial import: Phase 21 (performance qualification) populates it together
-with the parity harness.
+This directory holds the CRUG benchmark corpus and its driver. Phase 11
+(ownership-aware optimization) populates the first matrix; Phase 21
+(performance qualification) extends it with the parity harness.
 
-Rules that apply to every benchmark added here:
+## The three-arm alias matrix
+
+`bench/kernels/` has four kernels: `vadd`, `stencil`, `strcopy` and
+`list`. Each kernel is split into
+
+- `<kernel>_kernel.c` - the loop, compiled three ways with
+  `-DBENCH_ARM=0|1|2`: plain C pointers, C + hand-written `restrict`, and
+  Crug `mut`/`ref` parameters with `-fcrug-borrow -fcrug-alias-facts`;
+- `<kernel>_main.c` - one plain-C `main` shared by all three arms, which
+  allocates the buffers, times the kernel and prints
+  `<name> <min-ns> <checksum>`.
+
+The shared main is what makes the matrix meaningful: because the Crug ABI is
+the C ABI, the three executables differ only in the kernel translation unit, so
+the Crug and restrict kernel objects can be required to be **byte-identical**.
+That identity is the primary evidence of Phase 11; the wall-clock ratio is
+reported as secondary evidence. See `docs/crug/OPTIMIZATION.md`, ADR 0010 and
+`EXIT-GATES.md` phase 11.
+
+## Driver
+
+    bench/run.py --matrix alias --check     # 5% band, identity, timings
+    bench/run.py --matrix alias --lto       # all arms build and agree under -flto
+    bench/run.py --record-baseline          # write bench/baseline.json
+    bench/run.py --plain-c --check          # plain C not degraded
+
+`CRUGC` selects the compiler (default `<repo>/gcc/crugc`). Build artefacts
+go to `build/bench/` and results to `bench/results/`; both are gitignored.
+Only `bench/baseline.json` (the recorded plain-C object digests and timings)
+is committed.
+
+## Rules
 
 - Each input records its provenance and licence in `bench/NOTICE`; per-input
   licences differ, so there is no blanket licence for this directory.
@@ -12,4 +43,8 @@ Rules that apply to every benchmark added here:
   particular the GPLv2 Linux kernel source is consumed from `sources/`, never
   copied here).
 - Results are written under `bench/results/`, which is gitignored; only the
-  driver, the corpus index and the recorded summary are committed.
+  driver, the corpus index and the recorded baseline are committed.
+- A timing band is only meaningful when the compiled code differs. If two arms
+  produce byte-identical kernel objects, their measured ratio is reported as
+  1.000; this host swings by more than a factor of two between runs of the same
+  executable.
