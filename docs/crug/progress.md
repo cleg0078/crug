@@ -9,8 +9,10 @@ reproducible GCC build, the `crugc` driver (Phase 1), and from Phases 4 and 5 th
 first Crug productions - `own`, `move`, automatic destruction, `adopt`,
 `release` and `drop` - with their analysis, diagnostics and dg suites, from
 Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
-Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
-is no `libcrug` and no goroutine or channel support yet; the Phase 10 safe
+Phase 7 last-use lifetimes and the depth-zero interprocedural policy. Phase 13
+adds `libcrug`'s platform abstraction layer (`libcrug/pal`, two backends, one
+contract suite) but no scheduler; there is no goroutine or channel support yet;
+the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
@@ -231,6 +233,33 @@ thirty programs are compile-only fragments with no test suite (amendment A-15).
 The Phase 12 gate (amendment A-15) passes 7/7 at `3aa78e7` (logs under
 `docs/crug/gates/phase-12/3aa78e7/`), so M12 is awarded.
 
+Phase 13 creates `libcrug`, the runtime tree, with one rule: the core may reach
+an operating system only through `libcrug/pal/include/crug_pal.h`. The header
+froze PAL v1 (ADR 0011, `docs/crug/PAL.md`): thread create/join, CPU count,
+wait/wake on a 32-bit atomic, memory reserve/commit/protect-guard/release, a
+monotonic clock, sleep, a per-thread stable error slot and idempotent shutdown.
+Two backends implement it - a fake one that runs a thread's entry inside `join`,
+never blocks on a wait, backs memory with `malloc` and declines guard pages, and
+a Linux one on `pthread`/`futex`/`mmap`/`clock_nanosleep`. The twelve-case
+contract suite lives in `libcrug/core/pal_contract.c` (it includes only
+`<crug_pal.h>` and language headers, and reports through a callback), so the
+core is exercised against the fake PAL exactly as the gate phrase says.
+Measured: `pal-contract[fake]: 12 cases, 0 failed, 1 skipped`,
+`pal-contract[linux]: 12 cases, 0 failed, 0 skipped` plus
+`guard-fault: SIGSEGV on the guarded page as claimed`,
+`check-pal: fake and linux share 12 contract cases, 0 failures; fake backend
+links no system primitive, guard pages fault on linux`, and
+`lint-no-os-apis: 2 file(s) under libcrug/core, 0 operating-system primitive
+references`. The lint matches names (including in comments) against the gate
+list plus an extended list; architecture code stays out of the core, and the
+layout follows the master specification's two axes (`libcrug/pal` for the OS,
+`libcrug/arch` for the CPU) rather than the draft gate's `libcrug/pal/arch`.
+The poller is deliberately not in v1: the phase's own non-goal defers
+pollers and io_uring to post-1.0, and an interface with no client cannot be
+validated (ADR 0011 D2). The Phase 13 gate (amendment A-16) runs seven
+runnable checks; M13 is awarded when `scripts/gate.sh --run phase-13` archives
+a 7/7 run.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -304,6 +333,7 @@ superseding ADR and owner ratification.
 | The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/payload enums/`match`/checked indexing in `gcc/c/crug-safe.cc`; 77-pass dg suite, `scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh` and `scripts/check-owned-payloads.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increments 1, 2a and 2b; phase-10 gate 10/10 |
 | Ownership proved exclusivity but the optimizer never saw it, so `mut` was checked and then discarded | `-fcrug-alias-facts` (ADR 0010): `mut`/`own` parameters as `restrict`, BORROW-021..023 at unproven call sites, `-fcrug-dump=alias`, `bench/` three-arm matrix (Crug kernel objects byte-identical to the hand-written restrict twins, 8/8), `scripts/check-optimization.sh`, `scripts/check-stop-conditions.sh`; `docs/crug/OPTIMIZATION.md`; phase-11 gate 7/7 |
 | Migrating C to Crug was unspecified, so "safe mode" had no proof rule and no corpus | `c2crug` (`--analyze`/`--safe`/`--diff`), ADR 0023, `docs/crug/C2CRUG.md`, `migration/` (8 programs with expected output), `docs/crug/c2crug-report.schema.json`, `scripts/validate-c2crug-report.py`, `scripts/c2crug-diff.sh`, `scripts/check-c2crug.sh`, `scripts/test-c2crug.py`; 5 own applied, 5 raw preserved, 4.5% churn, comments unchanged; phase-12 gate 7/7 |
+| The runtime could reach the operating system directly, so every port would become a scheduler fork | `libcrug/pal/include/crug_pal.h` (PAL v1, ADR 0011), `libcrug/core/pal_contract.c` (twelve backend-agnostic cases), `libcrug/pal/fake` and `libcrug/pal/linux`, `scripts/check-pal.sh` (backend parity, no system symbol in the fake object), `scripts/lint-no-os-apis.sh`, `make check-PAL`, `docs/crug/PAL.md`; phase-13 gate A-16 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -318,7 +348,8 @@ superseding ADR and owner ratification.
 | -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phases 13-14 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | a later phase (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
-| -  | `chan T` does not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 13-14 (`chan`); a later ownership increment for aggregates |
+| -  | `chan T` does not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 14-16 (`chan`); a later ownership increment for aggregates |
+| -  | PAL v1 has no I/O poller and no second OS backend: the poller is deferred by the phase-13 non-goal (RFC-0001 section 32) and a Windows/Darwin/BSD/bare-metal backend is Phase 18 | ADR 0011 D2 and D9; a v1.1 amendment when an I/O phase needs the poller |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
@@ -326,11 +357,12 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Push and open Phase 13** (the platform abstraction layer): the Phase 12
-   gate passes 7/7 at the gate commit; push the branch, then write the PAL v1
-   contract ADR (required file name `0011-pal-contract`) and build
-   `libcrug/core` against the fake PAL. Phase 13's gate also needs
-   `scripts/lint-no-os-apis.sh`, which does not exist yet.
+1. **Push and open Phase 14** (goroutine and task runtime MVP): the Phase 13
+   gate passes 7/7 at its gate commit; push the branch, then write ADR 0008
+   (goroutine stack model) and ADR 0009 (scheduler model), which the required
+   ADR list fixes and which the next phase cannot start without. The task and
+   scheduler code goes in `libcrug/core/` on top of `crug_pal.h`, and the
+   x86-64 System V context switch goes in `libcrug/arch/x86_64/sysv/`.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

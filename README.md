@@ -70,8 +70,14 @@ every other line byte-identical and reports the case as `raw`; the phase rests o
 a corpus with its own green test suite (`migration/`) and a machine-readable
 report - see [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) and
 [ADR 0023](docs/crug/adr/0023-c2crug-migration.md). The Phase 12 gate passes 7/7 at
-`3aa78e7` (logs under `docs/crug/gates/phase-12/3aa78e7/`). `libcrug`, goroutines and channels are
-not implemented. See
+`3aa78e7` (logs under `docs/crug/gates/phase-12/3aa78e7/`). Phase 13 adds `libcrug`'s
+platform abstraction layer: one header (`libcrug/pal/include/crug_pal.h`) is the only
+way the runtime may touch an operating system, two backends implement it (a fake one
+with no OS at all and a Linux one on `pthread`/`futex`/`mmap`), and a twelve-case
+contract suite runs against both so a port is a backend and not a fork - see
+[docs/crug/PAL.md](docs/crug/PAL.md) and
+[ADR 0011](docs/crug/adr/0011-pal-contract.md). The scheduler, goroutines,
+channels and tasks are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -95,7 +101,9 @@ registered in [docs/crug/ABI.md](docs/crug/ABI.md). The safe core types are
 digested in [docs/crug/SAFE-TYPES.md](docs/crug/SAFE-TYPES.md) (what parses per
 flag, the frozen layouts, the bounds check, and what is still open). The C-to-Crug
 migration tool is specified in [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) (proof
-rules, modes, confidence, report, corpus). The C FFI
+rules, modes, confidence, report, corpus). The runtime's operating-system
+boundary is specified in [docs/crug/PAL.md](docs/crug/PAL.md) (contract, error
+model, backends, suite). The C FFI
 metadata format is
 [docs/crug/adr/0007-ffi-metadata-format.md](docs/crug/adr/0007-ffi-metadata-format.md)
 (`.crugffi` v1, with a reference fixture at
@@ -132,6 +140,11 @@ procedure and a 31-check acceptance matrix, governed by
 - A conservative C-to-Crug migration tool, `c2crug`: it annotates only proven
   ownership, reports everything else as `raw` with evidence, and never claims
   the migrated program is memory-safe (Phase 12, ADR 0023).
+- A platform abstraction layer: `libcrug` reaches an operating system only
+  through `libcrug/pal/include/crug_pal.h`, a fake backend runs the runtime's
+  contract suite with no OS at all, and a Linux backend maps the same twelve
+  cases onto `pthread`/`futex`/`mmap`; the core names no system primitive
+  (Phase 13, ADR 0011).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -190,7 +203,11 @@ three-arm matrix (`--matrix alias --check`, `--matrix alias --lto`,
 check-C2CRUG` runs the migration tool's unit checks and the whole flow on
 `migration/` (transform, compile with `crugc`, differential run against the
 original output, report validation, churn band); `docs/crug/C2CRUG.md` describes
-them. Runnable programs that need no harness live in
+them. `make check-PAL` builds and runs the twelve-case PAL contract suite on
+both backends, `scripts/check-pal.sh` asserts backend parity and that the fake
+backend links no system symbol, and `scripts/lint-no-os-apis.sh libcrug/core`
+asserts that the core names no OS primitive; `docs/crug/PAL.md` describes them.
+Runnable programs that need no harness live in
 [examples/](examples/README.md), one per Phase 4-11 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
