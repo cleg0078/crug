@@ -70,6 +70,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/crug-common.h"
 #include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
+#include "crug-safe.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
 #include "memmodel.h"
@@ -671,6 +672,62 @@ crug_qualifier_type_name_p (c_parser *parser, unsigned int n)
 	  && c_parser_next_tokens_start_declaration (parser, n + 1));
 }
 
+/* Crug safe core types (slice<T>, option<T>, result<T, E>), the value
+   constructors (some, none, ok, err, slice) and 'match' are parsed by the
+   helpers at the end of this file.  They are declared here because the
+   declaration-specifier, statement and postfix-expression hooks come
+   earlier in the file.  */
+
+static tree crug_parse_generic_type (c_parser *);
+static struct c_expr crug_parse_constructor (c_parser *, int, location_t);
+static tree crug_parse_match (c_parser *);
+static bool crug_generic_start_p (c_parser *, unsigned int);
+static int crug_ctor_word (tree);
+
+/* The type that gives a value constructor its meaning (ADR 0018 D7): the
+   declared type of the object being initialized, or the return type of the
+   function for a return statement.  NULL_TREE outside such a context.  */
+static tree crug_ctor_hint;
+
+/* One '>' consumed by splitting a '>>' token while parsing nested type
+   arguments.  */
+static int crug_pending_greater;
+
+/* True when ID is one of the built-in generic type names enabled by the
+   current feature set (ADR 0018 D7).  */
+static bool
+crug_generic_name_p (tree id)
+{
+  if (id == NULL_TREE || TREE_CODE (id) != IDENTIFIER_NODE)
+    return false;
+
+  const char *name = IDENTIFIER_POINTER (id);
+  if (crug_slices_enabled () && strcmp (name, "slice") == 0)
+    return true;
+  if (crug_result_enabled ()
+      && (strcmp (name, "option") == 0 || strcmp (name, "result") == 0))
+    return true;
+  return false;
+}
+
+/* True when the tokens at N look like a generic type use: an undeclared
+   built-in name, '<', a balanced type-argument list, and after the closing
+   the word is one of the constructors and is not declared, so in a
+   declaration context the '<' can only open a type argument list; a
+   declared object or function wins, which is the shadowing rule of
+   ADR 0018 D7.  */
+static bool
+crug_generic_start_p (c_parser *parser, unsigned int n)
+{
+  c_token *token = c_parser_peek_nth_token (parser, n);
+  return (token->type == CPP_NAME
+	  && token->id_kind == C_ID_ID
+	  && token->value != NULL_TREE
+	  && lookup_name (token->value) == NULL_TREE
+	  && crug_generic_name_p (token->value)
+	  && c_parser_peek_nth_token (parser, n + 1)->type == CPP_LESS);
+}
+
 /* Return a pointer to the Nth token from PARSER, reading it in as a
    raw look-ahead token if necessary.  The N-1th token is already read
    in.  Raw look-ahead tokens remain available for when the non-raw
@@ -786,6 +843,12 @@ c_parser_next_tokens_start_typename (c_parser *parser, enum c_lookahead_kind la,
 				     unsigned int n = 1)
 {
   c_token *token = c_parser_peek_nth_token (parser, n);
+
+  /* A generic type name such as slice<char> is a type-name (ADR 0018
+     D7).  */
+  if (crug_generic_start_p (parser, n))
+    return true;
+
   if (c_token_starts_typename (token))
     return true;
 
@@ -997,6 +1060,10 @@ c_parser_next_token_starts_declspecs (c_parser *parser)
   if (crug_qualifier_token_p (parser))
     return true;
 
+  /* A generic type name starts declaration specifiers too (ADR 0018 D7).  */
+  if (crug_generic_start_p (parser, 1))
+    return true;
+
   return c_token_starts_declspecs (token);
 }
 
@@ -1029,6 +1096,11 @@ c_parser_next_tokens_start_declaration (c_parser *parser, unsigned int n)
      and diagnosed as an undeclared identifier.  */
   if (crug_qualifier_token_kind_n (parser, n) != CRUG_QUAL_NONE)
     return c_parser_next_tokens_start_declaration (parser, n + 1);
+
+  /* Likewise a generic type name starts a declaration when a declarator
+     follows the closing '>' (ADR 0018 D7).  */
+  if (crug_generic_start_p (parser, n))
+    return true;
 
   /* A static assertion is only a declaration if followed by a semicolon;
      otherwise, it may be an expression in C2Y.  */
@@ -3880,6 +3952,22 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	      continue;
 	    }
 
+	  /* A generic type name in a declaration specifier: slice<T>,
+	     option<T> or result<T, E> (ADR 0018 D7).  */
+	  if (!seen_type && crug_generic_start_p (parser, 1))
+	    {
+	      tree ty = crug_parse_generic_type (parser);
+	      seen_type = true;
+	      attrs_ok = true;
+	      t.kind = ctsk_typedef;
+	      t.spec = ty;
+	      t.expr = NULL_TREE;
+	      t.expr_const_operands = true;
+	      t.has_enum_type_specifier = false;
+	      declspecs_add_type (name_token->location, specs, t);
+	      continue;
+	    }
+
 	  gcc_assert (!c_parser_next_token_is_qualifier (parser));
 
 	  /* If we cannot accept a type, and the next token must start one,
@@ -5421,7 +5509,11 @@ c_parser_parms_declarator (c_parser *parser, bool id_list_ok, tree attrs,
       && c_parser_peek_2nd_token (parser)->type != CPP_MULT
       && c_parser_peek_2nd_token (parser)->type != CPP_OPEN_PAREN
       && c_parser_peek_2nd_token (parser)->type != CPP_OPEN_SQUARE
-      && c_parser_peek_2nd_token (parser)->type != CPP_KEYWORD)
+      && c_parser_peek_2nd_token (parser)->type != CPP_KEYWORD
+
+      /* 'slice<T> p' is a parameter declaration, not an identifier list
+	 (ADR 0018 D7).  */
+      && !crug_generic_start_p (parser, 1))
     {
       tree list = NULL_TREE, *nextp = &list;
       while (c_parser_next_token_is (parser, CPP_NAME)
@@ -6717,7 +6809,13 @@ c_parser_initializer (c_parser *parser, tree decl)
     {
       struct c_expr ret;
       location_t loc = c_parser_peek_token (parser)->location;
+      tree saved_hint = crug_ctor_hint;
+      if (decl != NULL_TREE && decl != error_mark_node
+	  && (crug_option_type_p (TREE_TYPE (decl))
+	      || crug_result_type_p (TREE_TYPE (decl))))
+	crug_ctor_hint = TREE_TYPE (decl);
       ret = c_parser_expr_no_commas (parser, NULL);
+      crug_ctor_hint = saved_hint;
       if (decl != error_mark_node && C_DECL_VARIABLE_SIZE (decl))
 	{
 	  error_at (loc,
@@ -8553,7 +8651,18 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
 	  else
 	    {
 	      location_t xloc = c_parser_peek_token (parser)->location;
+	      tree saved_hint = crug_ctor_hint;
+	      if (current_function_decl != NULL_TREE)
+		{
+		  tree ret_type
+		    = TREE_TYPE (TREE_TYPE (current_function_decl));
+		  if (ret_type != NULL_TREE
+		      && (crug_option_type_p (ret_type)
+			  || crug_result_type_p (ret_type)))
+		    crug_ctor_hint = ret_type;
+		}
 	      struct c_expr expr = c_parser_expression_conv (parser);
+	      crug_ctor_hint = saved_hint;
 	      mark_exp_read (expr.value);
 	      stmt = c_finish_return (EXPR_LOC_OR_LOC (expr.value, xloc),
 				      expr.value, expr.original_type,
@@ -8683,11 +8792,28 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
       break;
     case CPP_NAME:
       {
+	/* 'match (e) { ... }' is a statement form, not a call (ADR 0018
+	   D8).  It begins with '(', so a call is possible; the word must be
+	   undeclared and the result type must be a sum type.  */
+	tree id = c_parser_peek_token (parser)->value;
+	if (crug_feature_enabled (CRUG_FEAT_ADT)
+	    && c_parser_peek_token (parser)->id_kind == C_ID_ID
+	    && id != NULL_TREE
+	    && TREE_CODE (id) == IDENTIFIER_NODE
+	    && lookup_name (id) == NULL_TREE
+	    && strcmp (IDENTIFIER_POINTER (id), "match") == 0
+	    && c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN)
+	  {
+	    tree stmt = crug_parse_match (parser);
+	    if (stmt != NULL_TREE && stmt != error_mark_node)
+	      add_stmt (stmt);
+	    break;
+	  }
+
 	/* 'unsafe { ... }' is a statement form, not a call (RFC-0001
 	   section 20; ADR 0018 D5).  It begins with a brace, so a C parse
 	   cannot take it, and it is recognised only while the word is not
 	   declared.  */
-	tree id = c_parser_peek_token (parser)->value;
 	if (crug_ownership_enabled ()
 	    && c_parser_peek_token (parser)->id_kind == C_ID_ID
 	    && id != NULL_TREE
@@ -10765,7 +10891,8 @@ c_parser_cast_expression (c_parser *parser, struct c_expr *after)
      would require a 3-token lookahead.  */
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_qualifier_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)
+	  || crug_generic_start_p (parser, 2)))
     {
       struct c_declspecs *scspecs;
       struct c_type_name *type_name;
@@ -11058,7 +11185,8 @@ c_parser_sizeof_or_countof_expression (c_parser *parser, enum rid rid)
     in_sizeof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_qualifier_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)
+	  || crug_generic_start_p (parser, 2)))
     {
       /* Either sizeof ( type-name ) or sizeof unary-expression
 	 starting with a compound literal.  */
@@ -11162,7 +11290,8 @@ c_parser_alignof_expression (c_parser *parser)
   in_alignof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_qualifier_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)
+	  || crug_generic_start_p (parser, 2)))
     {
       /* Either __alignof__ ( type-name ) or __alignof__
 	 unary-expression starting with a compound literal.  */
@@ -12029,6 +12158,63 @@ c_parser_postfix_expression (c_parser *parser)
 	  {
 	    tree id = c_parser_peek_token (parser)->value;
 	    enum crug_intrinsic kind;
+	    int ctor;
+
+	    /* Value constructors are type-directed (ADR 0018 D7): some (v),
+	       none, ok (v) and err (e) take their type from the declaration
+	       or return statement being initialized.  A user declaration of
+	       the name wins, as for every contextual word.  */
+	    ctor = crug_ctor_word (id);
+	    if (ctor >= 0
+		&& lookup_name (id) == NULL_TREE
+		&& crug_result_enabled ())
+	      {
+		expr = crug_parse_constructor (parser, ctor, loc);
+		set_c_expr_source_range (&expr, tok_range);
+		break;
+	      }
+
+	    /* slice (ptr, len) builds a slice<T> over a pointer.  */
+	    if (id != NULL_TREE
+		&& lookup_name (id) == NULL_TREE
+		&& crug_slices_enabled ()
+		&& TREE_CODE (id) == IDENTIFIER_NODE
+		&& strcmp (IDENTIFIER_POINTER (id), "slice") == 0
+		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN)
+	      {
+		location_t slice_loc = c_parser_peek_token (parser)->location;
+		struct c_expr arg0, arg1;
+		c_parser_consume_token (parser);
+		if (!c_parser_require (parser, CPP_OPEN_PAREN,
+				       "expected %<(%>"))
+		  {
+		    expr.value = error_mark_node;
+		    break;
+		  }
+		arg0 = c_parser_expr_no_commas (parser, NULL);
+		if (c_parser_next_token_is (parser, CPP_COMMA))
+		  {
+		    c_parser_consume_token (parser);
+		    arg1 = c_parser_expr_no_commas (parser, NULL);
+		  }
+		else
+		  {
+		    error_at (slice_loc, "%<slice%> takes two arguments: "
+			      "slice (pointer, length) [crug-TYPE-012]");
+		    arg1.value = error_mark_node;
+		  }
+		c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+					   "expected %<)%>");
+		if (arg0.value == error_mark_node
+		    || arg1.value == error_mark_node)
+		  expr.value = error_mark_node;
+		else
+		  expr.value = crug_safe_slice_ctor (slice_loc, arg0.value,
+						     arg1.value);
+		set_c_expr_source_range (&expr, tok_range);
+		break;
+	      }
+
 	    if (id != NULL_TREE
 		&& lookup_name (id) == NULL_TREE
 		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN
@@ -14241,6 +14427,13 @@ c_parser_postfix_expression_after_primary (c_parser *parser,
 	      expr.value = build_omp_array_section (op_loc, expr.value, idx,
 						    len);
 	    }
+	  else if (expr.value != error_mark_node
+		   && crug_slice_type_p (TYPE_MAIN_VARIANT
+					 (TREE_TYPE (expr.value))))
+	    /* A slice is indexed through its pointer and length fields and
+	       bounds-checked unless -fno-crug-bounds-checks (ADR 0018 D7,
+	       Phase 10A).  */
+	    expr.value = crug_safe_slice_index (op_loc, expr.value, idx);
 	  else
 	    expr.value = build_array_ref (op_loc, expr.value, idx);
 
@@ -31616,6 +31809,590 @@ c_parser_parse_rtl_body (c_parser *parser, char *start_with_pass)
      START_WITH_PASS.  */
   run_rtl_passes (start_with_pass);
   return end_loc;
+}
+
+
+/* Crug safe core types: type parsing (ADR 0018 D7).
+
+   slice < type-name >
+   option < type-name >
+   result < type-name , type-name >
+
+   crug_generic_start_p has already established that the token sequence is a
+   type use followed by a declarator; these functions consume it.  */
+
+static void
+crug_take_type_close (c_parser *parser, location_t loc)
+{
+  if (crug_pending_greater > 0)
+    {
+      crug_pending_greater--;
+      return;
+    }
+  if (c_parser_next_token_is (parser, CPP_GREATER))
+    {
+      c_parser_consume_token (parser);
+      return;
+    }
+  if (c_parser_next_token_is (parser, CPP_RSHIFT))
+    {
+      /* '>>' closes two nested argument lists; remember the second.  */
+      c_parser_consume_token (parser);
+      crug_pending_greater++;
+      return;
+    }
+  error_at (loc, "expected %<'>%> to close the type argument list "
+	    "[crug-TYPE-014]");
+}
+
+static tree
+crug_parse_type_argument (c_parser *parser)
+{
+  struct c_type_name *tn = c_parser_type_name (parser, false);
+  bool abstract_ok = false;
+
+  if (tn == NULL)
+    return error_mark_node;
+  return groktypename (tn, NULL, &abstract_ok);
+}
+
+static tree
+crug_parse_generic_type (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  tree name = c_parser_peek_token (parser)->value;
+  const char *word = IDENTIFIER_POINTER (name);
+  tree args[2];
+  int nargs = 0;
+  tree type = error_mark_node;
+
+  c_parser_consume_token (parser);	/* the type constructor name */
+  c_parser_consume_token (parser);	/* '<' */
+
+  while (true)
+    {
+      tree arg = crug_parse_type_argument (parser);
+      if (nargs < 2)
+	args[nargs] = arg;
+      nargs++;
+      if (c_parser_next_token_is (parser, CPP_COMMA))
+	{
+	  c_parser_consume_token (parser);
+	  continue;
+	}
+      break;
+    }
+  crug_take_type_close (parser, loc);
+
+  if (nargs > 2)
+    {
+      error_at (loc, "%qs takes at most two type arguments [crug-TYPE-013]",
+		word);
+      return error_mark_node;
+    }
+
+  if (strcmp (word, "slice") == 0)
+    {
+      if (nargs != 1)
+	error_at (loc, "%<slice%> needs exactly one type argument "
+		  "[crug-TYPE-013]");
+      else if (args[0] == error_mark_node)
+	return error_mark_node;
+      else
+	type = crug_slice_type (args[0], loc);
+    }
+  else if (strcmp (word, "option") == 0)
+    {
+      if (nargs != 1)
+	error_at (loc, "%<option%> needs exactly one type argument "
+		  "[crug-TYPE-013]");
+      else if (args[0] == error_mark_node)
+	return error_mark_node;
+      else
+	type = crug_option_type (args[0], loc);
+    }
+  else
+    {
+      if (nargs != 2)
+	error_at (loc, "%<result%> needs exactly two type arguments "
+		  "[crug-TYPE-013]");
+      else if (args[0] == error_mark_node || args[1] == error_mark_node)
+	return error_mark_node;
+      else
+	type = crug_result_type (args[0], args[1], loc);
+    }
+
+  return type;
+}
+
+/* The value constructor word, or -1.  0 = none, 1 = some, 2 = ok, 3 = err.  */
+
+static int
+crug_ctor_word (tree id)
+{
+  if (id == NULL_TREE || TREE_CODE (id) != IDENTIFIER_NODE)
+    return -1;
+
+  const char *name = IDENTIFIER_POINTER (id);
+  if (strcmp (name, "none") == 0)
+    return 0;
+  if (strcmp (name, "some") == 0)
+    return 1;
+  if (strcmp (name, "ok") == 0)
+    return 2;
+  if (strcmp (name, "err") == 0)
+    return 3;
+  return -1;
+}
+
+/* The type of the payload that constructor CTOR carries for sum type SUM.  */
+
+static tree
+crug_ctor_payload_type (tree sum, int variant)
+{
+  tree field;
+
+  /* The variant numbers differ between option and result (none/err are 0,
+     some/ok are 1), so dispatch on the sum type first.  */
+  if (crug_option_type_p (sum))
+    field = variant == CRUG_VARIANT_SOME ? crug_option_value_field (sum)
+					 : NULL_TREE;
+  else if (crug_result_type_p (sum))
+    field = variant == CRUG_VARIANT_OK ? crug_result_ok_field (sum)
+				       : crug_result_err_field (sum);
+  else
+    return error_mark_node;
+
+  return field == NULL_TREE ? error_mark_node : TREE_TYPE (field);
+}
+
+static const char *
+crug_ctor_name (int ctor)
+{
+  switch (ctor)
+    {
+    case 0:
+      return "none";
+    case 1:
+      return "some";
+    case 2:
+      return "ok";
+    default:
+      return "err";
+    }
+}
+
+static struct c_expr
+crug_parse_constructor (c_parser *parser, int ctor, location_t loc)
+{
+  struct c_expr ret;
+  tree hint = crug_ctor_hint;
+  tree payload;
+  tree payload_type;
+  bool have_sum;
+
+  ret.value = error_mark_node;
+  ret.original_code = ERROR_MARK;
+  ret.original_type = NULL;
+  ret.m_decimal = 0;
+
+  if (ctor == 0)
+    {
+      c_parser_consume_token (parser);
+      if (hint == NULL_TREE || !crug_option_type_p (hint))
+	{
+	  error_at (loc, "%<none%> needs an option type from its context; "
+		    "initialize an option declaration or return it "
+		    "[crug-ADT-005]");
+	  return ret;
+	}
+      ret.value = crug_safe_option_ctor (loc, hint, CRUG_VARIANT_NONE,
+					 NULL_TREE);
+      return ret;
+    }
+
+  c_parser_consume_token (parser);	/* the constructor word */
+  if (!c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>"))
+    return ret;
+
+  have_sum = hint != NULL_TREE
+    && ((ctor == 1 && crug_option_type_p (hint))
+	|| (ctor >= 2 && crug_result_type_p (hint)));
+  if (hint == NULL_TREE)
+    error_at (loc, "%qs needs an option or result type from its context; "
+	      "initialize a declaration or use it in a return statement "
+	      "[crug-ADT-005]", crug_ctor_name (ctor));
+  else if (!have_sum)
+    error_at (loc, "%qs does not construct %qT [crug-ADT-006]",
+	      crug_ctor_name (ctor), hint);
+
+  int ctor_variant = (ctor == 1 ? CRUG_VARIANT_SOME
+		      : ctor == 2 ? CRUG_VARIANT_OK
+		      : ctor == 3 ? CRUG_VARIANT_ERR
+		      : CRUG_VARIANT_NONE);
+  payload_type = have_sum ? crug_ctor_payload_type (hint, ctor_variant)
+			  : NULL_TREE;
+  if (payload_type == error_mark_node)
+    have_sum = false;
+
+  tree saved_hint = crug_ctor_hint;
+  crug_ctor_hint = have_sum ? payload_type : NULL_TREE;
+  payload = c_parser_expr_no_commas (parser, NULL).value;
+  crug_ctor_hint = saved_hint;
+  c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+
+  if (!have_sum || payload == error_mark_node)
+    return ret;
+
+  if (ctor == 1)
+    ret.value = crug_safe_option_ctor (loc, hint, CRUG_VARIANT_SOME, payload);
+  else if (ctor == 2)
+    ret.value = crug_safe_result_ctor (loc, hint, CRUG_VARIANT_OK, payload);
+  else
+    ret.value = crug_safe_result_ctor (loc, hint, CRUG_VARIANT_ERR, payload);
+
+  return ret;
+}
+
+/* One arm of a match statement.  */
+
+struct crug_match_arm
+{
+  tree cond;		/* NULL_TREE for the wildcard arm.  */
+  tree body;
+  int variant;		/* -1 for the wildcard arm.  */
+  bool wildcard;
+};
+
+/* Map a pattern name to a variant of SUM, or -1.  */
+
+static int
+crug_match_variant (tree sum, const char *name)
+{
+  if (crug_option_type_p (sum))
+    {
+      if (strcmp (name, "none") == 0)
+	return CRUG_VARIANT_NONE;
+      if (strcmp (name, "some") == 0)
+	return CRUG_VARIANT_SOME;
+      return -1;
+    }
+
+  if (strcmp (name, "err") == 0)
+    return CRUG_VARIANT_ERR;
+  if (strcmp (name, "ok") == 0)
+    return CRUG_VARIANT_OK;
+  return -1;
+}
+
+static const char *
+crug_variant_name (tree sum, int variant)
+{
+  if (crug_option_type_p (sum))
+    return variant == CRUG_VARIANT_NONE ? "none" : "some";
+  return variant == CRUG_VARIANT_ERR ? "err" : "ok";
+}
+
+/* Skip a braced block after an error, consuming its closing brace.  */
+
+static void
+crug_skip_match_body (c_parser *parser)
+{
+  int depth = 1;
+
+  while (depth > 0 && !c_parser_next_token_is (parser, CPP_EOF))
+    {
+      if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
+	depth++;
+      else if (c_parser_next_token_is (parser, CPP_CLOSE_BRACE))
+	depth--;
+      c_parser_consume_token (parser);
+    }
+}
+
+/* Parse 'match (e) { arm ... }' and return the lowered block.  The word
+   'match' has not been consumed yet.  The statement is a chain of tag
+   comparisons, so no switch statement machinery and no runtime support is
+   needed; exhaustiveness is checked here (ADR 0018 D8).  */
+
+static tree
+crug_parse_match (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  location_t brace_loc;
+  tree scrutinee;
+  tree stype;
+  tree tag;
+  bool is_option;
+  bool bad_pattern = false;
+  bool wildcard = false;
+  bool too_many = false;
+  int seen = 0;
+  int narm = 0;
+  struct crug_match_arm arms[4];
+
+  c_parser_consume_token (parser);	/* 'match' */
+  if (!c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>"))
+    return error_mark_node;
+  scrutinee = c_parser_expr_no_commas (parser, NULL).value;
+  if (!c_parser_require (parser, CPP_CLOSE_PAREN, "expected %<)%>"))
+    return error_mark_node;
+  brace_loc = c_parser_peek_token (parser)->location;
+  if (!c_parser_require (parser, CPP_OPEN_BRACE, "expected %<{%>"))
+    return error_mark_node;
+
+  stype = scrutinee == error_mark_node ? error_mark_node : TREE_TYPE (scrutinee);
+  while (stype != NULL_TREE && TREE_CODE (stype) == ARRAY_TYPE)
+    stype = TREE_TYPE (stype);
+  if (stype != NULL_TREE && stype != error_mark_node)
+    stype = TYPE_MAIN_VARIANT (stype);
+
+  is_option = stype != NULL_TREE && stype != error_mark_node
+    && crug_option_type_p (stype);
+  if (!is_option
+      && (stype == NULL_TREE || stype == error_mark_node
+	  || !crug_result_type_p (stype)))
+    {
+      error_at (loc, "%<match%> needs an option or result value "
+		"[crug-ADT-013]");
+      crug_skip_match_body (parser);
+      return error_mark_node;
+    }
+
+  tree outer = c_begin_compound_stmt (true);
+  tree tmp = build_decl (loc, VAR_DECL, NULL_TREE, stype);
+  DECL_ARTIFICIAL (tmp) = 1;
+  DECL_IGNORED_P (tmp) = 1;
+  TREE_USED (tmp) = 1;
+  DECL_CONTEXT (tmp) = current_function_decl;
+  DECL_SOURCE_LOCATION (tmp) = loc;
+  add_stmt (build1 (DECL_EXPR, void_type_node, tmp));
+  if (scrutinee != error_mark_node)
+    add_stmt (c_finish_expr_stmt (loc, build_modify_expr (loc, tmp, NULL_TREE,
+							  NOP_EXPR, loc,
+							  scrutinee,
+							  NULL_TREE)));
+
+  tag = crug_safe_tag_ref (loc, tmp, stype);
+
+  while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
+	 && !c_parser_next_token_is (parser, CPP_EOF))
+    {
+      location_t aloc = c_parser_peek_token (parser)->location;
+      struct crug_match_arm arm;
+      int variant = -1;
+      tree bind_name = NULL_TREE;
+      location_t bind_loc = aloc;
+      bool this_wildcard = false;
+
+      arm.cond = NULL_TREE;
+      arm.body = NULL_TREE;
+      arm.variant = -1;
+      arm.wildcard = false;
+
+      if (wildcard)
+	{
+	  error_at (aloc, "an arm after %<_%> is unreachable "
+		    "[crug-ADT-012]");
+	  bad_pattern = true;
+	}
+
+      /* The pattern.  */
+      if (c_parser_next_token_is (parser, CPP_NAME)
+	  && c_parser_peek_token (parser)->value != NULL_TREE
+	  && strcmp (IDENTIFIER_POINTER (c_parser_peek_token (parser)->value),
+		     "_") == 0)
+	{
+	  this_wildcard = true;
+	  c_parser_consume_token (parser);
+	}
+      else if (c_parser_next_token_is (parser, CPP_NAME))
+	{
+	  tree pname = c_parser_peek_token (parser)->value;
+	  variant = crug_match_variant (stype, IDENTIFIER_POINTER (pname));
+	  if (variant < 0)
+	    {
+	      error_at (aloc, "unknown pattern %qs for a %qT value "
+			"[crug-ADT-010]", IDENTIFIER_POINTER (pname), stype);
+	      bad_pattern = true;
+	      c_parser_consume_token (parser);
+	    }
+	  else
+	    {
+	      c_parser_consume_token (parser);
+	      if (seen & (1 << variant))
+		{
+		  error_at (aloc, "duplicate arm for %qs [crug-ADT-012]",
+			    crug_variant_name (stype, variant));
+		  bad_pattern = true;
+		}
+	      seen |= 1 << variant;
+	    }
+	}
+      else
+	{
+	  error_at (aloc, "expected a pattern in a match arm [crug-ADT-010]");
+	  bad_pattern = true;
+	  /* Consume something to make progress.  */
+	  if (!c_parser_next_token_is (parser, CPP_EQ))
+	    c_parser_consume_token (parser);
+	  if (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
+	      && !c_parser_next_token_is (parser, CPP_EOF))
+	    c_parser_consume_token (parser);
+	}
+
+      if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
+	{
+	  c_parser_consume_token (parser);
+	  if (c_parser_next_token_is (parser, CPP_NAME))
+	    {
+	      bind_name = c_parser_peek_token (parser)->value;
+	      bind_loc = c_parser_peek_token (parser)->location;
+	      c_parser_consume_token (parser);
+	    }
+	  else
+	    error_at (aloc, "expected a name to bind the payload "
+		      "[crug-ADT-010]");
+	  if (!c_parser_require (parser, CPP_CLOSE_PAREN, "expected %<)%>"))
+	    ;			/* keep going; the next token is diagnosed */
+	  if (this_wildcard)
+	    error_at (aloc, "%<_%> does not take a payload [crug-ADT-010]");
+	  else if (variant < 0)
+	    ;
+	  else if (crug_option_type_p (stype)
+		   && variant == CRUG_VARIANT_NONE)
+	    error_at (aloc, "%<none%> does not take a payload "
+		      "[crug-ADT-004]");
+	}
+
+      /* '=>' is two tokens, '=' and '>'.  */
+      if (!c_parser_require (parser, CPP_EQ, "expected %<= >%> in a match arm"))
+	{
+	  crug_skip_match_body (parser);
+	  break;
+	}
+      if (!c_parser_require (parser, CPP_GREATER,
+			     "expected %<= >%> in a match arm"))
+	{
+	  crug_skip_match_body (parser);
+	  break;
+	}
+
+      /* The arm body, in its own scope when a payload is bound.  */
+      tree arm_body;
+      if (bind_name != NULL_TREE)
+	{
+	  tree comp = c_begin_compound_stmt (true);
+	  tree var = build_decl (bind_loc, VAR_DECL, bind_name,
+				 crug_ctor_payload_type (stype, variant));
+	  DECL_CONTEXT (var) = current_function_decl;
+	  DECL_SOURCE_LOCATION (var) = bind_loc;
+	  TREE_USED (var) = 1;
+	  pushdecl (var);
+	  add_stmt (build1 (DECL_EXPR, void_type_node, var));
+	  tree pref = crug_safe_payload_ref (loc, tmp, stype, variant);
+	  if (pref != NULL_TREE && pref != error_mark_node)
+	    add_stmt (c_finish_expr_stmt (loc,
+					  build_modify_expr (loc, var,
+							     NULL_TREE, NOP_EXPR,
+							     loc, pref,
+							     NULL_TREE)));
+	  if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
+	    add_stmt (c_parser_compound_statement (parser, NULL));
+	  else
+	    {
+	      struct c_expr e = c_parser_expr_no_commas (parser, NULL);
+	      add_stmt (c_finish_expr_stmt (aloc, e.value));
+	    }
+	  arm_body = c_end_compound_stmt (bind_loc, comp, true);
+	}
+      else
+	{
+	  tree comp = c_begin_compound_stmt (false);
+	  if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
+	    add_stmt (c_parser_compound_statement (parser, NULL));
+	  else
+	    {
+	      struct c_expr e = c_parser_expr_no_commas (parser, NULL);
+	      add_stmt (c_finish_expr_stmt (aloc, e.value));
+	    }
+	  arm_body = c_end_compound_stmt (aloc, comp, false);
+	}
+
+      if (c_parser_next_token_is (parser, CPP_COMMA))
+	c_parser_consume_token (parser);
+
+      if (this_wildcard)
+	wildcard = true;
+      arm.wildcard = this_wildcard;
+      arm.variant = variant;
+      arm.body = arm_body;
+      if (!this_wildcard && variant >= 0 && tag != error_mark_node)
+	{
+	  /* Build the comparison directly: build_binary_op would wrap it in
+	     a C_MAYBE_CONST_EXPR, which generic gimplify cannot handle.  */
+	  arm.cond = build2 (EQ_EXPR, boolean_type_node, tag,
+			     build_int_cst (boolean_type_node, variant != 0));
+	}
+      if (narm < 4)
+	arms[narm++] = arm;
+      else
+	too_many = true;
+    }
+
+  if (c_parser_next_token_is (parser, CPP_CLOSE_BRACE))
+    c_parser_consume_token (parser);
+  else
+    c_parser_error (parser, "expected %<}%>");
+
+  if (too_many)
+    error_at (loc, "too many match arms [crug-ADT-010]");
+
+  if (!wildcard && !bad_pattern && stype != NULL_TREE)
+    {
+      const char *missing = NULL;
+      if (is_option)
+	{
+	  if (!(seen & (1 << CRUG_VARIANT_NONE)))
+	    missing = "none";
+	  else if (!(seen & (1 << CRUG_VARIANT_SOME)))
+	    missing = "some";
+	}
+      else
+	{
+	  if (!(seen & (1 << CRUG_VARIANT_ERR)))
+	    missing = "err";
+	  else if (!(seen & (1 << CRUG_VARIANT_OK)))
+	    missing = "ok";
+	}
+      if (missing != NULL)
+	error_at (loc, "non-exhaustive %<match%>: no arm for %qs; add that "
+		  "arm or a %<_%> arm [crug-ADT-011]", missing);
+    }
+
+  /* Lower to 'if (tag == variant) body else ...', built from the last arm
+     backwards so the first arm is tested first.  */
+  tree chain = build_empty_stmt (loc);
+  for (int i = narm; i-- > 0; )
+    {
+      if (arms[i].wildcard)
+	{
+	  chain = arms[i].body;
+	  continue;
+	}
+      if (arms[i].cond == NULL_TREE)
+	continue;
+      /* The arms are void BIND_EXPRs, so they can be operands of a void
+	 COND_EXPR directly.  Do not wrap the statement in a statement
+	 list: a STATEMENT_LIST is not an expression.  */
+      tree cond = build3 (COND_EXPR, void_type_node, arms[i].cond,
+			  arms[i].body, chain);
+      SET_EXPR_LOCATION (cond, loc);
+      chain = cond;
+    }
+  add_stmt (chain);
+
+  return c_end_compound_stmt (brace_loc, outer, true);
 }
 
 #include "gt-c-c-parser.h"

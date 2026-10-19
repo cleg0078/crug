@@ -2933,3 +2933,11 @@ C Joined RejectNegative
 fcrug-ffi-discover
 C
 -fcrug-ffi-discover	Read .crugffi metadata found next to quoted includes.
+
+; Phase 10: bounds checks on slice indexing.  On by default.  The comparison
+; is unsigned, so a negative index traps as well; a target with a cheaper
+; policy can turn the checks off without changing the type or the ABI.
+
+fcrug-bounds-checks
+C Var(flag_crug_bounds_checks) Init(1)
+-fcrug-bounds-checks	Emit bounds checks for slice indexing (default).
