@@ -15,12 +15,13 @@ its first comment.
 | `07-nll.c` | last-use lifetimes: shared then mutable borrow of the same object in one block, then a move | `./gcc/crugc -O2 -fcrug-borrow examples/07-nll.c -o build/nll && ./build/nll` |
 | `08-strict-mode.c` | the same `raw` dereference accepted in hybrid mode and rejected under `-fcrug-strict` (`[crug-SAFE-001]`), plus the `unsafe` fix | `./gcc/crugc -O2 -fcrug-ownership examples/08-strict-mode.c -o build/strict-hybrid && ./build/strict-hybrid` |
 | `09-unsafe-asm.c` | an `asm` statement confined to an `unsafe` block, which strict mode requires | `./gcc/crugc -O2 -fcrug-strict examples/09-unsafe-asm.c -o build/unsafe-asm && ./build/unsafe-asm` |
+| `10-ffi.c` | a `.crugffi` contract: `fopen` returns an owned `FILE *` and `fclose` consumes it, so the compiler closes the file at scope end | `./gcc/crugc -O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi examples/10-ffi.c -o build/ffi && ./build/ffi` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the
 ownership rules in `docs/crug/OWNERSHIP.md` and `docs/crug/DROP.md`, the
-borrow rules in `docs/crug/BORROW.md`, and strict mode in `docs/crug/STRICT.md`.
+borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, and the FFI contracts in `docs/crug/FFI.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.
