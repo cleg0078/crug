@@ -1,0 +1,8 @@
+phase-17 #2 rc=1
+cmd: crugc -fcrug-goroutines -fsyntax-only gcc/testsuite/crug.dg/send-sync/raw-ptr.c
+expected: exit 1 with `[crug-CONC-024]`: a raw pointer is not `Send`, and the documented rule is rejection, not a warning.
+---
+gcc/testsuite/crug.dg/send-sync/raw-ptr.c: In function ‘main’:
+gcc/testsuite/crug.dg/send-sync/raw-ptr.c:37:3: error: a value of type ‘int *’ cannot cross to another task; the type is not ‘Send’ [crug-CONC-024]
+   37 |   go use (&x);          /* { dg-error "crug-CONC-024" } */
+      |   ^~

@@ -359,7 +359,9 @@ rules; the checks need no flag of their own because they ride on
 capture must be `Send` while a shared one must be `Sync` (`CONC-026`).
 Measured: `make check-SEND_SYNC` prints `send-sync: 14 compiler test(s), 0
 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations
-enforced`.
+enforced`. The Phase 17 gate (amendment A-20) runs seven runnable checks and
+passes 7/7 at `42669c5` (logs under `docs/crug/gates/phase-17/42669c5/`),
+so M17 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -469,7 +471,7 @@ superseding ADR and owner ratification.
 ## Next actions, in dependency order
 
 1. **Push Phase 17 and open Phase 18 (multi-OS runtime)**: the Phase 17 gate
-   (amendment A-20) runs seven runnable checks, so M17 is awarded and the static
+   (amendment A-20) runs seven runnable checks and passes 7/7 at `42669c5`, so M17 is awarded and the static
    crossing rules (`Send`, `Sync`, thread affinity, `CONC-024` to
    `CONC-027`) now cover tasks and channels. Phase 18 adds the second OS
    backend and the poller that PAL v1 deferred.

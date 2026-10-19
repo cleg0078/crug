@@ -1,0 +1,5 @@
+phase-17 #6 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0: the new codes `CONC-024` to `CONC-027` are registered and referenced.
+---
+check-diagnostics: 129 registered code(s); 129 referenced code(s); all references registered.

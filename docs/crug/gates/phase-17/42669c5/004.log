@@ -1,0 +1,9 @@
+phase-17 #4 rc=1
+cmd: crugc -fcrug-goroutines -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/send-sync/sync-ptr.c
+expected: exit 1 with `[crug-CONC-026]`: a shared borrow of a pointer-holding struct is not `Sync`.
+---
+gcc/testsuite/crug.dg/send-sync/sync-ptr.c: In function ‘main’:
+gcc/testsuite/crug.dg/send-sync/sync-ptr.c:45:5: error: a shared borrow of ‘struct Holder’ cannot cross to another task; the type is not ‘Sync’ [crug-CONC-026]
+   45 |     go see (borrow (h));        /* { dg-error "crug-CONC-026" } */
+      |     ^~
+gcc/testsuite/crug.dg/send-sync/sync-ptr.c:45:5: note: ‘struct Holder’ contains ‘int *’, which is not ‘Sync’

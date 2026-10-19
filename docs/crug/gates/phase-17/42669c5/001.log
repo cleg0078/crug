@@ -1,0 +1,13 @@
+phase-17 #1 rc=0
+cmd: make check-SEND_SYNC
+expected: exit 0 printing `send-sync: 14 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` (14 expected passes; the script also runs the unchanged `spawn` program, the raw-pointer rejection, both thread-affinity cases and both FFI annotation cases).
+---
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/send-sync/send-sync.exp ...
+# of expected passes		14
+scripts/check-send-sync.sh
+goroutines-spawn: sum=36 spawned=8 completed=8 lost=0
+send-sync: 14 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced

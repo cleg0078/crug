@@ -1,0 +1,11 @@
+phase-17 #5 rc=1
+cmd: crugc -fcrug-channels -fsyntax-only gcc/testsuite/crug.dg/send-sync/chan-ptr.c
+expected: exit 1 with `[crug-CONC-027]`: a channel element type must be `Send`.
+---
+gcc/testsuite/crug.dg/send-sync/chan-ptr.c: In function ‘main’:
+gcc/testsuite/crug.dg/send-sync/chan-ptr.c:32:3: error: a channel element must be ‘Send’; ‘char *’ is not [crug-CONC-027]
+   32 |   chan char *c = channel (1);   /* { dg-error "crug-CONC-027" } */
+      |   ^~~~
+gcc/testsuite/crug.dg/send-sync/chan-ptr.c:32:18: error: ‘channel’ requires a channel type from context; initialize a channel variable or return it [crug-CONC-002]
+   32 |   chan char *c = channel (1);   /* { dg-error "crug-CONC-027" } */
+      |                  ^~~~~~~

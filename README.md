@@ -112,7 +112,8 @@ borrow captured by a scoped task must be `Sync`, and a thread-affine FFI handle
 cannot leave its thread - see [docs/crug/SEND-SYNC.md](docs/crug/SEND-SYNC.md)
 and [ADR 0026](docs/crug/adr/0026-send-sync.md). The checks ride on the
 goroutine and channel flags, report `CONC-024` to `CONC-027`, and the only
-widening is a `.crugffi` `send sync` annotation. See
+widening is a `.crugffi` `send sync` annotation. The Phase 17 gate passes
+7/7 at `42669c5` (logs under `docs/crug/gates/phase-17/42669c5/`). See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

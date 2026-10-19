@@ -1,0 +1,5 @@
+phase-17 #3 rc=0
+cmd: crugc -fcrug-goroutines -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/send-sync/send-own.c
+expected: exit 0: the positive twin, an owned pointer moved into a task, is still accepted.
+---
+
