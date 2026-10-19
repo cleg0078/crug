@@ -5,9 +5,10 @@ Last updated: 2026-10-19
 ## Where the project stands
 
 The repository contains specification text, a phase-gate adjudicator, a
-reproducible GCC build, the `crugc` driver (Phase 1), and from Phase 4 the first
-Crug productions - `own` and `move` - with their analysis, diagnostics and dg
-suite. There is no `libcrug`, no drop insertion, and no borrow checking yet. The `kernel-compat`
+reproducible GCC build, the `crugc` driver (Phase 1), and from Phases 4 and 5 the
+first Crug productions - `own`, `move`, automatic destruction, `adopt`,
+`release` and `drop` - with their analysis, diagnostics and dg suites. There is
+no `libcrug` and no borrow checking yet. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -64,9 +65,19 @@ an owned value and use of a possibly-moved value after a join
 state. The ABI obligation is measured, not asserted: `abi-ptr.c` keeps
 `sizeof`/`_Alignof` identical and `move-zero-cost.c` disassembles to zero calls.
 `docs/crug/OWNERSHIP.md` is the digest; `make check-OWNERSHIP` runs 17 expected
-passes under `gcc/testsuite/crug.dg/ownership/`. Drop insertion, destructors and
-`adopt`/`release`/`drop` are Phase 5, and owning objects that are not moved
-leak until then by design.
+passes under `gcc/testsuite/crug.dg/ownership/`.
+
+Phase 5 adds automatic destruction: destructors are analysis metadata (ADR 0005
+A-2), they come from `adopt (p, d)` or from the allocation catalogue
+(`malloc`/`calloc`/`realloc`/`strdup`/`aligned_alloc` are freed with `free` when
+it is declared), and every owning object is destroyed exactly once on scope
+exit, `return`, `break`, `continue` and `goto`-out, in reverse declaration order,
+including owning parameters (ADR 0005 A-1). `goto`-into-scope, ambiguous joins,
+conditional initialization, assignment over an owned value and non-owned `drop`
+operands are rejected with stable codes; `setjmp` and never-adopted values warn.
+`docs/crug/DROP.md` is the digest; `make check-DROP` runs 39 expected passes and
+the six `scripts/check-drop-*.sh` checks assert exactly-once counts, sanitizer
+cleanliness, absence of `__crug_` helper calls and the dump.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -100,7 +111,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | The decision set was unratified, so nothing could be cited as settled | eight ADRs carry Status Accepted (six on 2026-10-18, ADRs 0006 and 0007 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
-| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (62 planned codes) + scripts/check-diagnostics.sh |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (66 codes; 22 implemented through Phases 4 and 5) + scripts/check-diagnostics.sh |
 | The kernel baseline had no CI protection, so Phase 2 could not close and Phase 4 could not start | `.github/workflows/kernel-compat.yml` green on `78c759b`; branch protection on `main` requires `kernel-compat`; phase-2 and phase-3 gates 4/4 archived under docs/crug/gates/phase-{2,3}/78c759b/ |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
@@ -121,6 +132,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | No feature flag existed, so no later phase could be gated on one and no build could say which Crug features it wanted | ten `-fcrug-*` options in `gcc/common.opt` with closure in `gcc/c-family/crug-common.cc`; `docs/crug/FLAGS.md`; `scripts/check-crug-flags.sh` (149 work items), `scripts/check-gnu-c-compat.sh` (50 files), `scripts/diff-obj.sh`; fixtures in `gcc/testsuite/crug.dg/flags/` |
 | Predefined feature macros contradicted the flags-off identity guarantee | ADR 0018 D9 R6 amendment A-1 and spec/000-PRECEDENCE.md C-12: `__CRUG__` and the feature macros exist only when a `-fcrug-*` option is active |
 | Ownership had no implementation, so the state machine and the zero-metadata claim were untested | `own`/`move` front-end (gcc/c/crug-ownership.cc), 17-pass dg suite, `-fcrug-dump=ownership`; docs/crug/OWNERSHIP.md; phase-4 gate 7/7 |
+| Destruction was undefined, so every owning object leaked and the O1 claim was untestable | drop lowering in `gcc/c/crug-ownership.cc`, `adopt`/`release`/`drop` intrinsics, 39-pass dg suite, six `scripts/check-drop-*.sh` checks, `-fcrug-dump=drop`; docs/crug/DROP.md; ADR 0005 A-1..A-7; phase-5 gate |
 
 ## Still open
 
@@ -132,18 +144,19 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
-| -  | `own` and `move` exist but no drop is inserted, so an unmoved owning object leaks; `borrow`/`ref`/`mut` and the rest of the productions still do not parse; no `-Wcrug-*` option is declared | Phase 5 (drop), then Phase 6 (borrow); the warnings when the option layer lands |
+| -  | Ownership transfer at call sites is unchecked: a caller may pass a value it still owns to an owning parameter, and an owning return value is not tracked by the caller | a later phase; recorded in docs/crug/DROP.md section 8 |
+| -  | `borrow`/`ref`/`mut` and the remaining productions still do not parse; the `ref`/`mut` keywords and their analyses are Phase 6 | Phase 6 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 5** (drop insertion): the ownership analysis already records
-   the path facts a drop decision needs, and ADR 0005 fixes where destruction
-   happens on return, `break`, `switch`, `goto`-out, `setjmp`, `exit` and task
-   scope exit. Phase 6 (borrow) follows Phase 5, and Phase 9's FFI parser comes
-   after Phases 5 and 8.
+1. **Start Phase 6** (borrow checker): `ref` and `mut`, NLL, reborrowing and
+   the B1 class. The ownership and drop passes now provide the path facts it
+   needs, and the drop pass must learn to refuse moves and drops of borrowed
+   values (`crug-BORROW-004`/`-005`).
 2. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
-   of the pinned Linux 6.18.57 tree.
+   of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
+   `-fcrug-ownership` until that phase decides kernel drop lowering.
 
 ## Working rules
 

@@ -132,3 +132,88 @@ asynchronous drop in the language, and it is bounded by "the task body ends here
   C code uses it, and the C0 compatibility class must keep compiling.
 - **Drop at every basic-block exit unconditionally.** Double drops on paths where
   the value was moved; ADR 0003 D2 makes the join a compile error instead.
+
+## Amendments
+
+The decisions above are unchanged in intent. Phase 5 implemented them, and the
+implementation forced the following clarifications. Each one is binding.
+
+### A-1 - An `own` parameter is owned by the callee
+
+D2 does not say who owns a parameter marked `own`. A-1 fixes it: the callee owns
+it, and destroys it on every exit after its own locals (locals first, then
+parameters, each class in reverse declaration order). The caller is not checked:
+it may pass a value it still owns, and it may pass a temporary. That gap is
+deliberate (call-site checking is a later phase) and is recorded in
+`DROP.md` section 8.
+
+### A-2 - Destructor metadata lives in the analysis environment only
+
+D2's `__attribute__((crug_dtor(fn)))` spelling is **not implemented** in Phase 5;
+the attribute is still accepted as an ordinary ignored attribute and does
+nothing. A destructor enters the model in exactly two ways: `adopt (p, d)`, and
+the allocation catalogue (A-3). The destructor is carried as a field of the
+analysis state (`{state, dtor}`), never as a `TYPE_*`, `DECL_*` field, side
+table, drop flag or runtime value - ADR 0003 D1/D5. `move` transfers the
+destructor with the value; `release` and `drop` discard it.
+
+### A-3 - Allocation catalogue
+
+A pointer returned by `malloc`, `calloc`, `realloc`, `reallocarray`, `strdup`,
+`strndup` or `aligned_alloc` (and their `__builtin_` spellings) is born OWNED.
+Its destructor is `free` if - and only if - the translation unit has a visible
+declaration of `free` as a function; otherwise the value is OWNED with no known
+destructor and `-Wcrug-unadopted-own` warns at scope exit. The catalogue is a
+frontend fact about libc, not a language rule, and no header is included on the
+user's behalf.
+
+### A-4 - Assigning over an owned value is an error
+
+D3 says nothing about `p = q;` when `p` still owns something: the old value
+would leak. That is `crug-DROP-008` ("assignment to an owned value that already
+owns; call `drop()` or `release()` first"). It is an error, not a warning,
+because the leak is unconditional. After reporting it the analysis moves the
+variable to MOVED with no destructor, so one mistake does not cascade into an
+`OWN-007` at scope end.
+
+### A-5 - `EMPTY`: an owned pointer that owns nothing
+
+D3's state set had no way to express "declared but not yet owning". Phase 5 adds
+`EMPTY`: `own T *p;` and `own T *p = 0;` are both EMPTY (own nothing, drop
+nothing, no warning). This is what makes early returns and conditional ownership
+usable. `OWNED` with `EMPTY` at a join becomes `MAYBE_EMPTY`; destroying a
+MAYBE_EMPTY value is `crug-DROP-007` ("may be used before it is initialized"),
+reported at the declaration with a note at the exit.
+
+### A-6 - The state lattice and the join are normative
+
+| A \ B | EMPTY | OWNED(d) | MOVED | MAYBE_MOVED | MAYBE_EMPTY |
+| --- | --- | --- | --- | --- | --- |
+| EMPTY | EMPTY | MAYBE_EMPTY | EMPTY | MAYBE_MOVED | MAYBE_EMPTY |
+| OWNED(d) | MAYBE_EMPTY | OWNED(d) or OWN-010 if dtors differ | MAYBE_MOVED | MAYBE_MOVED | MAYBE_EMPTY |
+| MOVED | EMPTY | MAYBE_MOVED | MOVED | MAYBE_MOVED | MAYBE_MOVED |
+| MAYBE_MOVED | MAYBE_MOVED | MAYBE_MOVED | MAYBE_MOVED | MAYBE_MOVED | MAYBE_MOVED |
+| MAYBE_EMPTY | MAYBE_EMPTY | MAYBE_EMPTY | MAYBE_MOVED | MAYBE_MOVED | MAYBE_EMPTY |
+
+Two rules complete it. (i) A join that cannot prove single destruction is
+`crug-DROP-006`, reported **once per declaration** (at the declaration, with a
+note at the join), so that a later correction does not move the diagnostic. (ii)
+If a MAYBE_* value has no known destructor, the analysis warns `crug-OWN-007`
+instead of `crug-DROP-006`: there is no destructor to run twice or to skip, so
+the conservative rejection would reject programs that are in fact fine (for
+example an `own` value passed to a function that frees it).
+
+### A-7 - Diagnostics: option plus code, and the kernel conflict
+
+D8 lists options only. Every diagnostic now also carries a stable code from
+the registry in `docs/crug/DIAGNOSTICS.md`, in addition to the `-Wcrug-*`
+option. Warnings print both (`error: msg [-Wcrug-x] [crug-AREA-NNN]`,
+promoted to errors by `-fcrug-strict`); always-error diagnostics print the code
+with no option annotation, because GCC's `error_at` takes no option argument.
+Finally, D1's dump option is spelled `-fcrug-dump=drop` (not
+`-fdump-tree-crug-drop`), and `-fcrug-kernel` rejects `-fcrug-ownership` and
+`-fcrug-borrow` until Phase 19: drop lowering inside the kernel is a decision
+that the kernel ADRs (0016, 0017) have not made yet, and shipping a drop
+sequence with an unexpected call at kernel build time is exactly the risk that
+phase's gate exists to prevent.
+

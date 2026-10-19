@@ -21,8 +21,11 @@ macros - see [docs/crug/FLAGS.md](docs/crug/FLAGS.md). Phase 4 (ownership MVP)
 implements `own` and `move`: qualifiers are erased from the type, `move` lowers
 to a register copy, use-after-move and implicit copy are compile errors, and
 `-fcrug-dump=ownership` prints the post-join state - see
-[docs/crug/OWNERSHIP.md](docs/crug/OWNERSHIP.md). Drop insertion (Phase 5),
-borrow checking, `libcrug` and concurrency are not implemented. See
+[docs/crug/OWNERSHIP.md](docs/crug/OWNERSHIP.md). Phase 5 (automatic
+destruction) implements `adopt`, `release`, `drop` and drop insertion on every
+exit path, with `setjmp` and never-adopted values diagnosed - see
+[docs/crug/DROP.md](docs/crug/DROP.md). Borrow checking, `libcrug` and
+concurrency are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -89,7 +92,10 @@ writes `out/` (ignored); see [docs/crug/KERNEL-COMPATIBILITY.md](docs/crug/KERNE
 `make check-CRUG_FLAGS` checks the `-fcrug-*` option set, its closure and the
 feature macros, and `make check-GNU_C_COMPAT` recompiles the GNU C and kernel
 corpora with the full flag set; both are described in
-[docs/crug/FLAGS.md](docs/crug/FLAGS.md).
+[docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP` and
+`make check-DROP` run the ownership and destruction dg suites, and
+`scripts/check-drop-*.sh` assert exactly-once destruction, sanitizer
+cleanliness and the absence of helper calls.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

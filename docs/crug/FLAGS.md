@@ -1,11 +1,11 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented, Phase 4 in progress** (2026-10-19). The option
-set, its closure and the feature macros exist. `-fcrug-ownership` now gates the
-`own` and `move` productions of Phase 4 (`OWNERSHIP.md`); the productions the
-other flags name do not exist yet. This page is the digest - the normative text is
-ADR 0018 D1 and D9, RFC-0001 sections 10 and 13, and the gate is
-`EXIT-GATES.md` phases 3 and 4.
+Status: **Phase 3 implemented; Phase 4 and Phase 5 use it** (2026-10-19). The
+option set, its closure and the feature macros exist. `-fcrug-ownership` gates
+the `own`, `move` and drop productions of Phases 4 and 5 (`OWNERSHIP.md`,
+`DROP.md`); the productions the other flags name do not exist yet. This page is
+the digest - the normative text is ADR 0018 D1 and D9, RFC-0001 sections 10 and
+13, and the gates are `EXIT-GATES.md` phases 3, 4 and 5.
 
 ## 1. The option set
 
@@ -24,12 +24,14 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production; promotes every `-Wcrug-*` warning to an error | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-modern` | everything above | all eight flags |
-| `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern` |
+| `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` until Phase 19 |
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
-`Common Joined RejectNegative`, accepts only `ownership` today (an unknown kind
-is an error), writes `<stem>.crug-ownership` while the front end runs, and
-changes no code. `OWNERSHIP.md` section 4 gives the format.
+`Common Joined RejectNegative` with a comma-separated list of kinds -
+`ownership` and `drop` today; an unknown kind is an error. It writes
+`<stem>.crug-ownership` / `<stem>.crug-drop` next to the output base while the
+front end runs, and changes no code. `OWNERSHIP.md` section 4 and `DROP.md`
+section 6 give the formats.
 
 With no option at all, `crugc` is upstream GCC: the same predefined macros, the
 same parses, the same object code. That is the Phase 1 identity and it keeps
@@ -51,9 +53,12 @@ hard error naming the offending flags rather than a precedence rule. The same
 error covers `-fcrug-kernel -fcrug-goroutines` and `-fcrug-kernel
 -fcrug-channels`.
 
-`-fcrug-kernel` with a compatible flag (`ownership`, `borrow`, `strict`,
-`slices`, `result`, `adt`) is accepted: the kernel may use the sublanguage, it
-may not use the runtime features.
+`-fcrug-kernel` with a compatible flag (`strict`, `slices`, `result`, `adt`)
+is accepted: the kernel may use the sublanguage, it may not use the runtime
+features. `-fcrug-ownership` and `-fcrug-borrow` are rejected with the kernel
+flag because destruction lowering is the first feature that would need a
+decision inside the kernel (Phase 5 note; Phase 19 revisits it and the
+restriction is recorded in ADR 0005 A-6).
 
 ## 3. Feature macros
 
@@ -110,13 +115,17 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 
 ## 5. What is not implemented yet
 
-- No drop insertion, destructors or `adopt`/`release`/`drop` (Phase 5);
-  `own` and `move` exist (`OWNERSHIP.md`).
+- `own`, `move`, `adopt`, `release`, `drop` and automatic destruction exist
+  (`OWNERSHIP.md`, `DROP.md`); ownership transfer at call sites does not.
 - No borrow rules (Phase 6).
 - No goroutine, scope or channel lowering (Phase 14-16).
-- Only the `ownership` dump exists (`-fcrug-dump=ownership`); no borrow,
-  goroutine or channel dump.
-- No `-Wcrug-*` option is declared yet; passing one is an unrecognized option.
+- Only the `ownership` and `drop` dumps exist (`-fcrug-dump=` comma list); no
+  borrow, goroutine or channel dump.
+- Six `-Wcrug-*` options are declared and default on
+  (`-Wcrug-unadopted-own`, `-Wcrug-intrinsic-operand`, `-Wcrug-adopt-signature`,
+  `-Wcrug-jump-into-scope`, `-Wcrug-setjmp-drops`, `-Wcrug-drop-unreachable`);
+  `-fcrug-strict` promotes them to errors. The always-error ownership
+  diagnostics carry no option.
 - No change to the driver beyond option acceptance: `gcc/crugc` is still the
   Phase 1 launcher.
 
@@ -130,9 +139,13 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `gcc/testsuite/crug.dg/flags/` | fixtures for the future DejaGnu tests named in ADR 0018 D1 |
 | `make check-OWNERSHIP` | `own` and `move` productions with the flag on: 17 expected passes under `gcc/testsuite/crug.dg/ownership/` |
 | `crugc -fcrug-dump=ownership` | the ownership dump of a branch join (`OWNERSHIP.md` section 4) |
+| `make check-DROP` | destruction and its rejections: 39 expected passes under `gcc/testsuite/crug.dg/drop/` |
+| `scripts/check-drop-dump.sh` | the `drop` dump records every exit kind (`DROP.md` section 6) |
 
-The phase-3 gate runs the first four in order and the phase-4 gate runs the last
-two plus the ABI and diagnostic-code checks; see `EXIT-GATES.md`.
+The phase-3 gate runs the first four in order, the phase-4 gate runs the
+ownership rows plus the ABI and diagnostic-code checks, and the phase-5 gate runs
+the six `scripts/check-drop-*.sh` and `scripts/check-diagnostics.sh` checks; see
+`EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

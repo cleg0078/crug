@@ -97,6 +97,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-OWN-007` | `-Wcrug-unadopted-own` | warning | error | owned value '%s' is never adopted or released | ADR 0004 D8 |
 | `crug-OWN-008` | `-Wcrug-ffi-ownership` | warning | error | owned value crosses an FFI boundary without adopt() or release() metadata | ADR 0003 D3 |
 | `crug-OWN-009` | - | error | error | own member in union requires an active-variant contract | ADR 0004 D6 |
+| `crug-OWN-010` | - | error | error | conflicting destructors for owned value '%s' on different paths | ADR 0005 A-6 |
 
 ### 4.3 Borrowing (`BORROW`)
 
@@ -120,6 +121,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-DROP-003` | `-Wcrug-setjmp-drops` | warning | error | destructors between setjmp and longjmp may be skipped for '%s' | ADR 0005 D3 |
 | `crug-DROP-004` | - | error | error | owned value '%s' may be destroyed twice on this path | ADR 0005 D4 |
 | `crug-DROP-005` | `-Wcrug-drop-unreachable` | warning | error | owned value '%s' can never be dropped on any path | ADR 0005 D8 |
+| `crug-DROP-006` | - | error | error | cannot prove that '%s' is destroyed exactly once on this path | ADR 0005 A-6 |
+| `crug-DROP-007` | - | error | error | owned value '%s' may be used before it is initialized | ADR 0005 A-5 |
+| `crug-DROP-008` | - | error | error | assignment to an owned value that already owns; call drop() or release() first | ADR 0005 A-4 |
 
 ### 4.5 Concurrency (`CONC`)
 
@@ -262,9 +266,15 @@ caught by the script.
 
 ## 9. Status
 
-All 62 codes above are **planned**: no Crug frontend exists yet, so none is
-implemented. The count per area is: UAM 7, OWN 9, BORROW 8, DROP 5, CONC 9,
-ADT 10, TYPE 8, GRAMMAR 6. FFI has a defined format (ADR 0007) but no allocated
+66 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 8,
+DROP 8, CONC 9, ADT 10, TYPE 8, GRAMMAR 6.
+
+A code is **implemented** when the frontend emits it and its test is in the dg
+suite that the owning gate runs. Implemented today (Phases 4 and 5 of the
+roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+OWN-007, OWN-009, OWN-010, DROP-001, DROP-002, DROP-003, DROP-006, DROP-007,
+DROP-008, TYPE-001, TYPE-002, TYPE-004, TYPE-005, TYPE-006. Everything else is
+planned; the FFI and KERNEL areas are still reserved only. FFI has a defined format (ADR 0007) but no allocated
 codes yet; KERNEL's owning ADRs are still unwritten. Both have reserved ranges.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
