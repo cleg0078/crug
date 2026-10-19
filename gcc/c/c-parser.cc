@@ -3808,7 +3808,11 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	      continue;
 	    }
 
-	  if (crug_qualifier_token_p (parser))
+	  /* 'own' is a declaration specifier only before the type
+	     specifiers have been seen: once a type is present the word can
+	     only be a declarator, so 'int own;' declares a variable named
+	     'own' (ADR 0018 D2, amendment A-3).  */
+	  if (!seen_type && crug_qualifier_token_p (parser))
 	    {
 	      if (specs->crug_own_p)
 		error_at (name_token->location,
@@ -11925,12 +11929,17 @@ c_parser_postfix_expression (c_parser *parser)
 	    tree id = c_parser_peek_token (parser)->value;
 	    if (crug_ownership_enabled ()
 		&& id != NULL_TREE
-		&& strcmp (IDENTIFIER_POINTER (id), "move") == 0
 		&& lookup_name (id) == NULL_TREE
-		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN)
+		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN
+		&& crug_intrinsic_kind (id, NULL))
 	      {
-		location_t move_loc = c_parser_peek_token (parser)->location;
-		struct c_expr arg;
+		location_t intr_loc = c_parser_peek_token (parser)->location;
+		enum crug_intrinsic kind;
+		struct c_expr arg0, arg1;
+		tree call;
+		crug_intrinsic_kind (id, &kind);
+		arg0.value = error_mark_node;
+		arg1.value = NULL_TREE;
 		c_parser_consume_token (parser);
 		if (!c_parser_require (parser, CPP_OPEN_PAREN,
 				       "expected %<(%>"))
@@ -11938,13 +11947,34 @@ c_parser_postfix_expression (c_parser *parser)
 		    expr.value = error_mark_node;
 		    break;
 		  }
-		arg = c_parser_expr_no_commas (parser, NULL);
+		arg0 = c_parser_expr_no_commas (parser, NULL);
+		if (kind == CRUG_INTR_ADOPT)
+		  {
+		    if (c_parser_next_token_is (parser, CPP_COMMA))
+		      {
+			c_parser_consume_token (parser);
+			arg1 = c_parser_expr_no_commas (parser, NULL);
+		      }
+		    else
+		      error_at (intr_loc, "%<adopt%> takes two arguments: "
+				"adopt (pointer, destructor) [crug-OWN-002]");
+		  }
+		else if (c_parser_next_token_is (parser, CPP_COMMA))
+		  error_at (intr_loc, "%qs takes one argument [crug-OWN-001]",
+			    IDENTIFIER_POINTER (id));
 		c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 					   "expected %<)%>");
-		if (arg.value == error_mark_node)
+		if (arg0.value == error_mark_node
+		    || (kind == CRUG_INTR_ADOPT && arg1.value == NULL_TREE))
 		  expr.value = error_mark_node;
 		else
-		  expr.value = crug_build_move_call (move_loc, arg.value);
+		  {
+		    call = crug_build_intrinsic_call (kind, intr_loc,
+						      arg0.value,
+						      kind == CRUG_INTR_ADOPT
+						      ? arg1.value : NULL_TREE);
+		    expr.value = call;
+		  }
 		set_c_expr_source_range (&expr, tok_range);
 		break;
 	      }

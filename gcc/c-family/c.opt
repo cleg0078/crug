@@ -2892,3 +2892,30 @@ C ObjC C++ ObjC++
 ; Documented in common.opt
 
 ; This comment is to ensure we retain the blank line above.
+
+; Crug diagnostics.  Each is a stable, documented diagnostic code (see
+; docs/crug/DIAGNOSTICS.md); -fcrug-strict promotes the warnings to errors.
+
+Wcrug-unadopted-own
+Common Var(warn_crug_unadopted_own) Init(1) Warning
+Warn when an owned value has no destructor and will not be destroyed.
+
+Wcrug-intrinsic-operand
+Common Var(warn_crug_intrinsic_operand) Init(1) Warning
+Warn about a Crug intrinsic applied to an operand it does not accept.
+
+Wcrug-adopt-signature
+Common Var(warn_crug_adopt_signature) Init(1) Warning
+Warn when adopt() is given a destructor of the wrong signature.
+
+Wcrug-jump-into-scope
+Common Var(warn_crug_jump_into_scope) Init(1) Warning
+Warn when a goto jumps into the scope of an owned value.
+
+Wcrug-setjmp-drops
+Common Var(warn_crug_setjmp_drops) Init(1) Warning
+Warn that destructors may be skipped by setjmp()/longjmp().
+
+Wcrug-drop-unreachable
+Common Var(warn_crug_drop_unreachable) Init(1) Warning
+Warn about a drop that control can never reach.

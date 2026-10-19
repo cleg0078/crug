@@ -65,10 +65,30 @@ crug_apply_option_closure (void)
 	error ("%<-fcrug-kernel%> removes %<-fcrug-goroutines%>, "
 	       "%<-fcrug-channels%> and %<-fcrug-modern%>; "
 	       "give one or the other");
+      /* Kernel-mode drop lowering is a phase-5 non-goal, and emitting free()
+	 into freestanding code would claim a runtime it does not have.  */
+      if (features & (CRUG_FEAT_OWNERSHIP | CRUG_FEAT_BORROW))
+	error ("%<-fcrug-kernel%> cannot be combined with %<-fcrug-ownership%> "
+	       "or %<-fcrug-borrow%>; kernel-mode drop lowering arrives in "
+	       "phase 19");
     }
 
-  if (crug_dump_kind != NULL && strcmp (crug_dump_kind, "ownership") != 0)
-    error ("unrecognized argument to %<-fcrug-dump=%>: %qs", crug_dump_kind);
+  /* -fcrug-dump= takes a comma-separated list of dump kinds.  */
+  if (crug_dump_kind != NULL)
+    {
+      const char *p = crug_dump_kind;
+      while (*p != '\0')
+	{
+	  size_t n = strcspn (p, ",");
+	  if (!((n == 9 && memcmp (p, "ownership", 9) == 0)
+		|| (n == 4 && memcmp (p, "drop", 4) == 0)))
+	    error ("unrecognized argument to %<-fcrug-dump=%>: %qs",
+		   crug_dump_kind);
+	  p += n;
+	  if (*p == ',')
+	    p++;
+	}
+    }
 
   crug_features = features;
 }

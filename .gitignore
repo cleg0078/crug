@@ -21,6 +21,7 @@
 /gcc/testsuite/crug.dg/**/*.exe
 /bench/results/
 *.crug-ownership
+*.crug-drop
 *.gch
 *.dwo
 *.gcno

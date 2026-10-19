@@ -1,4 +1,4 @@
-/* Crug ownership analysis (Phase 4 MVP).
+/* Crug ownership and drop analysis (Phase 5).
    Copyright (C) 2026 CLEG0078
 
    This file is part of GCC.
@@ -17,15 +17,35 @@
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>.  */
 
-/* The Phase 4 ownership MVP: 'own' declarators and the move() intrinsic.
-   The analysis is a single forward pass over the GENERIC body of a function
-   before the middle end sees it.  It tracks, for every local owning object,
-   whether the object currently owns its value (OWNED), has been moved out of
-   (MOVED) or might be either after a branch join (MAYBE_MOVED).  No state is
-   stored in the object: ADR 0003 and ADR 0004 forbid hidden fields, hidden
-   bits, reference counts and drop flags, so the whole model lives in the
-   compiler and disappears when checking ends.  move() is lowered to its
-   operand at the end of the pass, so it generates no code.  */
+/* The Crug ownership and drop pass.
+
+   Phase 4 decided, for every local owning object, whether the object
+   currently owns a value (OWNED), has been moved out of (MOVED), owns
+   nothing (EMPTY) or is in a state that depends on the branch taken.  Phase 5
+   adds the other half of the ownership model: every edge that leaves the
+   scope of an owning object destroys it, in reverse declaration order, by
+   calling its destructor.
+
+   Two facts make this work without any runtime state.  First, the destructor
+   of an object is a compile-time fact recorded in the analysis environment
+   (ADR 0005, amendment A-1); it is never stored in the object.  Second, the
+   liveness of an object on an edge is a compile-time fact of the ownership
+   state machine.  A drop is therefore emitted as a direct, null-guarded call
+   'if (p) dtor (p);' with no helper, no flag and no registry, which is what
+   ADR 0003 D5 forbids and what RFC-0001 section 19 requires.
+
+   The pass runs after parsing and before gimplification:
+
+     pass A  walks the GENERIC body, maintains the ownership state and the
+	     destructor of every owning object, records every exit edge with
+	     the list of objects it must destroy, and writes -fcrug-dump;
+     pass B  rewrites the body in place: exit edges get their destruction
+	     statements, and the MOVE, ADOPT, RELEASE and DROP calls are
+	     removed so that no intrinsic reaches the middle end.
+
+   Nothing is stored in the object and nothing is generated for the
+   qualifier itself, so the C ABI of an 'own' pointer is the C ABI of a
+   pointer (ADR 0006).  */
 
 #include "config.h"
 #include "system.h"
@@ -35,44 +55,121 @@
 #include "tree-iterator.h"
 #include "input.h"
 #include "stringpool.h"
+#include "fold-const.h"
 #include "c-family/c-common.h"
 #include "c-family/crug-common.h"
 #include "diagnostic-core.h"
 #include "toplev.h"
+#include "flags.h"
 #include "crug-ownership.h"
 
 #include <map>
 #include <set>
 #include <vector>
 
-/* The ownership state of one tracked object.  The names are also the names
-   printed by -fcrug-dump=ownership, so they are part of the observable
-   interface of this file (the Phase 4 gate greps for them).  */
+/* The ownership state of one tracked object.  The names are part of the
+   observable interface of this file (the Phase 4 gate greps the dump for
+   them), so they are not renumbered.  */
 
 enum crug_state
 {
-  CRUG_UNINIT,
+  CRUG_EMPTY,
   CRUG_OWNED,
   CRUG_MOVED,
-  CRUG_MAYBE_MOVED
+  CRUG_MAYBE_MOVED,
+  CRUG_MAYBE_EMPTY
 };
 
-typedef std::map<tree, crug_state> state_map;
+/* One tracked object: its state and the destructor that would be called if
+   the object is destroyed here.  DTOR is NULL_TREE when no destructor is
+   known, which is not the same as "no destruction needed": an OWNED object
+   without a destructor leaks, and the -Wcrug-unadopted-own warning says so.  */
+
+struct crug_ostate
+{
+  crug_state state;
+  tree dtor;
+
+  crug_ostate () : state (CRUG_EMPTY), dtor (NULL_TREE) {}
+  crug_ostate (crug_state s, tree d) : state (s), dtor (d) {}
+};
+
+typedef std::map<tree, crug_ostate> state_map;
+
+/* One destruction that an exit edge performs.  */
+
+struct crug_drop
+{
+  tree decl;
+  tree dtor;
+};
+
+enum crug_exit_kind
+{
+  CRUG_EXIT_SCOPE_END,
+  CRUG_EXIT_RETURN,
+  CRUG_EXIT_BREAK,
+  CRUG_EXIT_CONTINUE,
+  CRUG_EXIT_GOTO
+};
+
+/* One exit edge and the destructions it performs.  */
+
+struct crug_exit
+{
+  tree stmt;
+  enum crug_exit_kind kind;
+  location_t loc;
+  std::vector<crug_drop> drops;
+  bool has_value;
+};
+
+struct crug_frame
+{
+  tree bind;
+  std::vector<tree> decls;
+};
+
+/* A loop or switch: where break and continue land, and the states that
+   arrive there.  */
+
+struct crug_target
+{
+  bool is_loop;
+  size_t keep_depth;
+  std::vector<state_map> edges;
+  state_map cases;
+};
+
+struct crug_goto
+{
+  tree stmt;
+  tree label;
+  location_t loc;
+  state_map env;
+};
+
+struct crug_label_info
+{
+  std::vector<tree> path;
+  std::vector<tree> decls_before;
+};
 
 struct crug_fn_ctx
 {
-  /* The function being checked.  */
   tree fndecl;
-  /* Every owning object that has been declared so far, in declaration
-     order, so that dumps and joins are deterministic.  */
-  std::vector<tree> owned;
-  std::set<tree> seen;
-  /* Environments recorded for 'break' statements, consumed by the loop or
-     switch that owns them.  */
-  std::vector<state_map> breaks;
-  /* One entry per enclosing switch; each case begins from a merge of the
-     switch entry state and the state falling into it.  */
-  std::vector<state_map> case_envs;
+  tree body;
+  std::vector<crug_frame> frames;
+  std::map<tree, crug_exit> exits;
+  std::map<tree, std::vector<crug_drop> > scope_drops;
+  std::map<tree, std::vector<crug_drop> > explicit_drops;
+  std::map<tree, tree> stmt_replace;
+  std::map<tree, state_map> label_envs;
+  std::map<tree, crug_label_info> labels;
+  std::vector<crug_goto> gotos;
+  std::vector<crug_target> targets;
+  std::set<tree> warned;
+  std::set<tree> warned_setjmp;
 };
 
 /* Declarations recorded as owning during parsing, keyed by DECL_UID rather
@@ -82,9 +179,10 @@ struct crug_fn_ctx
 
 static std::set<unsigned int> crug_owning_uids;
 
-/* The artificial function declaration used for an unlowered move().  */
+/* The artificial function declarations used by the intrinsics.  They exist
+   only inside the front end: every call is removed by this pass.  */
 
-static tree crug_move_fndecl;
+static tree crug_intr_fndecl[4];
 
 bool
 crug_ownership_enabled (void)
@@ -92,31 +190,112 @@ crug_ownership_enabled (void)
   return crug_feature_enabled (CRUG_FEAT_OWNERSHIP);
 }
 
-/* Building and recognising the move intrinsic.  */
+/* Intrinsic names and calls.  */
 
-tree
-crug_build_move_call (location_t loc, tree arg)
+bool
+crug_intrinsic_kind (tree id, enum crug_intrinsic *kind)
 {
-  if (crug_move_fndecl == NULL_TREE)
+  if (id == NULL_TREE || TREE_CODE (id) != IDENTIFIER_NODE)
+    return false;
+
+  const char *name = IDENTIFIER_POINTER (id);
+  enum crug_intrinsic k;
+
+  if (strcmp (name, "move") == 0)
+    k = CRUG_INTR_MOVE;
+  else if (strcmp (name, "adopt") == 0)
+    k = CRUG_INTR_ADOPT;
+  else if (strcmp (name, "release") == 0)
+    k = CRUG_INTR_RELEASE;
+  else if (strcmp (name, "drop") == 0)
+    k = CRUG_INTR_DROP;
+  else
+    return false;
+
+  if (kind != NULL)
+    *kind = k;
+  return true;
+}
+
+static const char *
+intrinsic_name (enum crug_intrinsic kind)
+{
+  switch (kind)
     {
-      tree fntype = build_function_type_list (ptr_type_node, ptr_type_node,
-					      NULL_TREE);
-      crug_move_fndecl = build_decl (loc, FUNCTION_DECL,
-				     get_identifier ("__builtin_crug_move"),
-				     fntype);
-      DECL_ARTIFICIAL (crug_move_fndecl) = 1;
-      DECL_EXTERNAL (crug_move_fndecl) = 1;
-      TREE_PUBLIC (crug_move_fndecl) = 0;
+    case CRUG_INTR_MOVE:
+      return "__builtin_crug_move";
+    case CRUG_INTR_ADOPT:
+      return "__builtin_crug_adopt";
+    case CRUG_INTR_RELEASE:
+      return "__builtin_crug_release";
+    case CRUG_INTR_DROP:
+      return "__builtin_crug_drop";
+    }
+  return "__builtin_crug_move";
+}
+
+static tree
+intrinsic_fndecl (enum crug_intrinsic kind, location_t loc)
+{
+  if (crug_intr_fndecl[kind] != NULL_TREE)
+    return crug_intr_fndecl[kind];
+
+  tree fntype;
+  switch (kind)
+    {
+    case CRUG_INTR_DROP:
+      fntype = build_function_type_list (void_type_node, ptr_type_node,
+					 NULL_TREE);
+      break;
+    case CRUG_INTR_ADOPT:
+      fntype = build_function_type_list (ptr_type_node, ptr_type_node,
+					 ptr_type_node, NULL_TREE);
+      break;
+    default:
+      fntype = build_function_type_list (ptr_type_node, ptr_type_node,
+					 NULL_TREE);
+      break;
     }
 
-  tree call = build_call_expr_loc (loc, crug_move_fndecl, 1, arg);
-  /* The intrinsic is transparent: its result has the type of its operand.  */
-  TREE_TYPE (call) = TREE_TYPE (arg);
+  tree fndecl = build_decl (loc, FUNCTION_DECL,
+			    get_identifier (intrinsic_name (kind)), fntype);
+  DECL_ARTIFICIAL (fndecl) = 1;
+  DECL_EXTERNAL (fndecl) = 1;
+  TREE_PUBLIC (fndecl) = 0;
+  crug_intr_fndecl[kind] = fndecl;
+  return fndecl;
+}
+
+tree
+crug_build_intrinsic_call (enum crug_intrinsic kind, location_t loc,
+			   tree arg0, tree arg1)
+{
+  tree fndecl = intrinsic_fndecl (kind, loc);
+  tree call;
+
+  if (kind == CRUG_INTR_ADOPT)
+    {
+      /* A function designator has not been decayed here, because the
+	 intrinsic has no declared parameter type to convert to.  */
+      if (arg1 != NULL_TREE && arg1 != error_mark_node
+	  && TREE_CODE (arg1) == FUNCTION_DECL)
+	arg1 = build1 (ADDR_EXPR, build_pointer_type (TREE_TYPE (arg1)), arg1);
+      call = build_call_expr_loc (loc, fndecl, 2, arg0, arg1);
+    }
+  else
+    call = build_call_expr_loc (loc, fndecl, 1, arg0);
+
+  /* move, adopt and release are transparent: the result has the type of the
+     first operand.  drop returns void.  */
+  if (kind == CRUG_INTR_DROP)
+    TREE_TYPE (call) = void_type_node;
+  else if (arg0 != NULL_TREE && arg0 != error_mark_node)
+    TREE_TYPE (call) = TREE_TYPE (arg0);
   return call;
 }
 
 static bool
-is_move_call (tree t)
+is_intrinsic_call (tree t, enum crug_intrinsic *kind)
 {
   if (t == NULL_TREE || TREE_CODE (t) != CALL_EXPR)
     return false;
@@ -124,20 +303,17 @@ is_move_call (tree t)
   tree fn = CALL_EXPR_FN (t);
   if (fn != NULL_TREE && TREE_CODE (fn) == ADDR_EXPR)
     fn = TREE_OPERAND (fn, 0);
-  return fn != NULL_TREE && fn == crug_move_fndecl;
-}
+  if (fn == NULL_TREE)
+    return false;
 
-static tree
-lower_move_cb (tree *tp, int *walk_subtrees, void *data)
-{
-  (void) data;
-
-  if (is_move_call (*tp))
-    {
-      *tp = CALL_EXPR_ARG (*tp, 0);
-      *walk_subtrees = 1;
-    }
-  return NULL_TREE;
+  for (int i = 0; i < 4; i++)
+    if (fn == crug_intr_fndecl[i])
+      {
+	if (kind != NULL)
+	  *kind = (enum crug_intrinsic) i;
+	return true;
+      }
+  return false;
 }
 
 /* Owning declarations.  */
@@ -150,62 +326,138 @@ crug_mark_owning_decl (tree decl, location_t loc)
 
   if (TREE_CODE (decl) == TYPE_DECL)
     {
-      error_at (loc, "qualifier is not allowed on this declarator "
+      error_at (loc, "a Crug qualifier cannot be attached to a typedef "
 		"[crug-TYPE-001]");
       return;
     }
 
-  if (TREE_CODE (decl) == FUNCTION_DECL)
+  if (DECL_NAME (decl) == NULL_TREE)
+    return;
+
+  tree type = TREE_TYPE (decl);
+  bool is_param = TREE_CODE (decl) == PARM_DECL;
+  bool is_function = TREE_CODE (decl) == FUNCTION_DECL;
+
+  if (type == NULL_TREE || type == error_mark_node)
+    return;
+
+  if (is_function)
     {
-      /* An owning return value.  The value is not tracked in the MVP.  */
+      /* 'own Foo *f (void)' declares a function that returns an owned
+	 pointer: the qualifier belongs to the return type, and the
+	 function itself owns nothing.  Recording the declaration lets a
+	 later phase check call sites.  */
       crug_owning_uids.insert (DECL_UID (decl));
       return;
     }
 
-  tree type = TREE_TYPE (decl);
-  if (type == NULL_TREE || type == error_mark_node)
-    return;
-
-  tree t = type;
-  while (TREE_CODE (t) == ARRAY_TYPE)
-    t = TREE_TYPE (t);
-
-  if (TREE_CODE (t) != POINTER_TYPE)
+  if (TREE_CODE (type) == ARRAY_TYPE)
     {
-      error_at (loc, "qualifier is not allowed on this declarator "
+      /* An array of owned pointers owns its elements.  The Phase 5 MVP
+	 tracks the object as one place; the element-wise destruction of an
+	 array is a Phase 7 refinement.  */
+      type = TREE_TYPE (type);
+    }
+
+  if (TREE_CODE (type) != POINTER_TYPE)
+    {
+      error_at (loc, "an owning declarator must have pointer type "
 		"[crug-TYPE-001]");
       return;
     }
 
-  if (TREE_CODE (TREE_TYPE (t)) == FUNCTION_TYPE)
+  if (TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
     {
-      error_at (loc, "'own' may not qualify a function type [crug-TYPE-005]");
+      error_at (loc, "an owning declarator cannot have pointer-to-function "
+		"type [crug-TYPE-005]");
       return;
     }
 
+  (void) is_param;
+  (void) is_function;
   crug_owning_uids.insert (DECL_UID (decl));
 }
 
 bool
 crug_is_owning_decl (tree decl)
 {
-  return (decl != NULL_TREE && DECL_P (decl)
+  return (decl != NULL_TREE && DECL_P (decl) && DECL_NAME (decl) != NULL_TREE
 	  && crug_owning_uids.count (DECL_UID (decl)) != 0);
 }
 
-/* States.  */
+/* Dumps.  -fcrug-dump= takes a comma-separated list of kinds.  */
 
-static crug_state
-state_of (const state_map &env, tree decl)
+struct crug_dump_slot
 {
-  state_map::const_iterator it = env.find (decl);
-  return it == env.end () ? CRUG_UNINIT : it->second;
+  const char *kind;
+  const char *suffix;
+  const char *header;
+  FILE *file;
+  bool tried;
+};
+
+static struct crug_dump_slot crug_dump_slots[] =
+{
+  { "ownership", ".crug-ownership", "crug ownership dump v1", NULL, false },
+  { "drop", ".crug-drop", "crug drop dump v1", NULL, false }
+};
+
+static bool
+dump_kind_enabled (const char *kind)
+{
+  if (crug_dump_kind == NULL)
+    return false;
+
+  size_t n = strlen (kind);
+  const char *p = crug_dump_kind;
+  while (*p != '\0')
+    {
+      size_t seg = strcspn (p, ",");
+      if (seg == n && strncmp (p, kind, n) == 0)
+	return true;
+      p += seg;
+      if (*p == ',')
+	p++;
+    }
+  return false;
 }
 
-static void
-set_state (state_map &env, tree decl, crug_state state)
+static FILE *
+get_dump_file (const char *kind)
 {
-  env[decl] = state;
+  for (size_t i = 0;
+       i < sizeof (crug_dump_slots) / sizeof (crug_dump_slots[0]); i++)
+    {
+      struct crug_dump_slot *slot = &crug_dump_slots[i];
+      if (strcmp (slot->kind, kind) != 0)
+	continue;
+      if (slot->tried)
+	return slot->file;
+      slot->tried = true;
+      if (main_input_filename == NULL)
+	return NULL;
+
+      /* Dump next to the object file when the driver gave an output name,
+	 so that concurrent compilations do not collide in the current
+	 directory.  */
+      const char *base = aux_base_name != NULL && aux_base_name[0] != '\0'
+	? aux_base_name : lbasename (main_input_filename);
+      const char *dot = strrchr (base, '.');
+      size_t stem = (dot != NULL && dot != base && strchr (dot, '/') == NULL)
+	? (size_t) (dot - base) : strlen (base);
+      size_t slen = strlen (slot->suffix);
+      char *name = new char[stem + slen + 1];
+      memcpy (name, base, stem);
+      memcpy (name + stem, slot->suffix, slen + 1);
+      slot->file = fopen (name, "w");
+      if (slot->file == NULL)
+	error ("cannot open the Crug %s dump %qs: %m", kind, name);
+      else
+	fprintf (slot->file, "%s\n", slot->header);
+      delete[] name;
+      return slot->file;
+    }
+  return NULL;
 }
 
 static const char *
@@ -213,73 +465,47 @@ state_name (crug_state state)
 {
   switch (state)
     {
-    case CRUG_UNINIT:
-      return "UNINIT";
+    case CRUG_EMPTY:
+      return "EMPTY";
     case CRUG_OWNED:
       return "OWNED";
     case CRUG_MOVED:
       return "MOVED";
     case CRUG_MAYBE_MOVED:
       return "MAYBE_MOVED";
+    case CRUG_MAYBE_EMPTY:
+      return "MAYBE_EMPTY";
     }
   return "?";
 }
 
-static crug_state
-merge_state (crug_state a, crug_state b)
+static const char *
+exit_kind_name (enum crug_exit_kind kind)
 {
-  if (a == b)
-    return a;
-  if ((a == CRUG_UNINIT && b == CRUG_OWNED)
-      || (a == CRUG_OWNED && b == CRUG_UNINIT))
-    return CRUG_UNINIT;
-  return CRUG_MAYBE_MOVED;
-}
-
-/* Dump.  */
-
-static bool
-dump_enabled (void)
-{
-  return crug_dump_kind != NULL && strcmp (crug_dump_kind, "ownership") == 0;
-}
-
-static FILE *
-get_dump_file (void)
-{
-  static FILE *file = NULL;
-  static bool tried = false;
-
-  if (tried)
-    return file;
-  tried = true;
-
-  if (main_input_filename == NULL)
-    return NULL;
-
-  const char *base = lbasename (main_input_filename);
-  const char *dot = strrchr (base, '.');
-  size_t stem = dot != NULL ? (size_t) (dot - base) : strlen (base);
-  char *name = new char[stem + sizeof (".crug-ownership")];
-  memcpy (name, base, stem);
-  memcpy (name + stem, ".crug-ownership", sizeof (".crug-ownership"));
-  file = fopen (name, "w");
-  if (file == NULL)
-    error ("cannot open the Crug ownership dump %qs: %m", name);
-  else
-    fprintf (file, "crug ownership dump v1\n");
-  delete[] name;
-  return file;
+  switch (kind)
+    {
+    case CRUG_EXIT_SCOPE_END:
+      return "scope-end";
+    case CRUG_EXIT_RETURN:
+      return "return";
+    case CRUG_EXIT_BREAK:
+      return "break";
+    case CRUG_EXIT_CONTINUE:
+      return "continue";
+    case CRUG_EXIT_GOTO:
+      return "goto";
+    }
+  return "?";
 }
 
 static void
 dump_join (location_t loc, tree decl, crug_state a, crug_state b,
 	   crug_state result)
 {
-  if (!dump_enabled ())
+  if (!dump_kind_enabled ("ownership"))
     return;
 
-  FILE *file = get_dump_file ();
+  FILE *file = get_dump_file ("ownership");
   if (file == NULL || DECL_NAME (decl) == NULL_TREE)
     return;
 
@@ -299,43 +525,601 @@ dump_join (location_t loc, tree decl, crug_state a, crug_state b,
 	   state_name (a), state_name (b), state_name (result));
 }
 
+static void
+dump_drops (enum crug_exit_kind kind, location_t loc,
+	    const std::vector<crug_drop> &drops)
+{
+  if (drops.empty () || !dump_kind_enabled ("drop"))
+    return;
+
+  FILE *file = get_dump_file ("drop");
+  if (file == NULL)
+    return;
+
+  expanded_location where = expand_location (loc);
+  for (size_t i = 0; i < drops.size (); i++)
+    fprintf (file, "drop %s:%d: %s %s via %s\n",
+	     where.file != NULL ? lbasename (where.file) : "<unknown>",
+	     where.line, exit_kind_name (kind),
+	     IDENTIFIER_POINTER (DECL_NAME (drops[i].decl)),
+	     drops[i].dtor != NULL_TREE
+	     && DECL_NAME (drops[i].dtor) != NULL_TREE
+	     ? IDENTIFIER_POINTER (DECL_NAME (drops[i].dtor)) : "none");
+}
+
 /* The analysis proper.  */
 
-static bool walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t);
+static bool walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t,
+		       location_t locus = UNKNOWN_LOCATION);
 static void walk_expr (crug_fn_ctx &ctx, state_map &env, tree t,
 		       location_t locus = UNKNOWN_LOCATION);
+
+static location_t
+node_location (tree t, location_t fallback = UNKNOWN_LOCATION)
+{
+  if (t == NULL_TREE || t == error_mark_node)
+    return fallback;
+  if (EXPR_P (t) && EXPR_HAS_LOCATION (t))
+    return EXPR_LOCATION (t);
+  if (TREE_CODE (t) == BIND_EXPR)
+    return node_location (BIND_EXPR_BODY (t), fallback);
+  if (TREE_CODE (t) == STATEMENT_LIST)
+    {
+      tree_stmt_iterator i = tsi_start (t);
+      if (!tsi_end_p (i))
+	return node_location (tsi_stmt (i), fallback);
+    }
+  return fallback;
+}
+
+static crug_state
+state_of (const state_map &env, tree decl)
+{
+  state_map::const_iterator it = env.find (decl);
+  return it == env.end () ? CRUG_EMPTY : it->second.state;
+}
+
+static tree
+dtor_of (const state_map &env, tree decl)
+{
+  state_map::const_iterator it = env.find (decl);
+  return it == env.end () ? NULL_TREE : it->second.dtor;
+}
+
+static void
+set_owned (state_map &env, tree decl, tree dtor)
+{
+  env[decl] = crug_ostate (CRUG_OWNED, dtor);
+}
+
+static void
+set_state (state_map &env, tree decl, crug_state state)
+{
+  env[decl] = crug_ostate (state, NULL_TREE);
+}
+
+static crug_state
+merge_state (crug_state a, crug_state b)
+{
+  if (a == b)
+    return a;
+  if ((a == CRUG_EMPTY && b == CRUG_MOVED)
+      || (a == CRUG_MOVED && b == CRUG_EMPTY))
+    return CRUG_EMPTY;
+  if ((a == CRUG_OWNED && b == CRUG_EMPTY)
+      || (a == CRUG_EMPTY && b == CRUG_OWNED))
+    return CRUG_MAYBE_EMPTY;
+  if ((a == CRUG_OWNED && b == CRUG_MOVED)
+      || (a == CRUG_MOVED && b == CRUG_OWNED))
+    return CRUG_MAYBE_MOVED;
+  if ((a == CRUG_EMPTY && b == CRUG_MAYBE_EMPTY)
+      || (a == CRUG_MAYBE_EMPTY && b == CRUG_EMPTY))
+    return CRUG_MAYBE_EMPTY;
+  return CRUG_MAYBE_MOVED;
+}
+
+static void
+push_frame (crug_fn_ctx &ctx, tree bind)
+{
+  crug_frame f;
+  f.bind = bind;
+  ctx.frames.push_back (f);
+}
+
+static void
+pop_frame (crug_fn_ctx &ctx, state_map &env)
+{
+  crug_frame &f = ctx.frames.back ();
+  for (size_t i = 0; i < f.decls.size (); i++)
+    env.erase (f.decls[i]);
+  ctx.frames.pop_back ();
+}
 
 static void
 register_owned (crug_fn_ctx &ctx, state_map &env, tree decl)
 {
-  if (ctx.seen.insert (decl).second)
-    {
-      ctx.owned.push_back (decl);
-      if (env.find (decl) == env.end ())
-	env[decl] = CRUG_UNINIT;
-    }
+  crug_frame &f = ctx.frames.back ();
+  for (size_t i = 0; i < f.decls.size (); i++)
+    if (f.decls[i] == decl)
+      return;
+  f.decls.push_back (decl);
+  if (env.find (decl) == env.end ())
+    env[decl] = crug_ostate (CRUG_EMPTY, NULL_TREE);
+}
+
+static tree
+choose_dtor (crug_fn_ctx &ctx, tree decl, tree a, tree b, location_t loc)
+{
+  if (a == b)
+    return a;
+  if (a == NULL_TREE)
+    return b;
+  if (b == NULL_TREE)
+    return a;
+  if (ctx.warned.insert (decl).second)
+    error_at (loc, "conflicting destructors for owned value %qD on different "
+	      "paths [crug-OWN-010]", decl);
+  return a;
 }
 
 static void
 merge_into (crug_fn_ctx &ctx, state_map &dst, const state_map &other,
-	    location_t loc)
+	    location_t loc, bool announce = true)
 {
-  for (tree decl : ctx.owned)
+  if (dst.empty ())
     {
-      crug_state a = state_of (dst, decl);
-      crug_state b = state_of (other, decl);
-      crug_state result = merge_state (a, b);
-      if (a != b)
-	dump_join (loc, decl, a, b, result);
-      dst[decl] = result;
+      dst = other;
+      return;
     }
+
+  std::set<tree> keys;
+  for (state_map::const_iterator i = dst.begin (); i != dst.end (); ++i)
+    keys.insert (i->first);
+  for (state_map::const_iterator i = other.begin (); i != other.end (); ++i)
+    keys.insert (i->first);
+
+  for (std::set<tree>::const_iterator k = keys.begin (); k != keys.end (); ++k)
+    {
+      tree d = *k;
+      state_map::const_iterator ia = dst.find (d);
+      state_map::const_iterator ib = other.find (d);
+      crug_ostate sa = ia == dst.end () ? crug_ostate () : ia->second;
+      crug_ostate sb = ib == other.end () ? crug_ostate () : ib->second;
+      crug_state result = merge_state (sa.state, sb.state);
+      if (announce && sa.state != sb.state)
+	dump_join (loc, d, sa.state, sb.state, result);
+      dst[d] = crug_ostate (result, choose_dtor (ctx, d, sa.dtor, sb.dtor,
+						 loc));
+    }
+}
+
+static void
+warn_unadopted (crug_fn_ctx &ctx, tree decl, location_t loc)
+{
+  (void) loc;
+  if (!ctx.warned.insert (decl).second)
+    return;
+  if (crug_feature_enabled (CRUG_FEAT_STRICT))
+    error_at (DECL_SOURCE_LOCATION (decl),
+	      "owned value %qD is never adopted or released [crug-OWN-007]",
+	      decl);
+  else
+    warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wcrug_unadopted_own,
+		"owned value %qD is never adopted or released [crug-OWN-007]",
+		decl);
+}
+
+static void
+ambiguous_state (crug_fn_ctx &ctx, tree decl, crug_state state,
+		 location_t loc)
+{
+  if (!ctx.warned.insert (decl).second)
+    return;
+  if (state == CRUG_MAYBE_EMPTY)
+    error_at (DECL_SOURCE_LOCATION (decl),
+	      "owned value %qD may be used before it is initialized "
+	      "[crug-DROP-007]", decl);
+  else
+    error_at (DECL_SOURCE_LOCATION (decl),
+	      "cannot prove that %qD is destroyed exactly once on this path "
+	      "[crug-DROP-006]", decl);
+  inform (loc, "the ownership state here depends on which branch was taken");
+}
+
+/* Collect the destructions for every frame deeper than KEEP_DEPTH, in
+   reverse declaration order, and leave those scopes.  */
+
+static void
+collect_drops (crug_fn_ctx &ctx, state_map &env, size_t keep_depth,
+	       location_t loc, std::vector<crug_drop> &out)
+{
+  for (size_t i = ctx.frames.size (); i > keep_depth; --i)
+    {
+      crug_frame &f = ctx.frames[i - 1];
+      for (size_t j = f.decls.size (); j > 0; --j)
+	{
+	  tree d = f.decls[j - 1];
+	  state_map::iterator it = env.find (d);
+	  if (it == env.end ())
+	    continue;
+
+	  crug_ostate st = it->second;
+	  switch (st.state)
+	    {
+	    case CRUG_EMPTY:
+	    case CRUG_MOVED:
+	      break;
+	    case CRUG_OWNED:
+	      if (st.dtor != NULL_TREE)
+		{
+		  crug_drop dr;
+		  dr.decl = d;
+		  dr.dtor = st.dtor;
+		  out.push_back (dr);
+		}
+	      else
+		warn_unadopted (ctx, d, loc);
+	      break;
+	    case CRUG_MAYBE_MOVED:
+	    case CRUG_MAYBE_EMPTY:
+	      if (st.dtor != NULL_TREE)
+		ambiguous_state (ctx, d, st.state, loc);
+	      else
+		warn_unadopted (ctx, d, loc);
+	      break;
+	    }
+	  env.erase (it);
+	}
+    }
+}
+
+static void
+record_exit (crug_fn_ctx &ctx, state_map &env, tree stmt,
+	     enum crug_exit_kind kind, size_t keep_depth, location_t loc,
+	     bool has_value)
+{
+  std::vector<crug_drop> drops;
+  collect_drops (ctx, env, keep_depth, loc, drops);
+  if (stmt != NULL_TREE && !drops.empty ())
+    {
+      crug_exit e;
+      e.stmt = stmt;
+      e.kind = kind;
+      e.loc = loc;
+      e.drops = drops;
+      e.has_value = has_value;
+      ctx.exits[stmt] = e;
+    }
+  dump_drops (kind, loc, drops);
+}
+
+/* Allocation catalogue and destructor lookup (ADR 0005, amendment A-3).  */
+
+static bool
+is_allocation_call (tree t)
+{
+  if (t == NULL_TREE || TREE_CODE (t) != CALL_EXPR)
+    return false;
+
+  tree fn = CALL_EXPR_FN (t);
+  if (fn != NULL_TREE && TREE_CODE (fn) == ADDR_EXPR)
+    fn = TREE_OPERAND (fn, 0);
+  if (fn == NULL_TREE || TREE_CODE (fn) != FUNCTION_DECL
+      || DECL_NAME (fn) == NULL_TREE)
+    return false;
+
+  const char *name = IDENTIFIER_POINTER (DECL_NAME (fn));
+  static const char *const allocs[] =
+    {
+      "malloc", "calloc", "realloc", "reallocarray", "strdup", "strndup",
+      "aligned_alloc", "__builtin_malloc", "__builtin_calloc",
+      "__builtin_realloc", "__builtin_strdup", "__builtin_strndup",
+      "__builtin_aligned_alloc", NULL
+    };
+  for (size_t i = 0; allocs[i] != NULL; i++)
+    if (strcmp (name, allocs[i]) == 0)
+      return true;
+  return false;
+}
+
+static tree
+known_free (void)
+{
+  static tree cached = NULL_TREE;
+  static bool tried = false;
+
+  if (tried)
+    return cached;
+  tried = true;
+
+  tree id = get_identifier ("free");
+  tree decl = lookup_name (id);
+  if (decl != NULL_TREE && TREE_CODE (decl) == FUNCTION_DECL)
+    cached = decl;
+  return cached;
+}
+
+static bool
+destructor_signature_ok (tree fn, tree optype)
+{
+  tree fntype = TREE_TYPE (fn);
+  if (fntype == NULL_TREE || TREE_CODE (fntype) != FUNCTION_TYPE)
+    return false;
+  if (!VOID_TYPE_P (TREE_TYPE (fntype)))
+    return false;
+
+  tree args = TYPE_ARG_TYPES (fntype);
+  if (args == NULL_TREE)
+    return true;
+  if (TREE_VALUE (args) == void_type_node)
+    return false;
+  if (TREE_CHAIN (args) != NULL_TREE && TREE_CHAIN (args) != void_list_node)
+    return false;
+
+  tree ptype = TREE_VALUE (args);
+  if (!POINTER_TYPE_P (ptype) || optype == NULL_TREE
+      || !POINTER_TYPE_P (optype))
+    return false;
+  if (VOID_TYPE_P (TREE_TYPE (ptype)))
+    return true;
+  return tree_nop_conversion_p (ptype, optype);
+}
+
+static void
+warn_adopt_signature (crug_fn_ctx &ctx, tree dtor, tree optype, location_t loc)
+{
+  (void) ctx;
+  const char *msg = "adopt() destructor must have type void (*)(T *) for the "
+    "operand type T [crug-OWN-002]";
+  if (crug_feature_enabled (CRUG_FEAT_STRICT))
+    error_at (loc, "%s", msg);
+  else
+    warning_at (loc, OPT_Wcrug_adopt_signature, "%s", msg);
+  (void) dtor;
+  (void) optype;
+}
+
+static bool
+is_null_pointer (tree t)
+{
+  if (t == NULL_TREE || t == error_mark_node)
+    return false;
+  if (t == null_pointer_node)
+    return true;
+  return TREE_CODE (t) == INTEGER_CST && integer_zerop (t);
+}
+
+/* Mark an object as moved out of and return the destructor it passed on.  */
+
+static tree
+process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
+{
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return NULL_TREE;
+
+  tree r = arg;
+  STRIP_NOPS (r);
+
+  if (TREE_CODE (r) == COMPONENT_REF || TREE_CODE (r) == ARRAY_REF)
+    {
+      error_at (loc, "move of aggregate field %qE is not supported; move the "
+		"whole object [crug-UAM-006]", r);
+      return NULL_TREE;
+    }
+
+  if (TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
+    {
+      /* A prvalue: there is no object to move out of.  */
+      walk_expr (ctx, env, arg, loc);
+      return NULL_TREE;
+    }
+
+  if (!crug_is_owning_decl (r))
+    {
+      error_at (loc, "move() operand is not an owned object [crug-OWN-001]");
+      return NULL_TREE;
+    }
+
+  crug_state st = state_of (env, r);
+  tree dtor = dtor_of (env, r);
+
+  if (st == CRUG_MOVED)
+    error_at (loc, "move of already-moved value %qD [crug-UAM-002]", r);
+  else if (st == CRUG_MAYBE_MOVED)
+    error_at (loc, "move of possibly-moved value %qD after a branch join "
+	      "[crug-UAM-004]", r);
+
+  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+  return dtor;
+}
+
+static tree
+check_adopt (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
+{
+  tree raw = CALL_EXPR_ARG (call, 0);
+  tree dexp = CALL_EXPR_ARG (call, 1);
+
+  walk_expr (ctx, env, raw, loc);
+
+  if (dexp == NULL_TREE || dexp == error_mark_node)
+    return NULL_TREE;
+
+  tree d = dexp;
+  STRIP_NOPS (d);
+
+  /* A function designator reaches this point without its decay to a pointer
+     when it is an argument of an intrinsic, so accept both forms.  */
+  tree fn = NULL_TREE;
+  if (TREE_CODE (d) == ADDR_EXPR && TREE_CODE (TREE_OPERAND (d, 0)) == FUNCTION_DECL)
+    fn = TREE_OPERAND (d, 0);
+  else if (TREE_CODE (d) == FUNCTION_DECL)
+    fn = d;
+  else
+    {
+      warn_adopt_signature (ctx, d, TREE_TYPE (raw), loc);
+      return NULL_TREE;
+    }
+
+  if (!destructor_signature_ok (fn, TREE_TYPE (raw)))
+    {
+      warn_adopt_signature (ctx, fn, TREE_TYPE (raw), loc);
+      return NULL_TREE;
+    }
+  return fn;
+}
+
+static void
+check_release (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
+{
+  tree arg = CALL_EXPR_ARG (call, 0);
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return;
+
+  tree r = arg;
+  STRIP_NOPS (r);
+
+  if ((TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
+      || !crug_is_owning_decl (r))
+    {
+      error_at (loc, "release() operand is not an owned object [crug-OWN-004]");
+      walk_expr (ctx, env, arg, loc);
+      return;
+    }
+
+  crug_state st = state_of (env, r);
+  if (st == CRUG_MOVED)
+    error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+  else if (st == CRUG_MAYBE_MOVED)
+    error_at (loc, "use of possibly-moved value %qD after a branch join "
+	      "[crug-UAM-004]", r);
+
+  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+}
+
+static void
+check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
+{
+  tree arg = CALL_EXPR_ARG (call, 0);
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return;
+
+  tree r = arg;
+  STRIP_NOPS (r);
+
+  if ((TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
+      || !crug_is_owning_decl (r))
+    {
+      error_at (loc, "drop() operand is not an owned object [crug-DROP-001]");
+      return;
+    }
+
+  crug_state st = state_of (env, r);
+  tree dtor = dtor_of (env, r);
+
+  switch (st)
+    {
+    case CRUG_EMPTY:
+      break;
+    case CRUG_MOVED:
+      error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      break;
+    case CRUG_MAYBE_MOVED:
+    case CRUG_MAYBE_EMPTY:
+      if (dtor != NULL_TREE)
+	ambiguous_state (ctx, r, st, loc);
+      else
+	warn_unadopted (ctx, r, loc);
+      break;
+    case CRUG_OWNED:
+      if (dtor != NULL_TREE)
+	{
+	  crug_drop dr;
+	  dr.decl = r;
+	  dr.dtor = dtor;
+	  ctx.explicit_drops[call].push_back (dr);
+	}
+      else
+	warn_unadopted (ctx, r, loc);
+      break;
+    }
+
+  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+}
+
+/* Assign the ownership state that EXPR confers on DECL.  */
+
+static void
+assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
+		  location_t loc)
+{
+  if (expr == NULL_TREE || expr == error_mark_node)
+    {
+      set_state (env, decl, CRUG_EMPTY);
+      return;
+    }
+
+  tree r = expr;
+  STRIP_NOPS (r);
+
+  if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+      && crug_is_owning_decl (r))
+    {
+      crug_state st = state_of (env, r);
+      if (st == CRUG_MOVED)
+	error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      else if (st == CRUG_MAYBE_MOVED)
+	error_at (loc, "use of possibly-moved value %qD after a branch join "
+		  "[crug-UAM-004]", r);
+      else
+	error_at (loc, "implicit copy of owned value %qD; owned values are "
+		  "not copyable [crug-UAM-003]", r);
+      set_owned (env, decl, NULL_TREE);
+      return;
+    }
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (r) == CALL_EXPR && is_intrinsic_call (r, &kind))
+    {
+      if (kind == CRUG_INTR_MOVE)
+	{
+	  set_owned (env, decl, process_move (ctx, env, CALL_EXPR_ARG (r, 0),
+					      loc));
+	  return;
+	}
+      if (kind == CRUG_INTR_ADOPT)
+	{
+	  set_owned (env, decl, check_adopt (ctx, env, r, loc));
+	  return;
+	}
+      walk_expr (ctx, env, expr, loc);
+      set_owned (env, decl, NULL_TREE);
+      return;
+    }
+
+  if (is_null_pointer (r))
+    {
+      set_state (env, decl, CRUG_EMPTY);
+      return;
+    }
+
+  if (is_allocation_call (r))
+    {
+      walk_expr (ctx, env, expr, loc);
+      set_owned (env, decl, known_free ());
+      return;
+    }
+
+  walk_expr (ctx, env, expr, loc);
+  set_owned (env, decl, NULL_TREE);
 }
 
 static void
 check_use (state_map &env, tree decl, location_t loc)
 {
-  crug_state state = state_of (env, decl);
+  if (!crug_is_owning_decl (decl))
+    return;
 
+  crug_state state = state_of (env, decl);
   if (state == CRUG_MOVED)
     error_at (loc, "use of moved value %qD [crug-UAM-001]", decl);
   else if (state == CRUG_MAYBE_MOVED)
@@ -343,61 +1127,44 @@ check_use (state_map &env, tree decl, location_t loc)
 	      "[crug-UAM-004]", decl);
 }
 
-static location_t
-node_location (tree t)
+/* setjmp and longjmp do not run the destructors of the frames they skip.
+   Warn once per owning local that is live and has a destructor when the
+   setjmp call is evaluated: a later longjmp may bypass its drop.  */
+
+static bool
+is_setjmp_call (tree t)
 {
-  location_t loc = EXPR_LOCATION (t);
-  return loc == UNKNOWN_LOCATION ? input_location : loc;
+  tree fn = CALL_EXPR_FN (t);
+  if (fn != NULL_TREE && TREE_CODE (fn) == ADDR_EXPR)
+    fn = TREE_OPERAND (fn, 0);
+  if (fn == NULL_TREE || TREE_CODE (fn) != FUNCTION_DECL
+      || DECL_NAME (fn) == NULL_TREE)
+    return false;
+  const char *name = IDENTIFIER_POINTER (DECL_NAME (fn));
+  return strcmp (name, "setjmp") == 0
+	 || strcmp (name, "_setjmp") == 0
+	 || strcmp (name, "sigsetjmp") == 0
+	 || strcmp (name, "__sigsetjmp") == 0;
 }
 
 static void
-process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
+warn_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc)
 {
-  tree a = arg;
-  STRIP_NOPS (a);
-
-  if (TREE_CODE (a) == VAR_DECL || TREE_CODE (a) == PARM_DECL)
-    {
-      if (!crug_is_owning_decl (a))
-	{
-	  error_at (loc, "%<move%> operand is not an owned object "
-		    "[crug-OWN-001]");
-	  return;
-	}
-
-      crug_state state = state_of (env, a);
-      if (state == CRUG_MOVED)
-	{
-	  error_at (loc, "move of already-moved value %qD [crug-UAM-002]", a);
-	  return;
-	}
-      if (state == CRUG_MAYBE_MOVED)
-	{
-	  error_at (loc, "use of possibly-moved value %qD after a branch join "
-		    "[crug-UAM-004]", a);
-	  return;
-	}
-
-      set_state (env, a, CRUG_MOVED);
-      return;
-    }
-
-  if (TREE_CODE (a) == COMPONENT_REF
-      || TREE_CODE (a) == ARRAY_REF
-      || TREE_CODE (a) == INDIRECT_REF
-      || TREE_CODE (a) == MEM_REF)
-    {
-      error_at (loc, "move of aggregate field %qE is not supported; "
-		"move the whole object [crug-UAM-006]", a);
-      return;
-    }
-
-  /* A prvalue that owns its value (for example a call returning own) is
-     consumed by the move; there is no source object to mark.  */
-  walk_expr (ctx, env, a, loc);
+  for (state_map::const_iterator i = env.begin (); i != env.end (); ++i)
+    if (i->second.state == CRUG_OWNED && i->second.dtor != NULL_TREE)
+      {
+	tree d = i->first;
+	if (!ctx.warned_setjmp.insert (d).second)
+	  continue;
+	if (crug_feature_enabled (CRUG_FEAT_STRICT))
+	  error_at (loc, "destructors between %<setjmp%> and %<longjmp%> may "
+		    "be skipped for %qD [crug-DROP-003]", d);
+	else
+	  warning_at (loc, OPT_Wcrug_setjmp_drops,
+		      "destructors between %<setjmp%> and %<longjmp%> may be "
+		      "skipped for %qD [crug-DROP-003]", d);
+      }
 }
-
-/* Handle an expression used as a value.  */
 
 static void
 walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
@@ -405,229 +1172,349 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
   if (t == NULL_TREE || t == error_mark_node)
     return;
 
-  /* Operands such as a VAR_DECL carry no location of their own, so the
-     innermost enclosing expression supplies the location of the use.  */
-  if (EXPR_HAS_LOCATION (t))
-    locus = EXPR_LOCATION (t);
+  location_t loc = node_location (t, locus);
 
   switch (TREE_CODE (t))
     {
-    case CALL_EXPR:
-      if (is_move_call (t))
-	{
-	  process_move (ctx, env, CALL_EXPR_ARG (t, 0), node_location (t));
-	  return;
-	}
-      for (int i = 0; i < call_expr_nargs (t); i++)
-	walk_expr (ctx, env, CALL_EXPR_ARG (t, i), locus);
-      if (CALL_EXPR_FN (t) != NULL_TREE
-	  && TREE_CODE (CALL_EXPR_FN (t)) != ADDR_EXPR)
-	walk_expr (ctx, env, CALL_EXPR_FN (t), locus);
+    case VAR_DECL:
+    case PARM_DECL:
+      check_use (env, t, loc);
       return;
 
+    case CALL_EXPR:
+      {
+	enum crug_intrinsic kind;
+	if (is_intrinsic_call (t, &kind))
+	  {
+	    switch (kind)
+	      {
+	      case CRUG_INTR_MOVE:
+		(void) process_move (ctx, env, CALL_EXPR_ARG (t, 0), loc);
+		return;
+	      case CRUG_INTR_ADOPT:
+		(void) check_adopt (ctx, env, t, loc);
+		return;
+	      case CRUG_INTR_RELEASE:
+		check_release (ctx, env, t, loc);
+		return;
+	      case CRUG_INTR_DROP:
+		check_drop (ctx, env, t, loc);
+		return;
+	      }
+	  }
+	if (is_setjmp_call (t))
+	  warn_setjmp (ctx, env, loc);
+	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);
+	for (int i = 0; i < call_expr_nargs (t); i++)
+	  walk_expr (ctx, env, CALL_EXPR_ARG (t, i), loc);
+	return;
+      }
+
     case MODIFY_EXPR:
-    case INIT_EXPR:
       {
 	tree lhs = TREE_OPERAND (t, 0);
 	tree rhs = TREE_OPERAND (t, 1);
-	tree l = lhs;
-	STRIP_NOPS (l);
-	location_t loc = node_location (t);
-
-	if ((TREE_CODE (l) == VAR_DECL || TREE_CODE (l) == PARM_DECL)
-	    && crug_is_owning_decl (l))
+	if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
+	    && crug_is_owning_decl (lhs))
 	  {
-	    if (rhs == NULL_TREE)
+	    crug_state st = state_of (env, lhs);
+	    if (st == CRUG_MOVED)
+	      error_at (loc, "use of moved value %qD [crug-UAM-001]", lhs);
+	    else if (st == CRUG_MAYBE_MOVED)
+	      error_at (loc, "use of possibly-moved value %qD after a branch "
+			"join [crug-UAM-004]", lhs);
+	    else if (st == CRUG_OWNED || st == CRUG_MAYBE_EMPTY)
 	      {
-		set_state (env, l, CRUG_UNINIT);
+		/* Assigning to an object that already owns a value would
+		   overwrite it without destroying it.  */
+		error_at (loc, "assignment to an owned value that already owns; "
+			  "call drop() or release() first [crug-DROP-008]", lhs);
+		/* Recovery: the value is not destroyed here, so stop calling
+		   it owned and do not model the assignment.  This keeps one
+		   mistake from producing a second, unrelated diagnostic at
+		   the end of the scope.  */
+		crug_ostate &s = env[lhs];
+		s.state = CRUG_MOVED;
+		s.dtor = NULL_TREE;
+		walk_expr (ctx, env, rhs, loc);
 		return;
 	      }
-
-	    if (is_move_call (rhs))
-	      {
-		process_move (ctx, env, CALL_EXPR_ARG (rhs, 0), loc);
-		set_state (env, l, CRUG_OWNED);
-		return;
-	      }
-
-	    tree r = rhs;
-	    STRIP_NOPS (r);
-	    if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
-		&& crug_is_owning_decl (r))
-	      {
-		crug_state state = state_of (env, r);
-		if (state == CRUG_MOVED)
-		  error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
-		else if (state == CRUG_MAYBE_MOVED)
-		  error_at (loc, "use of possibly-moved value %qD after a "
-			    "branch join [crug-UAM-004]", r);
-		else
-		  error_at (loc, "implicit copy of owned value %qD; owned "
-			    "values are not copyable [crug-UAM-003]", r);
-		set_state (env, l, CRUG_OWNED);
-		return;
-	      }
-
-	    walk_expr (ctx, env, rhs);
-	    set_state (env, l, CRUG_OWNED);
-	    return;
+	    assign_from_expr (ctx, env, lhs, rhs, loc);
 	  }
-
-	walk_expr (ctx, env, lhs, locus);
-	if (rhs != NULL_TREE)
-	  walk_expr (ctx, env, rhs, loc);
+	else
+	  {
+	    walk_expr (ctx, env, lhs, loc);
+	    walk_expr (ctx, env, rhs, loc);
+	  }
 	return;
       }
 
-    case COND_EXPR:
-      {
-	if (VOID_TYPE_P (TREE_TYPE (t)))
-	  {
-	    walk_expr (ctx, env, TREE_OPERAND (t, 0), locus);
-	    state_map a = env;
-	    state_map b = env;
-	    bool ra = walk_stmt (ctx, a, TREE_OPERAND (t, 1));
-	    bool rb = walk_stmt (ctx, b, TREE_OPERAND (t, 2));
-	    if (ra && rb)
-	      {
-		state_map merged = a;
-		merge_into (ctx, merged, b, node_location (t));
-		env = merged;
-	      }
-	    else if (ra)
-	      env = a;
-	    else if (rb)
-	      env = b;
-	    return;
-	  }
-
-	walk_expr (ctx, env, TREE_OPERAND (t, 0), locus);
-	state_map a = env;
-	state_map b = env;
-	walk_expr (ctx, a, TREE_OPERAND (t, 1), locus);
-	walk_expr (ctx, b, TREE_OPERAND (t, 2), locus);
-	merge_into (ctx, env, a, node_location (t));
-	merge_into (ctx, env, b, node_location (t));
-	return;
-      }
-
+    case TARGET_EXPR:
     case COMPOUND_EXPR:
-      walk_expr (ctx, env, TREE_OPERAND (t, 0), locus);
-      walk_expr (ctx, env, TREE_OPERAND (t, 1), locus);
-      return;
-
-    case VAR_DECL:
-    case PARM_DECL:
-      if (crug_is_owning_decl (t))
-	check_use (env, t,
-		   locus != UNKNOWN_LOCATION ? locus : node_location (t));
-      return;
+    case COND_EXPR:
+    case TRUTH_ANDIF_EXPR:
+    case TRUTH_ORIF_EXPR:
+    case TRUTH_NOT_EXPR:
+      /* These carry statements or short-circuit control flow; walking the
+	 operands in order is enough for the ownership state.  */
+      break;
 
     default:
-      {
-	if (DECL_P (t) || TYPE_P (t) || TREE_CODE_CLASS (TREE_CODE (t)) == tcc_constant)
-	  return;
-	int n = TREE_CODE_LENGTH (TREE_CODE (t));
-	for (int i = 0; i < n; i++)
-	  if (TREE_OPERAND (t, i) != NULL_TREE)
-	    walk_expr (ctx, env, TREE_OPERAND (t, i), locus);
-	return;
-      }
+      break;
     }
+
+  if (!EXPR_P (t))
+    return;
+
+  for (int i = 0; i < TREE_OPERAND_LENGTH (t); i++)
+    walk_expr (ctx, env, TREE_OPERAND (t, i), loc);
 }
 
-/* Handle a statement, or an expression used as a statement.  Return true when
-   control can continue after it.  */
+/* Record the label positions and the owning declarations textually before
+   them, for goto validation.  */
 
-static bool
-walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t)
+static void
+collect_labels (tree t, std::vector<tree> &path, std::vector<tree> &decls,
+		std::map<tree, crug_label_info> &labels)
 {
   if (t == NULL_TREE || t == error_mark_node)
-    return true;
-
-  location_t loc = node_location (t);
+    return;
 
   switch (TREE_CODE (t))
     {
     case BIND_EXPR:
-      for (tree v = BIND_EXPR_VARS (t); v != NULL_TREE; v = DECL_CHAIN (v))
-	if (TREE_CODE (v) == VAR_DECL && crug_is_owning_decl (v))
-	  register_owned (ctx, env, v);
-      return walk_stmt (ctx, env, BIND_EXPR_BODY (t));
+      {
+	size_t mark = decls.size ();
+	path.push_back (t);
+	collect_labels (BIND_EXPR_BODY (t), path, decls, labels);
+	path.pop_back ();
+	decls.resize (mark);
+	return;
+      }
+
+    case STATEMENT_LIST:
+      for (tree_stmt_iterator i = tsi_start (t); !tsi_end_p (i); tsi_next (&i))
+	collect_labels (tsi_stmt (i), path, decls, labels);
+      return;
+
+    case DECL_EXPR:
+      {
+	tree d = DECL_EXPR_DECL (t);
+	if (d != NULL_TREE && TREE_CODE (d) == VAR_DECL
+	    && crug_is_owning_decl (d))
+	  decls.push_back (d);
+	return;
+      }
+
+    case LABEL_EXPR:
+      {
+	crug_label_info info;
+	info.path = path;
+	info.decls_before = decls;
+	labels[LABEL_EXPR_LABEL (t)] = info;
+	return;
+      }
+
+    case COND_EXPR:
+      collect_labels (TREE_OPERAND (t, 1), path, decls, labels);
+      collect_labels (TREE_OPERAND (t, 2), path, decls, labels);
+      return;
+
+    case FOR_STMT:
+      if (FOR_INIT_STMT (t) != NULL_TREE)
+	collect_labels (FOR_INIT_STMT (t), path, decls, labels);
+      collect_labels (FOR_BODY (t), path, decls, labels);
+      return;
+
+    case WHILE_STMT:
+      collect_labels (WHILE_BODY (t), path, decls, labels);
+      return;
+
+    case DO_STMT:
+      collect_labels (DO_BODY (t), path, decls, labels);
+      return;
+
+    case SWITCH_STMT:
+      collect_labels (SWITCH_STMT_BODY (t), path, decls, labels);
+      return;
+
+    default:
+      return;
+    }
+}
+
+static void
+check_gotos (crug_fn_ctx &ctx)
+{
+  for (size_t g = 0; g < ctx.gotos.size (); g++)
+    {
+      crug_goto &go = ctx.gotos[g];
+      std::map<tree, state_map>::iterator le = ctx.label_envs.find (go.label);
+      if (le == ctx.label_envs.end ())
+	continue;
+
+      for (state_map::iterator i = go.env.begin (); i != go.env.end (); ++i)
+	{
+	  tree d = i->first;
+	  state_map::iterator j = le->second.find (d);
+	  if (j == le->second.end ())
+	    {
+	      if (ctx.warned.insert (d).second)
+		error_at (go.loc, "goto jumps into the scope of owned %qD "
+			  "[crug-DROP-002]", d);
+	      continue;
+	    }
+	  if (i->second.state != j->second.state
+	      && ctx.warned.insert (d).second)
+	    error_at (go.loc, "cannot prove that %qD is destroyed exactly once "
+		      "on this path [crug-DROP-006]", d);
+	}
+
+      for (state_map::iterator j = le->second.begin ();
+	   j != le->second.end (); ++j)
+	if (go.env.find (j->first) == go.env.end ()
+	    && ctx.warned.insert (j->first).second)
+	  error_at (go.loc, "goto jumps into the scope of owned %qD "
+		    "[crug-DROP-002]", j->first);
+    }
+}
+
+static bool
+walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
+{
+  if (t == NULL_TREE || t == error_mark_node)
+    return true;
+
+  location_t loc = node_location (t, locus);
+
+  switch (TREE_CODE (t))
+    {
+    case BIND_EXPR:
+      {
+	size_t depth = ctx.frames.size ();
+	push_frame (ctx, t);
+	bool reach = walk_stmt (ctx, env, BIND_EXPR_BODY (t), loc);
+	if (reach)
+	  {
+	    std::vector<crug_drop> drops;
+	    collect_drops (ctx, env, depth, loc, drops);
+	    if (!drops.empty ())
+	      ctx.scope_drops[t] = drops;
+	    dump_drops (CRUG_EXIT_SCOPE_END, loc, drops);
+	  }
+	pop_frame (ctx, env);
+	return reach;
+      }
 
     case STATEMENT_LIST:
       {
-	bool reachable = true;
+	bool reach = true;
 	for (tree_stmt_iterator i = tsi_start (t); !tsi_end_p (i); tsi_next (&i))
 	  {
 	    tree stmt = tsi_stmt (i);
-	    if (!reachable
+	    if (!reach
 		&& (TREE_CODE (stmt) == LABEL_EXPR
 		    || TREE_CODE (stmt) == CASE_LABEL_EXPR))
-	      reachable = true;
-	    if (!reachable)
+	      reach = true;
+	    if (!reach)
 	      continue;
-	    reachable = walk_stmt (ctx, env, stmt);
+	    reach = walk_stmt (ctx, env, stmt, loc);
 	  }
-	return reachable;
+	return reach;
       }
 
     case DECL_EXPR:
       {
 	tree decl = DECL_EXPR_DECL (t);
-	if (decl == NULL_TREE
-	    || TREE_CODE (decl) != VAR_DECL
+	if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL
 	    || !crug_is_owning_decl (decl))
 	  return true;
 
 	register_owned (ctx, env, decl);
-	tree init = DECL_INITIAL (decl);
-	if (init == NULL_TREE || init == error_mark_node)
-	  {
-	    set_state (env, decl, CRUG_UNINIT);
-	    return true;
-	  }
-
-	if (TREE_CODE (init) == CONSTRUCTOR)
-	  {
-	    set_state (env, decl, CRUG_OWNED);
-	    return true;
-	  }
-
-	if (is_move_call (init))
-	  {
-	    process_move (ctx, env, CALL_EXPR_ARG (init, 0), loc);
-	    set_state (env, decl, CRUG_OWNED);
-	    return true;
-	  }
-
-	tree r = init;
-	STRIP_NOPS (r);
-	if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
-	    && crug_is_owning_decl (r))
-	  {
-	    crug_state state = state_of (env, r);
-	    if (state == CRUG_MOVED)
-	      error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
-	    else if (state == CRUG_MAYBE_MOVED)
-	      error_at (loc, "use of possibly-moved value %qD after a branch "
-			"join [crug-UAM-004]", r);
-	    else
-	      error_at (loc, "implicit copy of owned value %qD; owned values "
-			"are not copyable [crug-UAM-003]", r);
-	    set_state (env, decl, CRUG_OWNED);
-	    return true;
-	  }
-
-	walk_expr (ctx, env, init, loc);
-	set_state (env, decl, CRUG_OWNED);
+	assign_from_expr (ctx, env, decl, DECL_INITIAL (decl), loc);
 	return true;
       }
 
     case RETURN_EXPR:
-      if (TREE_OPERAND (t, 0) != NULL_TREE)
-	walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
-      return false;
+      {
+	bool has_value = TREE_OPERAND (t, 0) != NULL_TREE;
+	if (has_value)
+	  walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
+	record_exit (ctx, env, t, CRUG_EXIT_RETURN, 0, loc, has_value);
+	return false;
+      }
+
+    case BREAK_STMT:
+    case CONTINUE_STMT:
+      {
+	bool is_break = TREE_CODE (t) == BREAK_STMT;
+	size_t found = (size_t) -1;
+	for (size_t i = ctx.targets.size (); i > 0; --i)
+	  {
+	    if (is_break || ctx.targets[i - 1].is_loop)
+	      {
+		found = i - 1;
+		break;
+	      }
+	  }
+	if (found == (size_t) -1)
+	  return false;
+
+	record_exit (ctx, env, t,
+		     is_break ? CRUG_EXIT_BREAK : CRUG_EXIT_CONTINUE,
+		     ctx.targets[found].keep_depth, loc, false);
+	ctx.targets[found].edges.push_back (env);
+	return false;
+      }
+
+    case GOTO_EXPR:
+      {
+	tree label = GOTO_DESTINATION (t);
+	std::map<tree, crug_label_info>::iterator li = ctx.labels.find (label);
+	if (li == ctx.labels.end ())
+	  return false;
+
+	const crug_label_info &info = li->second;
+	size_t common = 0;
+	while (common < ctx.frames.size () && common < info.path.size ()
+	       && ctx.frames[common].bind == info.path[common])
+	  common++;
+
+	if (common < info.path.size ())
+	  {
+	    /* The label lives in a block that this goto does not enter.  Any
+	       owning object declared textually before the label in that block
+	       is entered without being initialized.  */
+	    for (size_t i = 0; i < info.decls_before.size (); i++)
+	      if (env.find (info.decls_before[i]) == env.end ()
+		  && ctx.warned.insert (info.decls_before[i]).second)
+		error_at (loc, "goto jumps into the scope of owned %qD "
+			  "[crug-DROP-002]", info.decls_before[i]);
+	  }
+
+	record_exit (ctx, env, t, CRUG_EXIT_GOTO, common, loc, false);
+
+	crug_goto go;
+	go.stmt = t;
+	go.label = label;
+	go.loc = loc;
+	go.env = env;
+	ctx.gotos.push_back (go);
+	return false;
+      }
+
+    case LABEL_EXPR:
+      merge_into (ctx, ctx.label_envs[LABEL_EXPR_LABEL (t)], env, loc, false);
+      return true;
+
+    case CASE_LABEL_EXPR:
+      for (size_t i = ctx.targets.size (); i > 0; --i)
+	if (!ctx.targets[i - 1].is_loop)
+	  {
+	    merge_into (ctx, ctx.targets[i - 1].cases, env, loc, false);
+	    break;
+	  }
+      return true;
 
     case COND_EXPR:
       {
@@ -641,8 +1528,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t)
 
 	state_map then_env = env;
 	state_map else_env = env;
-	bool then_reach = walk_stmt (ctx, then_env, TREE_OPERAND (t, 1));
-	bool else_reach = walk_stmt (ctx, else_env, TREE_OPERAND (t, 2));
+	bool then_reach = walk_stmt (ctx, then_env, TREE_OPERAND (t, 1), loc);
+	bool else_reach = walk_stmt (ctx, else_env, TREE_OPERAND (t, 2), loc);
 
 	if (!then_reach && !else_reach)
 	  return false;
@@ -661,178 +1548,363 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t)
     case FOR_STMT:
       {
 	if (FOR_INIT_STMT (t) != NULL_TREE)
-	  walk_stmt (ctx, env, FOR_INIT_STMT (t));
+	  walk_stmt (ctx, env, FOR_INIT_STMT (t), loc);
 	if (FOR_COND (t) != NULL_TREE)
 	  walk_expr (ctx, env, FOR_COND (t), loc);
 
-	size_t break_mark = ctx.breaks.size ();
+	crug_target target;
+	target.is_loop = true;
+	target.keep_depth = ctx.frames.size ();
+	ctx.targets.push_back (target);
+
 	state_map body = env;
-	bool body_reach = walk_stmt (ctx, body, FOR_BODY (t));
+	bool body_reach = walk_stmt (ctx, body, FOR_BODY (t), loc);
 	if (FOR_EXPR (t) != NULL_TREE)
 	  walk_expr (ctx, body, FOR_EXPR (t), loc);
 
-	state_map merged;
-	bool have = false;
-	if (FOR_COND (t) != NULL_TREE)
-	  {
-	    merged = env;
-	    have = true;
-	  }
+	crug_target done = ctx.targets.back ();
+	ctx.targets.pop_back ();
+
+	state_map merged = env;
 	if (body_reach)
-	  {
-	    if (have)
-	      merge_into (ctx, merged, body, loc);
-	    else
-	      merged = body, have = true;
-	  }
-	for (size_t i = break_mark; i < ctx.breaks.size (); i++)
-	  {
-	    if (have)
-	      merge_into (ctx, merged, ctx.breaks[i], loc);
-	    else
-	      merged = ctx.breaks[i], have = true;
-	  }
-	ctx.breaks.resize (break_mark);
-	if (!have)
-	  return false;
+	  merge_into (ctx, merged, body, loc);
+	for (size_t i = 0; i < done.edges.size (); i++)
+	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
 	return true;
       }
 
     case WHILE_STMT:
       {
-	walk_expr (ctx, env, WHILE_COND (t), loc);
+	if (WHILE_COND (t) != NULL_TREE)
+	  walk_expr (ctx, env, WHILE_COND (t), loc);
 
-	size_t break_mark = ctx.breaks.size ();
+	crug_target target;
+	target.is_loop = true;
+	target.keep_depth = ctx.frames.size ();
+	ctx.targets.push_back (target);
+
 	state_map body = env;
-	bool body_reach = walk_stmt (ctx, body, WHILE_BODY (t));
+	bool body_reach = walk_stmt (ctx, body, WHILE_BODY (t), loc);
+
+	crug_target done = ctx.targets.back ();
+	ctx.targets.pop_back ();
 
 	state_map merged = env;
 	if (body_reach)
 	  merge_into (ctx, merged, body, loc);
-	for (size_t i = break_mark; i < ctx.breaks.size (); i++)
-	  merge_into (ctx, merged, ctx.breaks[i], loc);
-	ctx.breaks.resize (break_mark);
+	for (size_t i = 0; i < done.edges.size (); i++)
+	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
 	return true;
       }
 
     case DO_STMT:
       {
-	size_t break_mark = ctx.breaks.size ();
-	state_map body = env;
-	bool body_reach = walk_stmt (ctx, body, DO_BODY (t));
-	walk_expr (ctx, body, DO_COND (t), loc);
+	crug_target target;
+	target.is_loop = true;
+	target.keep_depth = ctx.frames.size ();
+	ctx.targets.push_back (target);
 
-	state_map merged;
-	bool have = false;
-	if (body_reach)
-	  {
-	    merged = body;
-	    have = true;
-	  }
-	for (size_t i = break_mark; i < ctx.breaks.size (); i++)
-	  {
-	    if (have)
-	      merge_into (ctx, merged, ctx.breaks[i], loc);
-	    else
-	      merged = ctx.breaks[i], have = true;
-	  }
-	ctx.breaks.resize (break_mark);
-	if (!have)
-	  return false;
+	state_map body = env;
+	bool body_reach = walk_stmt (ctx, body, DO_BODY (t), loc);
+	if (DO_COND (t) != NULL_TREE)
+	  walk_expr (ctx, body, DO_COND (t), loc);
+
+	crug_target done = ctx.targets.back ();
+	ctx.targets.pop_back ();
+
+	state_map merged = body;
+	for (size_t i = 0; i < done.edges.size (); i++)
+	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
-	return true;
+	return body_reach;
       }
 
     case SWITCH_STMT:
       {
-	walk_expr (ctx, env, SWITCH_STMT_COND (t), loc);
+	if (SWITCH_STMT_COND (t) != NULL_TREE)
+	  walk_expr (ctx, env, SWITCH_STMT_COND (t), loc);
 
-	size_t break_mark = ctx.breaks.size ();
-	ctx.case_envs.push_back (env);
-	state_map body = env;
-	bool body_reach = walk_stmt (ctx, body, SWITCH_STMT_BODY (t));
-	ctx.case_envs.pop_back ();
+	crug_target target;
+	target.is_loop = false;
+	target.keep_depth = ctx.frames.size ();
+	ctx.targets.push_back (target);
 
-	/* Without a default label no case need match.  */
+	bool body_reach = walk_stmt (ctx, env, SWITCH_STMT_BODY (t), loc);
+
+	crug_target done = ctx.targets.back ();
+	ctx.targets.pop_back ();
+
 	state_map merged = env;
 	if (body_reach)
-	  merge_into (ctx, merged, body, loc);
-	for (size_t i = break_mark; i < ctx.breaks.size (); i++)
-	  merge_into (ctx, merged, ctx.breaks[i], loc);
-	ctx.breaks.resize (break_mark);
+	  merge_into (ctx, merged, env, loc);
+	for (size_t i = 0; i < done.edges.size (); i++)
+	  merge_into (ctx, merged, done.edges[i], loc);
+	/* The case labels that the switch can actually enter.  */
+	bool have_cases = !done.cases.empty ();
+	for (state_map::iterator i = done.cases.begin (); i != done.cases.end ();
+	     ++i)
+	  {
+	    if (merged.find (i->first) == merged.end ())
+	      merged[i->first] = i->second;
+	    else
+	      {
+		crug_ostate a = merged[i->first];
+		crug_state r = merge_state (a.state, i->second.state);
+		merged[i->first] = crug_ostate (r,
+						choose_dtor (ctx, i->first,
+							     a.dtor,
+							     i->second.dtor, loc));
+	      }
+	  }
+	(void) have_cases;
 	env = merged;
 	return true;
       }
 
-    case CASE_LABEL_EXPR:
-      if (!ctx.case_envs.empty ())
-	{
-	  state_map entry = ctx.case_envs.back ();
-	  state_map fall = env;
-	  merge_into (ctx, entry, fall, loc);
-	  env = entry;
-	}
-      return true;
-
-    case BREAK_STMT:
-      ctx.breaks.push_back (env);
-      return false;
-
-    case CONTINUE_STMT:
-      return false;
-
-    case GOTO_EXPR:
-      return false;
-
-    case LABEL_EXPR:
-      /* A label is a jump target.  The MVP does not model back edges, so the
-	 state at the label is the state of the textually preceding path.  */
+    case ASM_EXPR:
       return true;
 
     default:
       if (EXPR_P (t))
 	{
-	  walk_expr (ctx, env, t, loc);
-	  return true;
+	  enum crug_intrinsic kind;
+	  if (TREE_CODE (t) == CALL_EXPR && is_intrinsic_call (t, &kind))
+	    {
+	      walk_expr (ctx, env, t, loc);
+	      if (kind != CRUG_INTR_DROP)
+		ctx.stmt_replace[t] = build1 (NOP_EXPR, void_type_node,
+					      CALL_EXPR_ARG (t, 0));
+	    }
+	  else
+	    walk_expr (ctx, env, t, loc);
 	}
       return true;
     }
 }
 
-/* Entry point.  */
+/* Pass B: emit the destructions.  */
+
+static tree
+drop_call_stmt (tree decl, tree dtor, location_t loc)
+{
+  /* The destructor takes a pointer to the owned object: for
+     'own Foo *p' that is the value of p, not the address of p.  */
+  tree fntype = TREE_TYPE (dtor);
+  tree argtype = NULL_TREE;
+  if (fntype != NULL_TREE && TREE_CODE (fntype) == FUNCTION_TYPE
+      && TYPE_ARG_TYPES (fntype) != NULL_TREE)
+    argtype = TREE_VALUE (TYPE_ARG_TYPES (fntype));
+
+  tree arg = decl;
+  if (argtype != NULL_TREE && argtype != void_type_node
+      && argtype != TREE_TYPE (decl))
+    arg = fold_convert_loc (loc, argtype, decl);
+
+  tree call = build_call_expr_loc (loc, dtor, 1, arg);
+  tree test = build2 (NE_EXPR, boolean_type_node, decl, null_pointer_node);
+  tree stmt = build3 (COND_EXPR, void_type_node, test, call, void_node);
+  SET_EXPR_LOCATION (stmt, loc);
+  return stmt;
+}
+
+static void
+append_drops (tree &list, const std::vector<crug_drop> &drops, location_t loc)
+{
+  for (size_t i = 0; i < drops.size (); i++)
+    append_to_statement_list (drop_call_stmt (drops[i].decl, drops[i].dtor,
+					      loc), &list);
+}
+
+static tree
+wrap_exit (crug_fn_ctx &ctx, tree stmt, const crug_exit &e)
+{
+  tree list = NULL_TREE;
+
+  if (e.kind == CRUG_EXIT_RETURN && e.has_value)
+    {
+      tree res = DECL_RESULT (ctx.fndecl);
+      tree op0 = TREE_OPERAND (stmt, 0);
+      tree value = op0;
+      if (op0 != NULL_TREE && TREE_CODE (op0) == MODIFY_EXPR)
+	value = TREE_OPERAND (op0, 1);
+
+      tree restype = TREE_TYPE (res);
+      if (TREE_CODE (restype) == REFERENCE_TYPE
+	  && TREE_TYPE (restype) != NULL_TREE)
+	restype = TREE_TYPE (restype);
+
+      tree tmp = build_decl (e.loc, VAR_DECL, NULL_TREE, restype);
+      DECL_ARTIFICIAL (tmp) = 1;
+      DECL_IGNORED_P (tmp) = 1;
+      DECL_CONTEXT (tmp) = ctx.fndecl;
+      /* BIND_EXPR_VARS is a chain of declarations linked with DECL_CHAIN.  */
+      DECL_CHAIN (tmp) = BIND_EXPR_VARS (ctx.body);
+      BIND_EXPR_VARS (ctx.body) = tmp;
+
+      if (value != NULL_TREE && TREE_TYPE (value) != restype)
+	value = fold_convert_loc (e.loc, restype, value);
+
+      tree assign = build2 (MODIFY_EXPR, restype, tmp, value);
+      SET_EXPR_LOCATION (assign, e.loc);
+      append_to_statement_list (assign, &list);
+      append_drops (list, e.drops, e.loc);
+
+      tree resassign = build2 (MODIFY_EXPR, TREE_TYPE (res), res, tmp);
+      SET_EXPR_LOCATION (resassign, e.loc);
+      append_to_statement_list (build_stmt (e.loc, RETURN_EXPR, resassign),
+				&list);
+    }
+  else
+    {
+      append_drops (list, e.drops, e.loc);
+      append_to_statement_list (stmt, &list);
+    }
+
+  tree block = build_block (NULL_TREE, NULL_TREE, DECL_INITIAL (ctx.fndecl),
+			    NULL_TREE);
+  tree bind = build3 (BIND_EXPR, void_type_node, NULL_TREE, list, block);
+  SET_EXPR_LOCATION (bind, e.loc);
+  return bind;
+}
+
+static tree
+rewrite_cb (tree *tp, int *walk_subtrees, void *data)
+{
+  crug_fn_ctx *ctx = (crug_fn_ctx *) data;
+
+  if (*tp == NULL_TREE)
+    return NULL_TREE;
+
+  if (TREE_CODE (*tp) == BIND_EXPR)
+    {
+      std::map<tree, std::vector<crug_drop> >::iterator it
+	= ctx->scope_drops.find (*tp);
+      if (it != ctx->scope_drops.end ())
+	{
+	  tree list = NULL_TREE;
+	  append_to_statement_list (BIND_EXPR_BODY (*tp), &list);
+	  append_drops (list, it->second, node_location (*tp));
+	  BIND_EXPR_BODY (*tp) = list;
+	  ctx->scope_drops.erase (it);
+	}
+      return NULL_TREE;
+    }
+
+  if (TREE_CODE (*tp) == CALL_EXPR)
+    {
+      std::map<tree, tree>::iterator sr = ctx->stmt_replace.find (*tp);
+      if (sr != ctx->stmt_replace.end ())
+	{
+	  tree repl = sr->second;
+	  ctx->stmt_replace.erase (sr);
+	  *tp = repl;
+	  *walk_subtrees = 0;
+	  return NULL_TREE;
+	}
+
+      std::map<tree, std::vector<crug_drop> >::iterator ed
+	= ctx->explicit_drops.find (*tp);
+      if (ed != ctx->explicit_drops.end ())
+	{
+	  tree seq = NULL_TREE;
+	  for (size_t i = 0; i < ed->second.size (); i++)
+	    {
+	      tree stmt = drop_call_stmt (ed->second[i].decl,
+					  ed->second[i].dtor,
+					  node_location (*tp));
+	      seq = seq == NULL_TREE ? stmt
+		: build2 (COMPOUND_EXPR, void_type_node, seq, stmt);
+	    }
+	  if (seq == NULL_TREE)
+	    seq = build_empty_stmt (node_location (*tp));
+	  ctx->explicit_drops.erase (ed);
+	  *tp = seq;
+	  *walk_subtrees = 0;
+	  return NULL_TREE;
+	}
+
+      enum crug_intrinsic kind;
+      if (is_intrinsic_call (*tp, &kind) && kind != CRUG_INTR_DROP)
+	{
+	  *tp = CALL_EXPR_ARG (*tp, 0);
+	  *walk_subtrees = 1;
+	  return NULL_TREE;
+	}
+    }
+
+  std::map<tree, crug_exit>::iterator it = ctx->exits.find (*tp);
+  if (it != ctx->exits.end ())
+    {
+      crug_exit e = it->second;
+      ctx->exits.erase (it);
+      *tp = wrap_exit (*ctx, *tp, e);
+      *walk_subtrees = 1;
+      return NULL_TREE;
+    }
+
+  return NULL_TREE;
+}
+
+static tree
+lower_intrinsic_cb (tree *tp, int *walk_subtrees, void *data)
+{
+  (void) data;
+  enum crug_intrinsic kind;
+  if (is_intrinsic_call (*tp, &kind))
+    {
+      if (kind == CRUG_INTR_DROP)
+	*tp = build_empty_stmt (node_location (*tp));
+      else
+	*tp = CALL_EXPR_ARG (*tp, 0);
+      *walk_subtrees = 1;
+    }
+  return NULL_TREE;
+}
 
 void
 crug_check_function (tree fndecl, tree body)
 {
-  if (fndecl == NULL_TREE || body == NULL_TREE)
+  if (fndecl == NULL_TREE || body == NULL_TREE || !crug_ownership_enabled ())
     return;
 
   crug_fn_ctx ctx;
   ctx.fndecl = fndecl;
+  ctx.body = body;
+
+  std::vector<tree> path;
+  std::vector<tree> decls;
+  collect_labels (body, path, decls, ctx.labels);
+
+  crug_frame top;
+  top.bind = body;
+  ctx.frames.push_back (top);
 
   state_map env;
-  walk_stmt (ctx, env, body);
+  for (tree a = DECL_ARGUMENTS (fndecl); a != NULL_TREE; a = DECL_CHAIN (a))
+    if (TREE_CODE (a) == PARM_DECL && crug_is_owning_decl (a))
+      {
+	ctx.frames[0].decls.push_back (a);
+	env[a] = crug_ostate (CRUG_OWNED, NULL_TREE);
+      }
 
-  if (dump_enabled () && !ctx.owned.empty ())
+  bool reach = walk_stmt (ctx, env, BIND_EXPR_BODY (body));
+  if (reach)
     {
-      FILE *file = get_dump_file ();
-      if (file != NULL)
-	{
-	  fprintf (file, "function %s\n", IDENTIFIER_POINTER (DECL_NAME (fndecl)));
-	  for (tree decl : ctx.owned)
-	    fprintf (file, "exit %s: %s\n",
-		     IDENTIFIER_POINTER (DECL_NAME (fndecl)),
-		     DECL_NAME (decl) != NULL_TREE
-		       ? IDENTIFIER_POINTER (DECL_NAME (decl)) : "<unnamed>");
-	  fflush (file);
-	}
+      location_t loc = node_location (body);
+      std::vector<crug_drop> drops;
+      collect_drops (ctx, env, 0, loc, drops);
+      if (!drops.empty ())
+	ctx.scope_drops[body] = drops;
+      dump_drops (CRUG_EXIT_SCOPE_END, loc, drops);
     }
 
-  /* Lower move() away.  The intrinsic must not survive the front end: the
-     middle end would not know it and a symbol would be emitted.  */
-  if (crug_move_fndecl != NULL_TREE)
-    walk_tree_without_duplicates (&body, lower_move_cb, NULL);
+  check_gotos (ctx);
+  ctx.frames.pop_back ();
 
+  walk_tree_without_duplicates (&body, rewrite_cb, &ctx);
+  /* Any intrinsic left in code that pass A never reached must still
+     disappear before the middle end sees it.  */
+  walk_tree_without_duplicates (&body, lower_intrinsic_cb, NULL);
 }

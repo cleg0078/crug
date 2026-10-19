@@ -6429,6 +6429,12 @@ push_parm_decl (const struct c_parm *parm, tree *expr)
 
   decl_attributes (&decl, attrs, 0);
 
+  /* An 'own' parameter is owned by the callee: the callee destroys it on
+     every exit edge, after its own locals (ADR 0005, amendment A-1).  */
+  if (decl != NULL_TREE && TREE_CODE (decl) == PARM_DECL
+      && parm->specs != NULL && parm->specs->crug_own_p)
+    crug_mark_owning_decl (decl, parm->loc);
+
   decl = pushdecl (decl);
 
   finish_decl (decl, input_location, NULL_TREE, NULL_TREE, NULL_TREE);

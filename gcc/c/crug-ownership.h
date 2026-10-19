@@ -1,4 +1,4 @@
-/* Crug ownership analysis (Phase 4 MVP).
+/* Crug ownership and drop analysis.
    Copyright (C) 2026 CLEG0078
 
    This file is part of GCC.
@@ -30,12 +30,28 @@ extern void crug_mark_owning_decl (tree decl, location_t loc);
 /* True when DECL was recorded as owning.  */
 extern bool crug_is_owning_decl (tree decl);
 
-/* Build a call to the internal move intrinsic.  The call is removed by
-   the ownership pass, so it never reaches the middle end.  */
-extern tree crug_build_move_call (location_t loc, tree arg);
+/* The intrinsics that the C parser recognises in call position.  They are
+   identifiers, never keywords, and every call is removed by the ownership
+   pass, so no intrinsic reaches the middle end or the object file.  */
+enum crug_intrinsic
+{
+  CRUG_INTR_MOVE,
+  CRUG_INTR_ADOPT,
+  CRUG_INTR_RELEASE,
+  CRUG_INTR_DROP
+};
 
-/* Check BODY, the GENERIC body of FNDECL, for ownership errors and
-   replace the move intrinsic with its operand.  */
+/* Recognise ID as an intrinsic name.  Returns true and sets *KIND when it
+   is one; KIND may be NULL.  */
+extern bool crug_intrinsic_kind (tree id, enum crug_intrinsic *kind);
+
+/* Build a call to one of the intrinsics.  ARG1 is NULL except for adopt.  */
+extern tree crug_build_intrinsic_call (enum crug_intrinsic kind,
+				       location_t loc, tree arg0, tree arg1);
+
+/* Check BODY, the GENERIC body of FNDECL, for ownership errors, insert the
+   destruction of every owned object on every exit edge, and remove the
+   intrinsic calls.  */
 extern void crug_check_function (tree fndecl, tree body);
 
 #endif /* GCC_C_CRUG_OWNERSHIP_H */
