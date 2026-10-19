@@ -22,7 +22,7 @@ CPPFLAGS += -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"$(PAL)"
 
 BUILD := build/$(PAL)
 ARCH := arch/x86_64/sysv
-CORE_OBJ := $(BUILD)/pal_contract.o $(BUILD)/task.o
+CORE_OBJ := $(BUILD)/pal_contract.o $(BUILD)/task.o $(BUILD)/chan.o
 ARCH_OBJ := $(BUILD)/switch.o $(BUILD)/stack.o
 PAL_SRC := pal/$(PAL)/pal_$(PAL).c
 PAL_OBJ := $(BUILD)/pal_$(PAL).o
@@ -44,7 +44,7 @@ all: check-PAL
 $(BUILD):
 	@mkdir -p $(BUILD)
 
-$(CORE_OBJ): $(BUILD)/%.o: core/%.c core/task.h core/pal_contract.h pal/include/crug_pal.h $(ARCH)/ctx.h | $(BUILD)
+$(CORE_OBJ): $(BUILD)/%.o: core/%.c core/task.h core/chan.h core/pal_contract.h pal/include/crug_pal.h $(ARCH)/ctx.h | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 $(PAL_OBJ): $(PAL_SRC) pal/include/crug_pal.h | $(BUILD)
