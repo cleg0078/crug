@@ -98,7 +98,7 @@ ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
 ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
 last-use liveness). ADR 0022 keeps the GCC pin revisable on evidence; a major
-baseline upgrade would supersede ADR 0001 with the next free number (0025 today).
+baseline upgrade would supersede ADR 0001 with the next free number (0027 today).
 ADR 0010 is written and accepted, so Phase 11 is unblocked on the document side;
 ADR 0023 is written and accepted, so Phase 12 is unblocked on the document side.
 ADR 0011 is written and accepted, so Phase 13 is unblocked on the document side
