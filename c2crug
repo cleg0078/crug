@@ -1,0 +1,793 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
+"""c2crug - conservative C to Crug migration assistant.
+
+Phase 12 of the Crug project.  The tool is deliberately conservative: it
+rewrites a C translation unit only when a structural proof exists that a
+pointer has a single owner and a single release on every reachable path.
+Everything else is preserved and reported as raw.  It never claims that the
+migrated program is memory safe; the Crug compiler checks the result.
+
+Modes:
+  --analyze PATH   report candidates and their confidence, change nothing
+  --safe PATH -o OUT [--report FILE]
+                   copy PATH to OUT, applying only proven transformations
+  --diff PATH      print the unified diff that --safe would apply
+
+The report is JSON, validated against docs/crug/c2crug-report.schema.json.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import sys
+
+VERSION = "0.1.0"
+SCHEMA_ID = "crug-c2crug-report-v1"
+
+HEAP_FNS = {"malloc", "calloc", "realloc", "reallocarray", "strdup",
+            "strndup", "aligned_alloc"}
+HEAP_RELEASE = "free"
+NON_RETAINING = {
+    "strlen", "strnlen", "strcmp", "strncmp", "strchr",
+    "strrchr", "strstr", "memcmp", "memchr", "memcpy",
+    "memmove", "memset", "strcpy", "strncpy", "printf",
+    "fprintf", "sprintf", "snprintf", "puts", "fputs",
+    "fgets", "fgetc", "fputc", "fread", "fwrite",
+    "fclose", "perror", "strtol", "atoi", "strtoul",
+}
+SKIP_WORDS = {"sizeof", "offsetof", "alignof", "_Alignof", "_Static_assert",
+              "typeof", "__typeof__", "return", "if", "while", "for",
+              "switch", "case", "goto", "break", "continue"}
+
+IDENT = r"[A-Za-z_]\w*"
+
+
+def read_text(path):
+    with open(path, "r", encoding="utf-8", errors="surrogateescape") as f:
+        return f.read()
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def strip_code(text):
+    """Return (cleaned, comment_line_numbers).
+
+    Comments and string/char literals are replaced by spaces so that offsets
+    and line numbers are preserved, while code-search regexes cannot match
+    inside a comment or a string.
+    """
+    out = []
+    comments = set()
+    i = 0
+    n = len(text)
+    line = 1
+    state = "code"
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if c == "/" and nxt == "/":
+                comments.add(line)
+                out.append("  ")
+                i += 2
+                state = "line-comment"
+                continue
+            if c == "/" and nxt == "*":
+                comments.add(line)
+                out.append("  ")
+                i += 2
+                state = "block-comment"
+                continue
+            if c == '"':
+                out.append(" ")
+                i += 1
+                state = "string"
+                continue
+            if c == "'":
+                out.append(" ")
+                i += 1
+                state = "char"
+                continue
+            if c == "\n":
+                line += 1
+            out.append(c)
+            i += 1
+            continue
+        if state == "line-comment":
+            if c == "\n":
+                out.append("\n")
+                line += 1
+                state = "code"
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if state == "block-comment":
+            if c == "*" and nxt == "/":
+                out.append("  ")
+                i += 2
+                state = "code"
+                continue
+            if c == "\n":
+                out.append("\n")
+                line += 1
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        # string or char literal
+        if c == "\\" and i + 1 < n:
+            out.append("  ")
+            i += 2
+            continue
+        if (state == "string" and c == '"') or (state == "char" and c == "'"):
+            out.append(" ")
+            i += 1
+            state = "code"
+            continue
+        if c == "\n":
+            out.append("\n")
+            line += 1
+            i += 1
+            state = "code"
+            continue
+        out.append(" ")
+        i += 1
+    return "".join(out), comments
+
+
+DECL_RE = re.compile(
+    r"^(?P<indent>[ \t]*)"
+    r"(?P<type>(?:[A-Za-z_]\w*)(?:[ \t]+[A-Za-z_]\w*)*)"
+    r"[ \t]*\*[ \t]*(?P<name>[A-Za-z_]\w*)"
+    r"[ \t]*=[ \t]*(?P<init>[A-Za-z_]\w*[ \t]*\([^;]*\))"
+    r"[ \t]*;[ \t]*$")
+
+HEADER_RE = re.compile(
+    r"^(?P<head>.*?(?P<name>[A-Za-z_]\w*)[ \t]*\([^;{}]*\))[ \t]*\{?[ \t]*$")
+
+
+def call_name(expr):
+    m = re.match(r"[ \t]*(" + IDENT + r")[ \t]*\(", expr)
+    return m.group(1) if m else None
+
+
+def find_functions(clines):
+    """Return a list of (header_line, body_first_line, body_last_line, name,
+    params_text) 0-based, for top-level function definitions."""
+    funcs = []
+    n = len(clines)
+    # depth before each line
+    depth = 0
+    depth_before = []
+    for line in clines:
+        depth_before.append(depth)
+        depth += line.count("{") - line.count("}")
+    i = 0
+    while i < n:
+        line = clines[i]
+        s = line.strip()
+        header = None
+        open_line = None
+        if s.endswith("{"):
+            if "(" in s and ")" in s and not s.startswith(
+                    ("if", "for", "while", "switch", "else", "do")):
+                header = s[:-1].strip()
+                open_line = i
+        elif s.endswith(")") and "(" in s:
+            j = i + 1
+            while j < n and not clines[j].strip():
+                j += 1
+            if j < n and clines[j].strip() == "{":
+                header = s
+                open_line = j
+        if header is None or open_line is None or depth_before[open_line] != 0:
+            i += 1
+            continue
+        if "=" in header:
+            i += 1
+            continue
+        m = re.match(r"^(?P<name>[A-Za-z_]\w*)[ \t]*\((?:[^;{}]*)\)$",
+                     header)
+        if m:
+            name = m.group("name")
+        else:
+            hm = re.search(r"(?P<name>" + IDENT + r")[ \t]*\(", header)
+            if not hm:
+                i += 1
+                continue
+            name = hm.group("name")
+        if name in SKIP_WORDS:
+            i += 1
+            continue
+        pm = re.search(r"\((.*)\)[ \t]*$", header, re.S)
+        params = pm.group(1) if pm else ""
+        # find the matching close brace
+        end = open_line
+        d = 0
+        while end < n:
+            d += clines[end].count("{") - clines[end].count("}")
+            if d == 0 and "}" in clines[end]:
+                break
+            end += 1
+        if end >= n:
+            i += 1
+            continue
+        funcs.append((i, open_line, end, name, params))
+        i = end + 1
+    return funcs
+
+
+def enclosing_call(line, pos):
+    """Return the callee identifier whose '(' ... ')' contains pos, or None."""
+    stack = []
+    for idx, ch in enumerate(line):
+        if ch == "(":
+            m = re.search(r"(" + IDENT + r")[ \t]*$", line[:idx])
+            stack.append(m.group(1) if m else None)
+        elif ch == ")" and stack:
+            callee = stack.pop()
+            if idx >= pos:
+                return callee, True
+    return (stack[-1] if stack else None), False
+
+
+def is_null_guard(lines, idx, name):
+    pat = re.compile(
+        r"\bif[ \t]*\([ \t]*(?:![ \t]*" + re.escape(name) + r"\b|"
+        + re.escape(name) + r"[ \t]*==[ \t]*(?:0|NULL)\b|"
+        r"(?:0|NULL)[ \t]*==[ \t]*" + re.escape(name) + r"\b)")
+    for k in range(idx, max(-1, idx - 4), -1):
+        text = lines[k]
+        if pat.search(text):
+            return True
+    return False
+
+
+def unbraced_conditional(lines, idx):
+    """True when the statement at idx is the body of a brace-less control
+    statement on the preceding line (a conditional path)."""
+    k = idx - 1
+    while k >= 0 and not lines[k].strip():
+        k -= 1
+    if k < 0:
+        return False
+    prev = lines[k].strip()
+    if "{" in prev or not prev.endswith(")"):
+        return False
+    return re.match(r"(if|for|while)\b", prev) is not None
+
+
+def load_sidecars(root):
+    """Parse every .crugffi under root.  Returns (owned_return, consumes).
+
+    owned_return maps a function to its destructor (or None);
+    consumes maps a function to the set of consumed argument indices.
+    """
+    owned = {}
+    consumes = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        for fn in sorted(filenames):
+            if not fn.endswith(".crugffi"):
+                continue
+            path = os.path.join(dirpath, fn)
+            text = read_text(path)
+            text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+            lines = [l.split("#", 1)[0] for l in text.splitlines()]
+            current = None
+            clauses = []
+            for line in lines:
+                s = line.strip()
+                if not s or s.startswith("crugffi"):
+                    continue
+                m = re.match(r"fn[ \t]+(" + IDENT + r")", s)
+                if m:
+                    current = m.group(1)
+                    clauses = []
+                    consumed = set()
+                    consumes[current] = consumed
+                    rest = s[m.end():]
+                    if rest.strip():
+                        clauses.append(rest.strip())
+                    continue
+                if current is not None:
+                    clauses.append(s)
+            for name, parts in list(consumes.items()):
+                body = " ".join(clauses_for(text, name))
+                for clause in body.split(";"):
+                    toks = clause.split()
+                    if not toks:
+                        continue
+                    if toks[0] == "returns" and "owned" in toks:
+                        drop = None
+                        if "drop" in toks:
+                            k = toks.index("drop")
+                            if k + 1 < len(toks):
+                                drop = toks[k + 1]
+                        owned[name] = drop
+                    elif toks[0] == "consumes":
+                        for t in toks[1:]:
+                            if t.startswith("arg") and t[3:].isdigit():
+                                consumes[name].add(int(t[3:]))
+    return owned, consumes
+
+
+def clauses_for(text, name):
+    """Return the clause text that follows 'fn name' up to the next fn."""
+    out = []
+    active = False
+    for line in text.splitlines():
+        s = line.split("#", 1)[0].strip()
+        if not s or s.startswith("crugffi"):
+            continue
+        m = re.match(r"fn[ \t]+(" + IDENT + r")", s)
+        if m:
+            active = (m.group(1) == name)
+            rest = s[m.end():].strip()
+            if active and rest:
+                out.append(rest)
+            continue
+        if active:
+            out.append(s)
+    return out
+
+
+def split_params(params):
+    out = []
+    depth = 0
+    cur = ""
+    for ch in params:
+        if ch in "([":
+            depth += 1
+        if ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur)
+    return out
+
+
+def analyse_source(path, rel, owned_return, consumes):
+    """Return (entries, transformed_text or None).
+
+    A pointer is migrated only when its origin and its single release are
+    both structurally proven; everything ambiguous becomes a raw entry.
+    """
+    text = read_text(path)
+    cleaned, _ = strip_code(text)
+    lines = text.split("\n")
+    clines = cleaned.split("\n")
+    entries = []
+
+    def add(kind, lineno, col, confidence, reason, applied, extra=None):
+        entry = {
+            "file": rel,
+            "line": lineno,
+            "column": col,
+            "kind": kind,
+            "applied": applied,
+            "confidence": round(confidence, 2),
+            "reason": reason,
+            "evidence": {
+                "file": rel,
+                "line": lineno,
+                "text": lines[lineno - 1].rstrip() if lineno - 1 < len(lines) else "",
+            },
+        }
+        if extra:
+            entry.update(extra)
+        entries.append(entry)
+
+    release_fns = set([HEAP_RELEASE])
+    release_fns.update(d for d in owned_return.values() if d)
+    release_fns.update(consumes.keys())
+    non_retaining = set(NON_RETAINING)
+    funcs = find_functions(clines)
+
+    for (hdr, start, end, fname, params) in funcs:
+        depth = 0
+        body_depth = {}
+        for k in range(start, end + 1):
+            depth += clines[k].count("{") - clines[k].count("}")
+            body_depth[k] = depth
+        for i in range(start + 1, end):
+            m = DECL_RE.match(clines[i])
+            if not m:
+                continue
+            indent = m.group("indent")
+            decl_type = m.group("type")
+            name = m.group("name")
+            init_fn = m.group("init").split("(", 1)[0].strip()
+            if re.search(r"\b(own|raw|ref|mut)\b", decl_type):
+                continue
+            decl_depth = body_depth[i]
+            if init_fn in HEAP_FNS:
+                release_fn = HEAP_RELEASE
+                source = "the allocation catalogue"
+            elif init_fn in owned_return:
+                release_fn = owned_return[init_fn]
+                source = "the .crugffi contract for %s" % init_fn
+            else:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "unknown ownership origin: %s is neither an allocation "
+                    "function nor declared owned by a sidecar" % init_fn,
+                    False)
+                continue
+            if release_fn is None:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the sidecar declares %s as owned but names no destructor"
+                    % init_fn, False)
+                continue
+            problem = None
+            problem_line = None
+            release_lines = []
+            for k in range(i + 1, end):
+                line = clines[k]
+                for mo in re.finditer(r"\b" + re.escape(name) + r"\b", line):
+                    pos = mo.start()
+                    before = line[:pos]
+                    after = line[pos + len(name):]
+                    if re.search(r"&\s*$", before):
+                        problem = "the address of the pointer is taken"
+                        problem_line = k
+                        break
+                    if re.match(r"[ \t]*=(?!=)", after):
+                        problem = "the pointer is reassigned"
+                        problem_line = k
+                        break
+                    if re.search(r"(\+\+|--)[ \t]*$", before) or \
+                            re.match(r"[ \t]*(\+\+|--)", after) or \
+                            re.match(r"[ \t]*[-+] ", after):
+                        problem = "the pointer is adjusted arithmetically"
+                        problem_line = k
+                        break
+                    if re.search(r"\breturn\b[^;{}]*$", before):
+                        problem = "the pointer is returned"
+                        problem_line = k
+                        break
+                    if re.search(r"=[^=;]*$", before) and \
+                            re.match(r"[ \t]*[,;)]", after):
+                        problem = "the pointer is copied into another variable"
+                        problem_line = k
+                        break
+                    if re.match(r"[ \t]*(\[|->|\.)", after):
+                        continue
+                    call, inside = enclosing_call(line, pos)
+                    if inside and call:
+                        if call == release_fn:
+                            release_lines.append(k)
+                        elif call not in non_retaining and \
+                                call not in SKIP_WORDS:
+                            problem = ("the pointer escapes into function %s "
+                                       "at line %d" % (call, k + 1))
+                            problem_line = k
+                            break
+                if problem:
+                    break
+            if problem:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "%s (line %d)" % (problem, problem_line + 1), False)
+                continue
+            if not release_lines:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "no %s of the pointer was found" % release_fn, False)
+                continue
+            if len(set(release_lines)) > 1:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the pointer is released more than once", False)
+                continue
+            rel_line = release_lines[0]
+            if body_depth[rel_line] != decl_depth or \
+                    unbraced_conditional(clines, rel_line):
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the release at line %d is on a conditional path"
+                    % (rel_line + 1), False)
+                continue
+            stmt_re = re.compile(r"^[ \t]*" + re.escape(release_fn)
+                                 + r"[ \t]*\(\s*" + re.escape(name)
+                                 + r"\s*\)[ \t]*;[ \t]*$")
+            if not stmt_re.match(clines[rel_line]):
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the release is not a standalone statement on every path",
+                    False)
+                continue
+            exit_bad = None
+            for k in range(i + 1, rel_line):
+                if re.search(r"\b(return|goto|break|continue)\b", clines[k]):
+                    if not is_null_guard(clines, k, name):
+                        exit_bad = k
+                        break
+            if exit_bad is not None:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "an early exit at line %d can skip the release"
+                    % (exit_bad + 1), False)
+                continue
+            used_after = None
+            for k in range(rel_line + 1, end):
+                if re.search(r"\b" + re.escape(name) + r"\b", clines[k]):
+                    used_after = k
+                    break
+            if used_after is not None:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the pointer is used after its release (line %d)"
+                    % (used_after + 1), False)
+                continue
+            lines[i] = indent + "own " + lines[i][len(indent):]
+            lines[rel_line] = re.sub(r"\b" + re.escape(release_fn) + r"\b",
+                                     "drop", lines[rel_line], count=1)
+            add("own", i + 1, len(indent) + 1, 1.0,
+                "single %s from %s released once by %s on a straight-line path"
+                % (init_fn, source, release_fn), True,
+                {"transformation": {
+                    "declaration_line": i + 1,
+                    "release_line": rel_line + 1,
+                    "release_from": release_fn,
+                    "release_to": "drop",
+                }})
+
+    # global declarations are never rewritten
+    for i, line in enumerate(clines):
+        m = DECL_RE.match(line)
+        if not m:
+            continue
+        if any(start < i < end for (hdr, start, end, fname, params)
+               in funcs):
+            continue
+        init_fn = m.group("init").split("(", 1)[0].strip()
+        if init_fn in HEAP_FNS or init_fn in owned_return:
+            add("raw", i + 1, len(m.group("indent")) + 1, 0.0,
+                "file-scope storage is not migrated by Phase 12", False)
+
+    # borrow suggestions, never applied
+    for (hdr, start, end, fname, params) in funcs:
+        body = "\n".join(clines[start + 1:end])
+        for param in split_params(params):
+            pm = re.match(r"(?P<type>.*?)\*(?P<pname>" + IDENT +
+                          r")\s*(?:\[[^\]]*\])?\s*$", param.strip())
+            if not pm:
+                continue
+            pname = pm.group("pname")
+            type_tokens = pm.group("type").split()
+            if any(w in type_tokens for w in
+                   ("own", "ref", "mut", "raw", "restrict")):
+                continue
+            if any(re.search(r"\b" + re.escape(pname) + r"\b", t)
+                   for t in []):
+                continue
+            writes = re.search(r"\*\s*" + re.escape(pname) + r"\b\s*=|"
+                               + re.escape(pname) + r"\s*->\s*\w+\s*=|"
+                               + re.escape(pname) + r"\s*\[[^\]]*\]\s*=",
+                               body)
+            escapes = (re.search(r"\bfree\s*\(\s*" + re.escape(pname) + r"\s*\)",
+                                 body)
+                       or re.search(r"\breturn\b[^;]*\b" + re.escape(pname)
+                                    + r"\b", body))
+            if escapes:
+                continue
+            suggestion = "mut" if writes else "ref"
+            add("borrow-suggestion", hdr + 1, len(pm.group("type")) + 1,
+                0.60 if writes else 0.80,
+                "parameter %s is %s inside %s; a %s parameter would state that "
+                "(suggestion only)" % (pname,
+                                       "written" if writes else "never written",
+                                       fname, suggestion),
+                False, {"suggestion": suggestion})
+
+    transformed = "\n".join(lines) if any(e["kind"] == "own" for e in entries) \
+        else None
+    return entries, transformed
+
+
+def build_report(mode, entries, sources):
+    return {
+        "schema": SCHEMA_ID,
+        "tool": "c2crug",
+        "version": VERSION,
+        "mode": mode,
+        "sources": sources,
+        "entries": entries,
+        "counts": {
+            "own": sum(1 for e in entries if e["kind"] == "own"),
+            "raw": sum(1 for e in entries if e["kind"] == "raw"),
+            "borrow_suggestion": sum(
+                1 for e in entries if e["kind"] == "borrow-suggestion"),
+            "applied": sum(1 for e in entries if e["applied"]),
+        },
+    }
+
+
+def walk_sources(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames
+                             if not d.startswith(".")
+                             and d not in ("build", "out"))
+        for fn in sorted(filenames):
+            if fn.endswith(".c"):
+                path = os.path.join(dirpath, fn)
+                rel = os.path.relpath(path, root)
+                yield path, rel
+
+
+def print_entry(entry):
+    print("%s:%d:%d: %s confidence=%.2f %s%s" % (
+        entry["file"], entry["line"], entry["column"], entry["kind"],
+        entry["confidence"], entry["reason"],
+        "" if entry["applied"] else " [not applied]"))
+
+
+def validate_report(report):
+    errors = []
+    if report.get("schema") != SCHEMA_ID:
+        errors.append("schema id is not %s" % SCHEMA_ID)
+    if report.get("tool") != "c2crug":
+        errors.append("tool is not c2crug")
+    for key in ("mode", "sources", "entries", "counts"):
+        if key not in report:
+            errors.append("missing key %s" % key)
+    for e in report.get("entries", []):
+        for key in ("file", "line", "column", "kind", "applied",
+                    "confidence", "reason", "evidence"):
+            if key not in e:
+                errors.append("entry missing %s: %r" % (key, e))
+                continue
+        if e["kind"] not in ("own", "raw", "borrow-suggestion"):
+            errors.append("unknown entry kind %r" % e["kind"])
+        if e["applied"] and e["kind"] != "own":
+            errors.append("only an own entry may be applied: %r" % e)
+        if e["applied"]:
+            if not (0 < e["confidence"] <= 1):
+                errors.append("applied entry needs confidence in (0,1]")
+            ev = e["evidence"]
+            if not (ev.get("file") and ev.get("line") and ev.get("text")):
+                errors.append("applied entry needs a full evidence location")
+        if e["kind"] == "raw" and e["applied"]:
+            errors.append("a raw entry may not be applied")
+    own = sum(1 for e in report.get("entries", []) if e["kind"] == "own")
+    raw = sum(1 for e in report.get("entries", []) if e["kind"] == "raw")
+    counts = report.get("counts", {})
+    if counts.get("own") != own or counts.get("raw") != raw:
+        errors.append("counts do not match the entry list")
+    return errors
+
+
+def cmd_analyze(root, report_path):
+    owned_return, consumes = load_sidecars(root)
+    entries = []
+    sources = []
+    for path, rel in walk_sources(root):
+        sources.append({"file": rel, "sha256": sha256_file(path)})
+        found, _ = analyse_source(path, rel, owned_return, consumes)
+        entries.extend(found)
+    entries.sort(key=lambda e: (e["file"], e["line"], e["column"]))
+    # --analyze changes nothing: the report is a plan, so nothing is applied.
+    planned = []
+    for e in entries:
+        copy = dict(e)
+        copy["applied"] = False
+        planned.append(copy)
+    for e in planned:
+        print_entry(e)
+    report = build_report("analyze", planned, sources)
+    errors = validate_report(report)
+    if errors:
+        for err in errors:
+            print("c2crug: report error: %s" % err, file=sys.stderr)
+        return 1
+    if report_path:
+        write_json(report_path, report)
+    print("c2crug: %d file(s), %d own, %d raw, %d borrow suggestion(s)"
+          % (len(sources), report["counts"]["own"], report["counts"]["raw"],
+             report["counts"]["borrow_suggestion"]))
+    return 0
+
+
+def cmd_safe(root, out, report_path, diff_only):
+    if not diff_only:
+        if os.path.exists(out):
+            print("c2crug: output directory already exists: %s" % out,
+                  file=sys.stderr)
+            return 2
+        shutil.copytree(root, out)
+    owned_return, consumes = load_sidecars(root)
+    entries = []
+    sources = []
+    diffs = []
+    for path, rel in walk_sources(root):
+        sources.append({"file": rel, "sha256": sha256_file(path)})
+        found, transformed = analyse_source(path, rel, owned_return, consumes)
+        entries.extend(found)
+        if transformed is not None:
+            if diff_only:
+                import difflib
+                old = read_text(path).split("\n")
+                new = transformed.split("\n")
+                diffs.extend(difflib.unified_diff(
+                    old, new, fromfile=os.path.join(root, rel),
+                    tofile=os.path.join(out, rel), lineterm=""))
+            else:
+                with open(os.path.join(out, rel), "w", encoding="utf-8",
+                          errors="surrogateescape") as f:
+                    f.write(transformed)
+    entries.sort(key=lambda e: (e["file"], e["line"], e["column"]))
+    if diff_only:
+        print("\n".join(diffs))
+        if not diffs:
+            print("c2crug: no proven transformation; nothing to do")
+        return 0
+    for e in entries:
+        print_entry(e)
+    report = build_report("safe", entries, sources)
+    errors = validate_report(report)
+    if errors:
+        for err in errors:
+            print("c2crug: report error: %s" % err, file=sys.stderr)
+        return 1
+    if report_path:
+        write_json(report_path, report)
+    print("c2crug: %d file(s), %d own, %d raw, %d borrow suggestion(s)"
+          % (len(sources), report["counts"]["own"], report["counts"]["raw"],
+             report["counts"]["borrow_suggestion"]))
+    return 0
+
+
+def write_json(path, report):
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, sort_keys=False)
+        f.write("\n")
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(
+        prog="c2crug",
+        description="conservative C to Crug migration assistant")
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--analyze", action="store_true",
+                      help="report candidates without changing anything")
+    mode.add_argument("--safe", action="store_true",
+                      help="copy the tree and apply proven transformations")
+    mode.add_argument("--diff", action="store_true",
+                      help="print the diff that --safe would apply")
+    ap.add_argument("root")
+    ap.add_argument("-o", "--output", default=None)
+    ap.add_argument("--report", default=None)
+    ap.add_argument("--version", action="store_true")
+    args = ap.parse_args(argv)
+    if args.version:
+        print("c2crug %s" % VERSION)
+        return 0
+    root = args.root
+    if not os.path.isdir(root):
+        print("c2crug: not a directory: %s" % root, file=sys.stderr)
+        return 2
+    if args.analyze:
+        return cmd_analyze(root, args.report)
+    if args.diff:
+        out = args.output or (root.rstrip("/") + "-crug")
+        return cmd_safe(root, out, args.report, True)
+    out = args.output
+    if not out:
+        print("c2crug: --safe needs -o OUT", file=sys.stderr)
+        return 2
+    return cmd_safe(root, out, args.report, False)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
