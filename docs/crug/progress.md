@@ -112,7 +112,8 @@ memory or a static (`crug-BORROW-018`), and no function is summarized, so a call
 can never extend a borrow. `make check-BORROW` runs 88 expected passes over 46
 fixtures, six programs under `real-c/` are compiled and run, and
 `-fcrug-dump=borrow` marks a last-use end with `(last-use)`.
-`docs/crug/BORROW.md` is the digest.
+`docs/crug/BORROW.md` is the digest, and the Phase 7 gate passes 7/7 at
+`f6fbde4` (logs under `docs/crug/gates/phase-7/f6fbde4/`).
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
