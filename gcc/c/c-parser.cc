@@ -73,6 +73,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "crug-ownership.h"
 #include "crug-safe.h"
 #include "crug-tasks.h"
+#include "crug-chan.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
 #include "memmodel.h"
@@ -686,8 +687,13 @@ static tree crug_parse_match (c_parser *);
 static tree crug_parse_go_statement (c_parser *);
 static tree crug_parse_yield_statement (c_parser *);
 static tree crug_parse_scope_statement (c_parser *);
+static tree crug_parse_select_statement (c_parser *);
 static bool crug_task_statement_start_p (c_parser *);
+static bool crug_channel_first_arg_p (c_parser *, tree);
 static bool crug_generic_start_p (c_parser *, unsigned int);
+static bool crug_chan_start_p (c_parser *, unsigned int);
+static tree crug_parse_channel_type (c_parser *);
+static struct c_expr crug_parse_channel_call (c_parser *, tree, location_t);
 static int crug_ctor_word (tree);
 
 /* The type that gives a value constructor its meaning (ADR 0018 D7): the
@@ -851,8 +857,8 @@ c_parser_next_tokens_start_typename (c_parser *parser, enum c_lookahead_kind la,
   c_token *token = c_parser_peek_nth_token (parser, n);
 
   /* A generic type name such as slice<char> is a type-name (ADR 0018
-     D7).  */
-  if (crug_generic_start_p (parser, n))
+     D7), and so is the channel constructor 'chan T' (ADR 0025 D1).  */
+  if (crug_generic_start_p (parser, n) || crug_chan_start_p (parser, n))
     return true;
 
   if (c_token_starts_typename (token))
@@ -1041,6 +1047,30 @@ c_token_starts_declaration (c_token *token)
     return false;
 }
 
+/* True when the tokens at N start the channel type constructor 'chan T'
+   (ADR 0025 D1).  The word is contextual: an undeclared 'chan' followed by
+   something that can start a type-name is the constructor, so a declaration
+   of the name wins and 'chan (x)' stays a call (ADR 0018 D6).  */
+static bool
+crug_chan_start_p (c_parser *parser, unsigned int n)
+{
+  c_token *token = c_parser_peek_nth_token (parser, n);
+
+  if (!crug_channels_enabled ())
+    return false;
+  if (token->type != CPP_NAME || token->id_kind != C_ID_ID
+      || token->value == NULL_TREE
+      || strcmp (IDENTIFIER_POINTER (token->value), "chan") != 0
+      || lookup_name (token->value) != NULL_TREE)
+    return false;
+
+  /* The element type-name may start with a Crug qualifier, as in
+     'chan own char *'.  */
+  return (crug_qualifier_token_kind_n (parser, n + 1) != CRUG_QUAL_NONE
+	  || c_parser_next_tokens_start_typename (parser, cla_prefer_type,
+						  n + 1));
+}
+
 /* Return true if the next token from PARSER can start declaration
    specifiers (not including standard attributes), false
    otherwise.  */
@@ -1066,8 +1096,9 @@ c_parser_next_token_starts_declspecs (c_parser *parser)
   if (crug_qualifier_token_p (parser))
     return true;
 
-  /* A generic type name starts declaration specifiers too (ADR 0018 D7).  */
-  if (crug_generic_start_p (parser, 1))
+  /* A generic type name starts declaration specifiers too (ADR 0018 D7),
+     and so does the channel constructor (ADR 0025 D1).  */
+  if (crug_generic_start_p (parser, 1) || crug_chan_start_p (parser, 1))
     return true;
 
   return c_token_starts_declspecs (token);
@@ -1105,7 +1136,7 @@ c_parser_next_tokens_start_declaration (c_parser *parser, unsigned int n)
 
   /* Likewise a generic type name starts a declaration when a declarator
      follows the closing '>' (ADR 0018 D7).  */
-  if (crug_generic_start_p (parser, n))
+  if (crug_generic_start_p (parser, n) || crug_chan_start_p (parser, n))
     return true;
 
   /* A static assertion is only a declaration if followed by a semicolon;
@@ -2678,7 +2709,11 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
       && (c_parser_peek_2nd_token (parser)->type == CPP_NAME
           || c_parser_peek_2nd_token (parser)->type == CPP_MULT)
       && (!nested || !lookup_name (c_parser_peek_token (parser)->value))
-      && !crug_qualifier_token_p (parser))
+      && !crug_qualifier_token_p (parser)
+      /* 'chan T' also looks like "A B", but it is a declaration specifier
+	 (ADR 0025 D1), not a misspelled type name.  */
+      && !crug_chan_start_p (parser, 1)
+      && !crug_generic_start_p (parser, 1))
     {
       tree name = c_parser_peek_token (parser)->value;
 
@@ -3967,6 +4002,21 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	  if (!seen_type && crug_generic_start_p (parser, 1))
 	    {
 	      tree ty = crug_parse_generic_type (parser);
+	      seen_type = true;
+	      attrs_ok = true;
+	      t.kind = ctsk_typedef;
+	      t.spec = ty;
+	      t.expr = NULL_TREE;
+	      t.expr_const_operands = true;
+	      t.has_enum_type_specifier = false;
+	      declspecs_add_type (name_token->location, specs, t);
+	      continue;
+	    }
+
+	  /* A channel type in a declaration specifier: chan T (ADR 0025 D1).  */
+	  if (!seen_type && crug_chan_start_p (parser, 1))
+	    {
+	      tree ty = crug_parse_channel_type (parser);
 	      seen_type = true;
 	      attrs_ok = true;
 	      t.kind = ctsk_typedef;
@@ -5745,7 +5795,8 @@ c_parser_parms_declarator (c_parser *parser, bool id_list_ok, tree attrs,
 
       /* 'slice<T> p' is a parameter declaration, not an identifier list
 	 (ADR 0018 D7).  */
-      && !crug_generic_start_p (parser, 1))
+      && !crug_generic_start_p (parser, 1)
+      && !crug_chan_start_p (parser, 1))
     {
       tree list = NULL_TREE, *nextp = &list;
       while (c_parser_next_token_is (parser, CPP_NAME)
@@ -7033,19 +7084,34 @@ c_parser_type_name (c_parser *parser, bool alignas_ok)
 static struct c_expr
 c_parser_initializer (c_parser *parser, tree decl)
 {
+  tree saved_hint = crug_ctor_hint;
+  struct c_expr ret;
+
+  /* A constructor takes its type from the declared object, and an array of
+     channels takes it from its element, so 'chan int a[2] = { channel (1),
+     channel (2) };' is well typed (ADR 0025 D2).  */
+  if (decl != NULL_TREE && decl != error_mark_node)
+    {
+      tree dtype = TREE_TYPE (decl);
+      while (TREE_CODE (dtype) == ARRAY_TYPE)
+	dtype = TREE_TYPE (dtype);
+      if (crug_option_type_p (dtype) || crug_result_type_p (dtype)
+	  || crug_channel_type_p (dtype))
+	crug_ctor_hint = dtype;
+    }
+
   if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
-    return c_parser_braced_init (parser, NULL_TREE, false, NULL,
-				 decl != error_mark_node
-				 && C_DECL_VARIABLE_SIZE (decl));
+    {
+      ret = c_parser_braced_init (parser, NULL_TREE, false, NULL,
+				  decl != error_mark_node
+				  && C_DECL_VARIABLE_SIZE (decl));
+      crug_ctor_hint = saved_hint;
+      return ret;
+    }
   else
     {
-      struct c_expr ret;
       location_t loc = c_parser_peek_token (parser)->location;
-      tree saved_hint = crug_ctor_hint;
-      if (decl != NULL_TREE && decl != error_mark_node
-	  && (crug_option_type_p (TREE_TYPE (decl))
-	      || crug_result_type_p (TREE_TYPE (decl))))
-	crug_ctor_hint = TREE_TYPE (decl);
+
       ret = c_parser_expr_no_commas (parser, NULL);
       crug_ctor_hint = saved_hint;
       if (decl != error_mark_node && C_DECL_VARIABLE_SIZE (decl))
@@ -8891,7 +8957,8 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
 		    = TREE_TYPE (TREE_TYPE (current_function_decl));
 		  if (ret_type != NULL_TREE
 		      && (crug_option_type_p (ret_type)
-			  || crug_result_type_p (ret_type)))
+			  || crug_result_type_p (ret_type)
+			  || crug_channel_type_p (ret_type)))
 		    crug_ctor_hint = ret_type;
 		}
 	      struct c_expr expr = c_parser_expression_conv (parser);
@@ -9086,6 +9153,8 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
 	      stmt = crug_parse_go_statement (parser);
 	    else if (strcmp (IDENTIFIER_POINTER (id), "scope") == 0)
 	      stmt = crug_parse_scope_statement (parser);
+	    else if (strcmp (IDENTIFIER_POINTER (id), "select") == 0)
+	      stmt = crug_parse_select_statement (parser);
 	    else
 	      stmt = crug_parse_yield_statement (parser);
 	    if (stmt != NULL_TREE && stmt != error_mark_node)
@@ -11142,7 +11211,8 @@ c_parser_cast_expression (c_parser *parser, struct c_expr *after)
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
 	  || crug_qualifier_type_name_p (parser, 2)
-	  || crug_generic_start_p (parser, 2)))
+	  || crug_generic_start_p (parser, 2)
+	  || crug_chan_start_p (parser, 2)))
     {
       struct c_declspecs *scspecs;
       struct c_type_name *type_name;
@@ -11436,7 +11506,8 @@ c_parser_sizeof_or_countof_expression (c_parser *parser, enum rid rid)
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
 	  || crug_qualifier_type_name_p (parser, 2)
-	  || crug_generic_start_p (parser, 2)))
+	  || crug_generic_start_p (parser, 2)
+	  || crug_chan_start_p (parser, 2)))
     {
       /* Either sizeof ( type-name ) or sizeof unary-expression
 	 starting with a compound literal.  */
@@ -11541,7 +11612,8 @@ c_parser_alignof_expression (c_parser *parser)
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
 	  || crug_qualifier_type_name_p (parser, 2)
-	  || crug_generic_start_p (parser, 2)))
+	  || crug_generic_start_p (parser, 2)
+	  || crug_chan_start_p (parser, 2)))
     {
       /* Either __alignof__ ( type-name ) or __alignof__
 	 unary-expression starting with a compound literal.  */
@@ -12463,6 +12535,37 @@ c_parser_postfix_expression (c_parser *parser)
 						     arg1.value);
 		set_c_expr_source_range (&expr, tok_range);
 		break;
+	      }
+
+	    /* channel (n), send (ch, v), recv (ch) and close (ch) are channel
+	       operations, not intrinsics (ADR 0018 D6 R1).  The operation is
+	       type-directed: a declared name stays an ordinary C call unless
+	       its argument list proves the channel form (libc's close (fd)
+	       stays libc's, close (ch) is Crug's, and a user function whose
+	       first parameter is a channel type always wins).  */
+	    if (id != NULL_TREE
+		&& crug_channels_enabled ()
+		&& TREE_CODE (id) == IDENTIFIER_NODE
+		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN
+		&& (strcmp (IDENTIFIER_POINTER (id), "channel") == 0
+		    || strcmp (IDENTIFIER_POINTER (id), "send") == 0
+		    || strcmp (IDENTIFIER_POINTER (id), "recv") == 0
+		    || strcmp (IDENTIFIER_POINTER (id), "close") == 0))
+	      {
+		tree decl = lookup_name (id);
+		bool is_channel_word
+		  = strcmp (IDENTIFIER_POINTER (id), "channel") == 0;
+
+		if (decl == NULL_TREE
+		    || (!is_channel_word
+			&& crug_channel_first_arg_p (parser, decl)))
+		  {
+		    expr = crug_parse_channel_call (parser, id, loc);
+		    set_c_expr_source_range (&expr, tok_range);
+		    break;
+		  }
+		/* A declared name without a channel first argument falls
+		   through to the ordinary C call path below.  */
 	      }
 
 	    if (id != NULL_TREE
@@ -32457,19 +32560,26 @@ crug_task_statement_start_p (c_parser *parser)
 
   c_token *tok = c_parser_peek_token (parser);
   if (tok->type != CPP_NAME || tok->id_kind != C_ID_ID
-      || tok->value == NULL_TREE || TREE_CODE (tok->value) != IDENTIFIER_NODE
-      || lookup_name (tok->value) != NULL_TREE)
+      || tok->value == NULL_TREE || TREE_CODE (tok->value) != IDENTIFIER_NODE)
     return false;
 
   const char *word = IDENTIFIER_POINTER (tok->value);
   c_token *n2 = c_parser_peek_2nd_token (parser);
 
+  /* 'scope { ... }' and 'select { ... }' cannot begin a C statement whatever
+     the names mean: an expression statement needs ';'.  A declaration of the
+     word therefore cannot make the block form valid C, and ADR 0002 D4 leaves
+     it to Crug (a variable named 'select' can still be read and assigned).  */
+  if (strcmp (word, "scope") == 0 || strcmp (word, "select") == 0)
+    return n2->type == CPP_OPEN_BRACE;
+
+  /* 'go' and 'yield' do begin valid C statements, so a declaration of the word
+     wins: 'int go = 11;' and 'go (x);' stay C.  */
+  if (lookup_name (tok->value) != NULL_TREE)
+    return false;
+
   if (strcmp (word, "yield") == 0)
     return n2->type == CPP_OPEN_PAREN;
-
-  /* 'scope { ... }': a structured-concurrency block (Phase 15).  */
-  if (strcmp (word, "scope") == 0)
-    return n2->type == CPP_OPEN_BRACE;
 
   if (strcmp (word, "go") != 0)
     return false;
@@ -32649,6 +32759,701 @@ crug_parse_scope_statement (c_parser *parser)
   crug_register_scope_block (body, handle);
   crug_note_scope_function (current_function_decl);
   return body;
+}
+
+/* ADR 0018 D6 R1, first-argument test.  A declared 'send', 'recv' or
+   'close' is the channel operation only when the argument list cannot be the
+   declared call.  The collision that matters is libc's close (int), and every
+   channel form starts with a channel variable, so the token after '(' decides;
+   a user function whose first parameter is a channel type always wins.  */
+
+static bool
+crug_channel_first_arg_p (c_parser *parser, tree decl)
+{
+  if (decl != NULL_TREE && TREE_CODE (decl) == FUNCTION_DECL)
+    {
+      tree parm = TYPE_ARG_TYPES (TREE_TYPE (decl));
+
+      if (parm != NULL_TREE && parm != void_list_node
+	  && crug_channel_type_p (TREE_VALUE (parm)))
+	return false;
+    }
+
+  c_token *t = c_parser_peek_nth_token (parser, 3);
+
+  if (t->type != CPP_NAME || t->id_kind != C_ID_ID || t->value == NULL_TREE)
+    return false;
+
+  tree d = lookup_name (t->value);
+
+  return d != NULL_TREE && DECL_P (d) && crug_channel_type_p (TREE_TYPE (d));
+}
+
+/* Parse the channel type constructor 'chan T' (ADR 0018 D6).
+   c_parser_type_name reads the longest prefix that can be an abstract
+   declarator, so 'chan int *jobs;' declares a channel whose element type is
+   'int *' and 'chan own Job *jobs;' a channel of owning pointers.  */
+
+static tree
+crug_parse_channel_type (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  struct c_type_name *tn;
+  tree type;
+  bool abstract_ok = true;
+  bool owns;
+
+  c_parser_consume_token (parser);	/* 'chan'  */
+  tn = c_parser_type_name (parser, false);
+  if (tn == NULL)
+    return error_mark_node;
+  owns = (tn->specs != NULL && tn->specs->crug_qual == CRUG_QUAL_OWN);
+  type = groktypename (tn, NULL, &abstract_ok);
+  if (type == NULL_TREE || type == error_mark_node)
+    return error_mark_node;
+  return crug_channel_type (type, owns, loc);
+}
+
+/* 'channel (n)', 'send (ch, v)', 'recv (ch)' and 'close (ch)' are call
+   syntax, not operators (ADR 0018 D6 R1).  A declaration of the name wins,
+   so 'close (fd)' stays libc's; the caller checks that.  The name has not
+   been consumed yet.  */
+
+static struct c_expr
+crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
+{
+  struct c_expr expr;
+  struct c_expr a;
+  const char *word = IDENTIFIER_POINTER (id);
+  tree args[2];
+  int nargs = 0;
+  tree chan_type;
+
+  expr.original_code = ERROR_MARK;
+  expr.original_type = NULL;
+  expr.m_decimal = 0;
+  expr.value = error_mark_node;
+  args[0] = NULL_TREE;
+  args[1] = NULL_TREE;
+
+  c_parser_consume_token (parser);	/* the operation name  */
+  if (!c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>"))
+    return expr;
+
+  if (c_parser_next_token_is_not (parser, CPP_CLOSE_PAREN))
+    {
+      a = c_parser_expr_no_commas (parser, NULL);
+      args[0] = a.value;
+      nargs = 1;
+      if (c_parser_next_token_is (parser, CPP_COMMA))
+	{
+	  c_parser_consume_token (parser);
+	  a = c_parser_expr_no_commas (parser, NULL);
+	  args[1] = a.value;
+	  nargs = 2;
+	}
+    }
+  c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+
+  if (strcmp (word, "channel") == 0)
+    {
+      tree hint = crug_ctor_hint;
+
+      if (nargs != 1)
+	{
+	  error_at (loc, "%<channel%> takes one argument: the buffer capacity "
+		    "[crug-CONC-020]");
+	  return expr;
+	}
+      if (args[0] == error_mark_node)
+	return expr;
+      if (hint == error_mark_node)
+	return expr;
+      if (hint == NULL_TREE || !crug_channel_type_p (hint))
+	{
+	  error_at (loc, "%<channel%> requires a channel type from context; "
+		    "initialize a channel variable or return it "
+		    "[crug-CONC-002]");
+	  return expr;
+	}
+      expr.value = crug_channel_make (loc, hint, args[0]);
+      return expr;
+    }
+
+  /* send, recv and close take a channel as their first argument.  */
+  if (nargs == 0 || args[0] == error_mark_node)
+    return expr;
+  chan_type = TREE_TYPE (args[0]);
+  if (chan_type == NULL_TREE || !crug_channel_type_p (chan_type))
+    {
+      error_at (loc, "the first argument of %qs must be a channel "
+		"[crug-CONC-018]", word);
+      return expr;
+    }
+
+  if (strcmp (word, "send") == 0)
+    {
+      if (nargs != 2)
+	{
+	  error_at (loc, "%<send%> takes two arguments: send (channel, value) "
+		    "[crug-CONC-021]");
+	  return expr;
+	}
+      if (crug_channel_owns_element (chan_type))
+	{
+	  if (crug_intrinsic_call_p (args[1], CRUG_INTR_ADOPT))
+	    {
+	      error_at (loc, "a destructor cannot cross a channel; the receiver "
+			"of the value destroys it [crug-CONC-023]");
+	      return expr;
+	    }
+	  if (args[1] != error_mark_node
+	      && !crug_intrinsic_call_p (args[1], CRUG_INTR_MOVE))
+	    {
+	      error_at (loc, "send transfers ownership; wrap the argument in "
+			"%<move ()%> [crug-CONC-003]");
+	      return expr;
+	    }
+	}
+      if (args[1] == error_mark_node)
+	return expr;
+      expr.value = crug_channel_send (loc, args[0], args[1]);
+      return expr;
+    }
+
+  if (nargs != 1)
+    {
+      error_at (loc, "%qs takes one argument [crug-CONC-022]", word);
+      return expr;
+    }
+  if (strcmp (word, "recv") == 0)
+    expr.value = crug_channel_recv (loc, args[0]);
+  else
+    expr.value = crug_channel_close (loc, args[0]);
+  return expr;
+}
+
+/* One arm of a select statement (ADR 0018 D6 R3).  */
+
+struct crug_select_arm
+{
+  bool is_recv;			/* receive arm (else send arm)          */
+  bool is_default;		/* the default arm                      */
+  tree binding;			/* identifier of a receive binding      */
+  tree channel;			/* the parsed channel expression        */
+  tree chan_var;		/* the temporary that holds it          */
+  tree value;			/* the value of a send arm              */
+  tree body;			/* the parsed arm body                  */
+  location_t loc;
+};
+
+/* Build an artificial local of TYPE for a lowering.  The variables are
+   chained into the BIND_EXPR of the statement, like the group handle of a
+   scope.  */
+
+static tree
+crug_select_local (location_t loc, tree type, std::vector<tree> &vars)
+{
+  tree var = build_decl (loc, VAR_DECL, NULL_TREE, type);
+
+  TREE_USED (var) = 1;
+  DECL_ARTIFICIAL (var) = 1;
+  DECL_IGNORED_P (var) = 1;
+  DECL_CONTEXT (var) = current_function_decl;
+  DECL_SOURCE_LOCATION (var) = loc;
+  vars.push_back (var);
+  return var;
+}
+
+/* 'lhs = rhs;'  */
+
+static tree
+crug_select_assign (location_t loc, tree lhs, tree rhs)
+{
+  tree stmt = build_modify_expr (loc, lhs, NULL_TREE, NOP_EXPR, loc, rhs,
+				 NULL_TREE);
+
+  SET_EXPR_LOCATION (stmt, loc);
+  return stmt;
+}
+
+/* A void conditional.  The condition is built with build2: build_binary_op
+   yields a C_MAYBE_CONST_EXPR that generic gimplify cannot take, the same
+   reason as in the match lowering (ADR 0018 D8).  */
+
+static tree
+crug_select_if (location_t loc, tree cond, tree then_stmt, tree else_stmt)
+{
+  tree stmt = build3 (COND_EXPR, void_type_node, cond, then_stmt, else_stmt);
+
+  SET_EXPR_LOCATION (stmt, loc);
+  return stmt;
+}
+
+/* An int constant for the lowering.  */
+
+static tree
+crug_select_int (int v)
+{
+  return build_int_cst (integer_type_node, v);
+}
+
+static tree
+crug_select_cmp (enum tree_code code, tree a, tree b)
+{
+  return build2 (code, boolean_type_node, a, b);
+}
+
+/* Parse the statements of one arm up to the next depth-0 'case', 'default'
+   or the closing brace.  The arm is its own scope, and the receive of a
+   binding arm happens before the first of its statements.  */
+
+static tree
+crug_parse_select_arm_body (c_parser *parser, struct crug_select_arm *arm)
+{
+  location_t loc = arm->loc;
+  tree block = c_begin_compound_stmt (true);
+  tree element;
+
+  if (arm->is_default)
+    ;
+  else if (arm->is_recv)
+    {
+      element = crug_channel_element (TREE_TYPE (arm->channel));
+      if (arm->binding != NULL_TREE)
+	{
+	  tree var = build_decl (loc, VAR_DECL, arm->binding, element);
+
+	  TREE_USED (var) = 1;
+	  DECL_CONTEXT (var) = current_function_decl;
+	  DECL_SOURCE_LOCATION (var) = loc;
+	  pushdecl (var);
+	  add_stmt (build_stmt (loc, DECL_EXPR, var));
+	  add_stmt (crug_select_assign (loc, var,
+					crug_channel_recv (loc, arm->chan_var)));
+	}
+      else
+	/* c_finish_expr_stmt already adds the statement to the current
+	   list; adding it again would receive twice (a second receive would
+	   block).  */
+	c_finish_expr_stmt (loc, crug_channel_recv (loc, arm->chan_var));
+    }
+  else
+    c_finish_expr_stmt (loc, crug_channel_send (loc, arm->chan_var,
+						arm->value));
+
+  while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
+	 && !c_parser_next_token_is (parser, CPP_EOF)
+	 && !c_parser_next_token_is_keyword (parser, RID_CASE)
+	 && !c_parser_next_token_is_keyword (parser, RID_DEFAULT))
+    {
+      if (c_parser_next_tokens_start_declaration (parser)
+	  && !crug_task_statement_start_p (parser))
+	c_parser_declaration_or_fndef (parser, true, true, true, true, true,
+				       false, NULL, NULL, false, NULL_TREE,
+				       NULL, NULL);
+      else
+	c_parser_statement_after_labels (parser, NULL, NULL_TREE);
+    }
+
+  return c_end_compound_stmt (loc, block, true);
+}
+
+/* Parse the communication of one select arm: 'recv (ch)', 'v = recv (ch)'
+   or 'send (ch, v)'.  The channel expression is copied into an artificial
+   variable here, so it is evaluated exactly once, before the poll loop.  */
+
+static bool
+crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
+			std::vector<tree> &vars)
+{
+  location_t loc = arm->loc;
+  c_token *t = c_parser_peek_token (parser);
+  const char *word;
+  tree chan_type;
+
+  arm->binding = NULL_TREE;
+  arm->value = NULL_TREE;
+
+  if (t->type != CPP_NAME || t->value == NULL_TREE)
+    {
+      error_at (loc, "select case must be %<case v = recv (ch):%>, "
+		"%<case send (ch, v):%> or %<default:%> [crug-CONC-004]");
+      return false;
+    }
+
+  word = IDENTIFIER_POINTER (t->value);
+
+  if (strcmp (word, "recv") != 0 && strcmp (word, "send") != 0)
+    {
+      if (c_parser_peek_2nd_token (parser)->type == CPP_EQ_EQ)
+	{
+	  error_at (loc, "%<case v == recv (ch)%> is not a select form; use "
+		    "%<case v = recv (ch)%> [crug-CONC-007]");
+	  return false;
+	}
+      if (c_parser_peek_2nd_token (parser)->type != CPP_EQ)
+	{
+	  error_at (loc, "select case must be %<case v = recv (ch):%>, "
+		    "%<case send (ch, v):%> or %<default:%> [crug-CONC-004]");
+	  return false;
+	}
+      /* 'case v = recv (ch):'  */
+      arm->binding = t->value;
+      c_parser_consume_token (parser);	/* the binding  */
+      c_parser_consume_token (parser);	/* '='  */
+      t = c_parser_peek_token (parser);
+      if (t->type != CPP_NAME || t->value == NULL_TREE
+	  || strcmp (IDENTIFIER_POINTER (t->value), "recv") != 0)
+	{
+	  error_at (loc, "a %<select%> binding can only receive; write "
+		    "%<case v = recv (ch):%> [crug-CONC-004]");
+	  return false;
+	}
+      word = "recv";
+    }
+
+  arm->is_recv = (strcmp (word, "recv") == 0);
+
+  c_parser_consume_token (parser);	/* 'recv' or 'send'  */
+  if (!c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>"))
+    return false;
+
+  if (c_parser_next_token_is (parser, CPP_CLOSE_PAREN))
+    {
+      error_at (loc, "%qs needs a channel [crug-CONC-018]",
+		arm->is_recv ? "recv" : "send");
+      c_parser_consume_token (parser);
+      return false;
+    }
+
+  {
+    struct c_expr a = c_parser_expr_no_commas (parser, NULL);
+
+    arm->channel = a.value;
+    if (!arm->is_recv)
+      {
+	if (c_parser_next_token_is (parser, CPP_COMMA))
+	  {
+	    c_parser_consume_token (parser);
+	    a = c_parser_expr_no_commas (parser, NULL);
+	    arm->value = a.value;
+	  }
+	else
+	  {
+	    error_at (loc, "%<send%> takes two arguments: send (channel, "
+		      "value) [crug-CONC-021]");
+	    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+				       "expected %<)%>");
+	    return false;
+	  }
+	if (c_parser_next_token_is (parser, CPP_COMMA))
+	  {
+	    error_at (loc, "%<send%> takes two arguments: send (channel, "
+		      "value) [crug-CONC-021]");
+	    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+				       "expected %<)%>");
+	    return false;
+	  }
+      }
+    else if (c_parser_next_token_is (parser, CPP_COMMA))
+      {
+	error_at (loc, "%<recv%> takes one argument [crug-CONC-022]");
+	c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+	return false;
+      }
+  }
+  c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+
+  if (arm->channel == error_mark_node
+      || (!arm->is_recv && arm->value == error_mark_node))
+    return false;
+
+  chan_type = TREE_TYPE (arm->channel);
+  if (chan_type == NULL_TREE || !crug_channel_type_p (chan_type))
+    {
+      error_at (loc, "the first argument of %qs must be a channel "
+		"[crug-CONC-018]", arm->is_recv ? "recv" : "send");
+      return false;
+    }
+
+  if (arm->is_recv && crug_channel_owns_element (chan_type))
+    {
+      error_at (loc, "a %<select%> arm cannot receive from a channel with an "
+		"owning element; use %<recv%> directly [crug-CONC-017]");
+      return false;
+    }
+
+  if (!arm->is_recv && crug_channel_owns_element (chan_type))
+    {
+      if (crug_intrinsic_call_p (arm->value, CRUG_INTR_ADOPT))
+	error_at (loc, "a destructor cannot cross a channel; the receiver of "
+		  "the value destroys it [crug-CONC-023]");
+      else if (!crug_intrinsic_call_p (arm->value, CRUG_INTR_MOVE))
+	error_at (loc, "send transfers ownership; wrap the argument in "
+		  "%<move ()%> [crug-CONC-003]");
+    }
+
+  arm->chan_var = crug_select_local (loc, chan_type, vars);
+  return true;
+}
+
+/* Parse 'select { case ... : ... }' and return the lowered block (ADR 0018
+   D6 R3-R5).  The lowering polls every arm once per pass, starting with a
+   rotating arm so no arm starves a waiting one, dispatches the ready arm,
+   and waits a turn before the next pass:
+
+     { ch0 = <channel expression>; ...
+       while (1)
+	 {
+	   sel = -1;
+	   i = 0; start = crug_chan_select_turn () % N;
+	   while (i < N && sel < 0)
+	     { j = (start + i) % N;
+	       if (j == 0) { if (recv_ready (ch0)) sel = 0; }
+	       else if (j == 1) { ... }
+	       i = i + 1; }
+	   if (sel == 0) { arm0; break; }
+	   else if (sel == 1) { arm1; break; }
+	   else { default body; break; }            or crug_chan_poll_wait ();
+	 }
+
+   Evaluation order is fixed: the channel expressions are evaluated once,
+   the arm bodies only when their case is taken, and 'break' exits the
+   select rather than an enclosing loop.  */
+
+static tree
+crug_parse_select_statement (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  std::vector<struct crug_select_arm> arms;
+  std::vector<tree> vars;
+  tree default_body = NULL_TREE;
+  bool have_default = false;
+  unsigned int n;
+  tree stmts;
+
+  c_parser_consume_token (parser);	/* 'select'  */
+  if (!c_parser_require (parser, CPP_OPEN_BRACE, "expected %<{%>"))
+    return NULL_TREE;
+
+  while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
+	 && !c_parser_next_token_is (parser, CPP_EOF))
+    {
+      location_t aloc = c_parser_peek_token (parser)->location;
+
+      if (c_parser_next_token_is (parser, CPP_SEMICOLON))
+	{
+	  c_parser_consume_token (parser);
+	  continue;
+	}
+
+      if (c_parser_next_token_is_keyword (parser, RID_DEFAULT))
+	{
+	  struct crug_select_arm arm;
+
+	  c_parser_consume_token (parser);	/* 'default'  */
+	  bool seen_before = have_default;
+	  if (seen_before)
+	    error_at (aloc, "%<select%> may have at most one %<default%> "
+		      "[crug-CONC-005]");
+	  if (!c_parser_require (parser, CPP_COLON, "expected %<:%>"))
+	    {
+	      c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	      return error_mark_node;
+	    }
+	  arm.is_default = true;
+	  arm.is_recv = false;
+	  arm.binding = NULL_TREE;
+	  arm.channel = NULL_TREE;
+	  arm.chan_var = NULL_TREE;
+	  arm.value = NULL_TREE;
+	  arm.loc = aloc;
+	  default_body = crug_parse_select_arm_body (parser, &arm);
+	  have_default = true;
+	  /* A second 'default' is already CONC-005; do not pile CONC-006 on
+	     top of it, and report the misplaced first one at its own keyword
+	     rather than at whatever follows the arm.  */
+	  if (!seen_before && !c_parser_next_token_is (parser, CPP_CLOSE_BRACE))
+	    error_at (aloc, "%<default%> must be the last %<select%> arm "
+		      "[crug-CONC-006]");
+	  continue;
+	}
+
+      if (!c_parser_next_token_is_keyword (parser, RID_CASE))
+	break;
+
+      {
+	struct crug_select_arm arm;
+
+	c_parser_consume_token (parser);	/* 'case'  */
+	arm.is_default = false;
+	arm.is_recv = false;
+	arm.binding = NULL_TREE;
+	arm.channel = NULL_TREE;
+	arm.chan_var = NULL_TREE;
+	arm.value = NULL_TREE;
+	arm.body = NULL_TREE;
+	arm.loc = aloc;
+
+	/* On a malformed arm head, skip the rest of the statement and
+	   return without a second \u2018}{\u2019 error: c_parser_skip_until_found
+	   consumes the brace it stops at.  */
+	if (!crug_parse_select_comm (parser, &arm, vars))
+	  {
+	    c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	    return error_mark_node;
+	  }
+	if (!c_parser_require (parser, CPP_COLON, "expected %<:%>"))
+	  {
+	    c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	    return error_mark_node;
+	  }
+
+	arm.body = crug_parse_select_arm_body (parser, &arm);
+	arms.push_back (arm);
+      }
+    }
+
+  if (!c_parser_require (parser, CPP_CLOSE_BRACE, "expected %<}%>"))
+    return NULL_TREE;
+
+  n = arms.size ();
+  stmts = alloc_stmt_list ();
+
+  /* The channel expressions are evaluated once, before the poll loop.  */
+  for (unsigned int k = 0; k < n; k++)
+    append_to_statement_list (crug_select_assign (arms[k].loc,
+						  arms[k].chan_var,
+						  arms[k].channel),
+			      &stmts);
+
+  if (n == 0)
+    {
+      /* 'select { default: ... }' runs the default at once; an empty select
+	 blocks forever (ADR 0018 D6 R4).  */
+      tree body = alloc_stmt_list ();
+
+      if (have_default)
+	{
+	  append_to_statement_list (default_body, &body);
+	  append_to_statement_list (build1 (BREAK_STMT, void_type_node,
+					    NULL_TREE), &body);
+	}
+      else
+	append_to_statement_list (crug_channel_poll_wait (loc), &body);
+      append_to_statement_list (build5 (WHILE_STMT, void_type_node,
+					integer_one_node, body, NULL_TREE,
+					NULL_TREE, NULL_TREE), &stmts);
+    }
+  else
+    {
+      tree sel = crug_select_local (loc, integer_type_node, vars);
+      tree ivar = crug_select_local (loc, integer_type_node, vars);
+      tree jvar = crug_select_local (loc, integer_type_node, vars);
+      tree svar = crug_select_local (loc, integer_type_node, vars);
+      tree outer = alloc_stmt_list ();
+      tree inner = alloc_stmt_list ();
+      tree probe = build_empty_stmt (loc);
+      tree dispatch;
+      tree final_else;
+      tree cond2;
+      tree probe_loop;
+
+      append_to_statement_list (crug_select_assign (loc, sel,
+						    crug_select_int (-1)),
+				&outer);
+      /* The pass counter and the starting arm are set before the loop, not in
+	 its body: the loop tests its condition before the first iteration.  */
+      append_to_statement_list (crug_select_assign (loc, ivar,
+						    crug_select_int (0)),
+				&outer);
+      append_to_statement_list (crug_select_assign (loc, svar,
+				build2 (TRUNC_MOD_EXPR, integer_type_node,
+					convert (integer_type_node,
+						 crug_channel_select_turn (loc)),
+					crug_select_int ((int) n))),
+				&outer);
+
+      for (unsigned int k = n; k-- > 0; )
+	{
+	  tree ready = crug_channel_ready (arms[k].loc, arms[k].chan_var,
+					   arms[k].is_recv);
+	  tree set = crug_select_assign (arms[k].loc, sel,
+					 crug_select_int ((int) k));
+	  tree test = crug_select_if (arms[k].loc,
+				      crug_select_cmp (NE_EXPR, ready,
+						       crug_select_int (0)),
+				      set, build_empty_stmt (arms[k].loc));
+
+	  probe = crug_select_if (arms[k].loc,
+				  crug_select_cmp (EQ_EXPR, jvar,
+						   crug_select_int ((int) k)),
+				  test, probe);
+	}
+
+      append_to_statement_list (crug_select_assign (loc, jvar,
+				build2 (TRUNC_MOD_EXPR, integer_type_node,
+					build2 (PLUS_EXPR, integer_type_node,
+						svar, ivar),
+					crug_select_int ((int) n))),
+				&inner);
+      append_to_statement_list (probe, &inner);
+      append_to_statement_list (crug_select_assign (loc, ivar,
+				build2 (PLUS_EXPR, integer_type_node, ivar,
+					crug_select_int (1))),
+				&inner);
+
+      cond2 = build2 (TRUTH_ANDIF_EXPR, boolean_type_node,
+		     crug_select_cmp (LT_EXPR, ivar,
+				      crug_select_int ((int) n)),
+		     crug_select_cmp (LT_EXPR, sel, crug_select_int (0)));
+      probe_loop = build5 (WHILE_STMT, void_type_node, cond2, inner, NULL_TREE,
+			   NULL_TREE, NULL_TREE);
+      SET_EXPR_LOCATION (probe_loop, loc);
+      append_to_statement_list (probe_loop, &outer);
+
+      /* The default (or the wait of a select with no default) is the final
+	 else, so the 'nothing ready' value of sel falls through to it.  */
+      final_else = alloc_stmt_list ();
+      if (have_default)
+	{
+	  append_to_statement_list (default_body, &final_else);
+	  append_to_statement_list (build1 (BREAK_STMT, void_type_node,
+					    NULL_TREE), &final_else);
+	}
+      else
+	append_to_statement_list (crug_channel_poll_wait (loc), &final_else);
+
+      dispatch = final_else;
+      for (unsigned int k = n; k-- > 0; )
+	{
+	  tree arm_body = alloc_stmt_list ();
+
+	  append_to_statement_list (arms[k].body, &arm_body);
+	  append_to_statement_list (build1 (BREAK_STMT, void_type_node,
+					    NULL_TREE), &arm_body);
+	  dispatch = crug_select_if (arms[k].loc,
+				     crug_select_cmp (EQ_EXPR, sel,
+						      crug_select_int ((int) k)),
+				     arm_body, dispatch);
+	}
+      append_to_statement_list (dispatch, &outer);
+      append_to_statement_list (build5 (WHILE_STMT, void_type_node,
+					integer_one_node, outer, NULL_TREE,
+					NULL_TREE, NULL_TREE), &stmts);
+    }
+
+  tree vchain = NULL_TREE;
+  for (size_t i = vars.size (); i-- > 0; )
+    {
+      DECL_CHAIN (vars[i]) = vchain;
+      vchain = vars[i];
+    }
+
+  tree bind = build3 (BIND_EXPR, void_type_node, vchain, stmts, NULL_TREE);
+  SET_EXPR_LOCATION (bind, loc);
+  return bind;
 }
 
 /* Parse 'match (e) { arm ... }' and return the lowered block.  The word

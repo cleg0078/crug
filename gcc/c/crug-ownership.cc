@@ -65,6 +65,7 @@
 #include "crug-ownership.h"
 #include "crug-safe.h"
 #include "crug-tasks.h"
+#include "crug-chan.h"
 
 #include <map>
 #include <set>
@@ -553,6 +554,13 @@ is_intrinsic_call (tree t, enum crug_intrinsic *kind)
 	return true;
       }
   return false;
+}
+
+bool
+crug_intrinsic_call_p (tree expr, enum crug_intrinsic want)
+{
+  enum crug_intrinsic kind;
+  return is_intrinsic_call (expr, &kind) && kind == want;
 }
 
 /* Owning declarations.  */
@@ -2478,6 +2486,17 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       return;
     }
 
+  /* A receive from a channel with an owned element hands over a value the
+     caller must release.  The destructor is not part of the channel type:
+     the element type erased it, so the state is owned with no known
+     destructor (ADR 0025 D3/D4).  */
+  if (TREE_CODE (r) == CALL_EXPR && crug_channel_recv_owned_call_p (r))
+    {
+      walk_expr (ctx, env, expr, loc);
+      set_owned (env, decl, NULL_TREE);
+      return;
+    }
+
   /* A call whose .crugffi contract says it returns an owned value hands
      the caller that value with the destructor the sidecar names (ADR 0007
      D3).  This is the only way a checked program can take ownership from
@@ -3370,6 +3389,19 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     case CALL_EXPR:
       {
 	enum crug_intrinsic kind;
+	/* A send on a channel with an owned element transfers the value out
+	   of the caller (ADR 0025 D3).  The element sits inside the compound
+	   literal the parser boxed it in, and this pass does not walk a
+	   compound literal, so the transfer is handled here.  */
+	if (crug_channel_send_owned_call_p (t))
+	  {
+	    tree value = crug_channel_send_value (t);
+	    if (value != NULL_TREE
+		&& crug_intrinsic_call_p (value, CRUG_INTR_MOVE))
+	      (void) process_move (ctx, env, CALL_EXPR_ARG (value, 0), loc);
+	    walk_expr (ctx, env, CALL_EXPR_ARG (t, 0), loc);
+	    return;
+	  }
 	if (is_intrinsic_call (t, &kind))
 	  {
 	    switch (kind)

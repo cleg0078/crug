@@ -100,6 +100,10 @@ extern bool crug_intrinsic_enabled (enum crug_intrinsic kind);
 extern tree crug_build_intrinsic_call (enum crug_intrinsic kind,
 				       location_t loc, tree arg0, tree arg1);
 
+/* True when EXPR is a lowered call of the given intrinsic.  The channel
+   operations ask this about the value of a send (ADR 0025 D3).  */
+extern bool crug_intrinsic_call_p (tree expr, enum crug_intrinsic kind);
+
 /* A match statement lowered by the parser (ADR 0018 D8 R4/R5) hides an
    artificial temporary: TMP holds the moved scrutinee and each arm binds one
    payload out of it.  The parser registers the temporary and every binding so
