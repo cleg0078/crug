@@ -10,6 +10,7 @@
 
 # Build output produced by this repository's Makefile and helpers.
 /build/
+/libcrug/build/
 /sources/
 /objdir/
 /install/
