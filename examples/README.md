@@ -16,12 +16,15 @@ its first comment.
 | `08-strict-mode.c` | the same `raw` dereference accepted in hybrid mode and rejected under `-fcrug-strict` (`[crug-SAFE-001]`), plus the `unsafe` fix | `./gcc/crugc -O2 -fcrug-ownership examples/08-strict-mode.c -o build/strict-hybrid && ./build/strict-hybrid` |
 | `09-unsafe-asm.c` | an `asm` statement confined to an `unsafe` block, which strict mode requires | `./gcc/crugc -O2 -fcrug-strict examples/09-unsafe-asm.c -o build/unsafe-asm && ./build/unsafe-asm` |
 | `10-ffi.c` | a `.crugffi` contract: `fopen` returns an owned `FILE *` and `fclose` consumes it, so the compiler closes the file at scope end | `./gcc/crugc -O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi examples/10-ffi.c -o build/ffi && ./build/ffi` |
+| `11-safe-types.c` | `slice<int>`, `option<int>` and `result<int,int>` crossing function calls, with `match` on both sums | `./gcc/crugc -O2 -fcrug-slices -fcrug-result examples/11-safe-types.c -o build/safe-types && ./build/safe-types` |
+| `12-bounds.c` | checked indexing: an out-of-range `s[i]` traps (exit 132, SIGILL), while `-fno-crug-bounds-checks` removes the trap | `./gcc/crugc -O2 -fcrug-slices examples/12-bounds.c -o build/bounds && ./build/bounds; echo "exit=$?"` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the
 ownership rules in `docs/crug/OWNERSHIP.md` and `docs/crug/DROP.md`, the
-borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, and the FFI contracts in `docs/crug/FFI.md`.
+borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, the FFI contracts in `docs/crug/FFI.md`, and the
+safe core types in `docs/crug/SAFE-TYPES.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.
