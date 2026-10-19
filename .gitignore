@@ -20,6 +20,7 @@
 /out/
 /gcc/testsuite/crug.dg/**/*.exe
 /bench/results/
+*.crug-ownership
 *.gch
 *.dwo
 *.gcno

@@ -67,6 +67,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "run-rtl-passes.h"
 #include "intl.h"
 #include "c-family/name-hint.h"
+#include "c-family/crug-common.h"
+#include "crug-ownership.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
 #include "memmodel.h"
@@ -582,6 +584,44 @@ c_parser_peek_nth_token (c_parser *parser, unsigned int n)
   return &parser->tokens[n - 1];
 }
 
+/* True when the token N tokens ahead (1-based) is the contextual word 'own'
+   and may be read as the ownership qualifier: the feature is on, the lexer
+   reported an ordinary identifier, and the word is not declared (ADR 0018
+   D2 R1: a C parse wins).  */
+
+static bool
+crug_qualifier_token_n_p (c_parser *parser, unsigned int n)
+{
+  if (!crug_ownership_enabled ())
+    return false;
+
+  c_token *token = c_parser_peek_nth_token (parser, n);
+  return (token->type == CPP_NAME
+	  && token->id_kind == C_ID_ID
+	  && token->value != NULL_TREE
+	  && strcmp (IDENTIFIER_POINTER (token->value), "own") == 0
+	  && lookup_name (token->value) == NULL_TREE);
+}
+
+static bool
+crug_qualifier_token_p (c_parser *parser)
+{
+  return crug_qualifier_token_n_p (parser, 1);
+}
+
+/* True when the token N tokens ahead is the 'own' qualifier starting a
+   type-name, i.e. it is the qualifier and the token after it can start
+   declaration specifiers.  Used by sizeof, alignof and casts, where the
+   parser must decide between a type-name and an expression before it calls
+   c_parser_type_name (ADR 0018 D2 R3).  */
+
+static bool
+crug_own_type_name_p (c_parser *parser, unsigned int n)
+{
+  return (crug_qualifier_token_n_p (parser, n)
+	  && c_parser_next_tokens_start_declaration (parser, n + 1));
+}
+
 /* Return a pointer to the Nth token from PARSER, reading it in as a
    raw look-ahead token if necessary.  The N-1th token is already read
    in.  Raw look-ahead tokens remain available for when the non-raw
@@ -903,6 +943,11 @@ c_parser_next_token_starts_declspecs (c_parser *parser)
       && c_parser_peek_2nd_token (parser)->type == CPP_DOT)
     return false;
 
+  /* The Crug 'own' qualifier starts declaration specifiers even though the
+     token is an ordinary identifier (ADR 0018 D2).  */
+  if (crug_qualifier_token_p (parser))
+    return true;
+
   return c_token_starts_declspecs (token);
 }
 
@@ -928,6 +973,13 @@ c_parser_next_tokens_start_declaration (c_parser *parser, unsigned int n)
   if (token->type == CPP_NAME
       && c_parser_peek_nth_token (parser, n + 1)->type == CPP_COLON)
     return false;
+
+  /* In Crug mode an undeclared 'own' starts a declaration when the token
+     after it can start one.  Without this, a statement such as
+     'own struct Foo *p;' would be parsed as an expression and diagnosed as
+     an undeclared identifier.  */
+  if (crug_qualifier_token_n_p (parser, n))
+    return c_parser_next_tokens_start_declaration (parser, n + 1);
 
   /* A static assertion is only a declaration if followed by a semicolon;
      otherwise, it may be an expression in C2Y.  */
@@ -2498,7 +2550,8 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
       && c_parser_peek_token (parser)->id_kind == C_ID_ID
       && (c_parser_peek_2nd_token (parser)->type == CPP_NAME
           || c_parser_peek_2nd_token (parser)->type == CPP_MULT)
-      && (!nested || !lookup_name (c_parser_peek_token (parser)->value)))
+      && (!nested || !lookup_name (c_parser_peek_token (parser)->value))
+      && !crug_qualifier_token_p (parser))
     {
       tree name = c_parser_peek_token (parser)->value;
 
@@ -3353,6 +3406,10 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
       else
 	fnbody = c_parser_compound_statement (parser, &endloc);
       tree fndecl = current_function_decl;
+      if (fnbody != NULL_TREE
+	  && specs->declspec_il == cdil_none
+	  && crug_ownership_enabled ())
+	crug_check_function (fndecl, fnbody);
       if (nested && specs->declspec_il == cdil_none)
 	{
 	  tree decl = current_function_decl;
@@ -3746,6 +3803,22 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	      addr_space_t as
 		= name_token->keyword - RID_FIRST_ADDR_SPACE;
 	      declspecs_add_addrspace (name_token->location, specs, as);
+	      c_parser_consume_token (parser);
+	      attrs_ok = true;
+	      continue;
+	    }
+
+	  if (crug_qualifier_token_p (parser))
+	    {
+	      if (specs->crug_own_p)
+		error_at (name_token->location,
+			  "more than one Crug qualifier on one declarator "
+			  "[crug-TYPE-002]");
+	      else if (specs->atomic_p)
+		error_at (name_token->location,
+			  "%<_Atomic%> may not be combined with a Crug "
+			  "qualifier [crug-TYPE-004]");
+	      specs->crug_own_p = 1;
 	      c_parser_consume_token (parser);
 	      attrs_ok = true;
 	      continue;
@@ -10598,7 +10671,8 @@ c_parser_cast_expression (c_parser *parser, struct c_expr *after)
      an unary expression.  Full detection of unknown typenames here
      would require a 3-token lookahead.  */
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
-      && c_token_starts_compound_literal (c_parser_peek_2nd_token (parser)))
+      && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
+	  || crug_own_type_name_p (parser, 2)))
     {
       struct c_declspecs *scspecs;
       struct c_type_name *type_name;
@@ -10878,7 +10952,8 @@ c_parser_sizeof_or_countof_expression (c_parser *parser, enum rid rid)
   else
     in_sizeof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
-      && c_token_starts_compound_literal (c_parser_peek_2nd_token (parser)))
+      && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
+	  || crug_own_type_name_p (parser, 2)))
     {
       /* Either sizeof ( type-name ) or sizeof unary-expression
 	 starting with a compound literal.  */
@@ -10981,7 +11056,8 @@ c_parser_alignof_expression (c_parser *parser)
   c_inhibit_evaluation_warnings++;
   in_alignof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
-      && c_token_starts_compound_literal (c_parser_peek_2nd_token (parser)))
+      && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
+	  || crug_own_type_name_p (parser, 2)))
     {
       /* Either __alignof__ ( type-name ) or __alignof__
 	 unary-expression starting with a compound literal.  */
@@ -11847,6 +11923,31 @@ c_parser_postfix_expression (c_parser *parser)
 	case C_ID_ID:
 	  {
 	    tree id = c_parser_peek_token (parser)->value;
+	    if (crug_ownership_enabled ()
+		&& id != NULL_TREE
+		&& strcmp (IDENTIFIER_POINTER (id), "move") == 0
+		&& lookup_name (id) == NULL_TREE
+		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN)
+	      {
+		location_t move_loc = c_parser_peek_token (parser)->location;
+		struct c_expr arg;
+		c_parser_consume_token (parser);
+		if (!c_parser_require (parser, CPP_OPEN_PAREN,
+				       "expected %<(%>"))
+		  {
+		    expr.value = error_mark_node;
+		    break;
+		  }
+		arg = c_parser_expr_no_commas (parser, NULL);
+		c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+					   "expected %<)%>");
+		if (arg.value == error_mark_node)
+		  expr.value = error_mark_node;
+		else
+		  expr.value = crug_build_move_call (move_loc, arg.value);
+		set_c_expr_source_range (&expr, tok_range);
+		break;
+	      }
 	    c_parser_consume_token (parser);
 	    expr.value = build_external_ref (loc, id,
 					     (c_parser_peek_token (parser)->type

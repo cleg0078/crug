@@ -67,5 +67,8 @@ crug_apply_option_closure (void)
 	       "give one or the other");
     }
 
+  if (crug_dump_kind != NULL && strcmp (crug_dump_kind, "ownership") != 0)
+    error ("unrecognized argument to %<-fcrug-dump=%>: %qs", crug_dump_kind);
+
   crug_features = features;
 }

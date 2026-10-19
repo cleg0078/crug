@@ -183,6 +183,13 @@ check-CRUG_FLAGS: ## check the -fcrug-* option set, its closure and the feature 
 check-GNU_C_COMPAT: ## compile the GNU C and kernel corpora with the full Crug flag set
 	scripts/check-gnu-c-compat.sh
 
+check-OWNERSHIP: ## run the Crug ownership tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/crug.exp' 2>&1 | tee $(OBJ_DIR)/check-ownership.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1

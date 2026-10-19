@@ -419,6 +419,8 @@ struct c_declspecs {
   /* Whether any expressions in typeof specifiers may appear in
      constant expressions.  */
   BOOL_BITFIELD expr_const_operands : 1;
+  /* Whether the Crug 'own' qualifier was seen (ADR 0018 D2).  */
+  BOOL_BITFIELD crug_own_p : 1;
   /* Whether any declaration specifiers have been seen at all.  */
   BOOL_BITFIELD declspecs_seen_p : 1;
   /* Whether any declaration specifiers other than standard attributes

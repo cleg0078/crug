@@ -62,6 +62,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "omp-offload.h"  /* For offload_vars.  */
 #include "c-parser.h"
 #include "gcc-urlifier.h"
+#include "c-family/crug-common.h"
+#include "crug-ownership.h"
 
 #include "tree-pretty-print.h"
 
@@ -5797,6 +5799,9 @@ start_decl (struct c_declarator *declarator, struct c_declspecs *declspecs,
   if (!decl || decl == error_mark_node)
     return NULL_TREE;
 
+  if (declspecs->crug_own_p)
+    crug_mark_owning_decl (decl, DECL_SOURCE_LOCATION (decl));
+
   old_decl = lookup_last_decl (decl);
 
   if (tree lastdecl = lastloc ? old_decl : NULL_TREE)
@@ -9110,6 +9115,21 @@ grokfield (location_t loc,
   if (width)
     SET_DECL_C_BIT_FIELD (value);
 
+  if (declspecs->crug_own_p && value != error_mark_node)
+    {
+      if (width != NULL_TREE
+	  || DECL_NAME (value) == NULL_TREE
+	  || c_flexible_array_member_type_p (TREE_TYPE (value)))
+	error_at (loc, "qualifier is not allowed on a bit-field, flexible "
+		  "array member or unnamed member [crug-TYPE-006]");
+      else if (DECL_CONTEXT (value) != NULL_TREE
+	       && TREE_CODE (DECL_CONTEXT (value)) == UNION_TYPE)
+	error_at (loc, "own member in union requires an active-variant "
+		  "contract [crug-OWN-009]");
+      else
+	crug_mark_owning_decl (value, DECL_SOURCE_LOCATION (value));
+    }
+
   if (warn_cxx_compat && DECL_NAME (value) != NULL_TREE)
     {
       /* If we currently have a binding for this field, set the
@@ -10085,6 +10105,20 @@ finish_struct (location_t loc, tree t, tree fieldlist, tree attributes,
      verification on the fields with counted_by attributes.  */
   if (C_TYPE_FIELDS_HAS_COUNTED_BY (t) && c_type_tag (t) != NULL_TREE)
     verify_counted_by_attribute (t, t);
+
+  /* ADR 0004 D6: an owning member in a union needs an active-variant
+     contract, which the MVP does not have.  The check runs here rather than
+     in grokfield because a field's DECL_CONTEXT is not set at that point.  */
+  if (TREE_CODE (t) == UNION_TYPE)
+    for (tree field = fieldlist; field != NULL_TREE;
+	 field = DECL_CHAIN (field))
+      if (crug_is_owning_decl (field))
+	{
+	  error_at (DECL_SOURCE_LOCATION (field),
+		    "own member in union requires an active-variant contract "
+		    "[crug-OWN-009]");
+	  break;
+	}
 
   return t;
 }

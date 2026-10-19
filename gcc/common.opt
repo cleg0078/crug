@@ -1377,6 +1377,10 @@ Common Var(crug_flag_kernel)
 Enable kernel mode: remove 'go', 'scope', 'chan' and 'select'.  Giving it
 with -fcrug-goroutines, -fcrug-channels or -fcrug-modern is an error.
 
+fcrug-dump=
+Common Joined RejectNegative Var(crug_dump_kind)
+-fcrug-dump=<kind>	Write a Crug dump; the only kind is 'ownership'.
+
 fcse-follow-jumps
 Common Var(flag_cse_follow_jumps) Optimization
 When running CSE, follow jumps to their targets.
