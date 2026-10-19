@@ -1,0 +1,5 @@
+phase-10 #10 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0 (ADT-005/ADT-006/ADT-016..ADT-020 and TYPE-012/TYPE-013/TYPE-014 registered, no duplicate or unknown-area code).
+---
+check-diagnostics: 108 registered code(s); 108 referenced code(s); all references registered.

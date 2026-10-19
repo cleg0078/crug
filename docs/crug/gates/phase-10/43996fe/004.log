@@ -1,0 +1,5 @@
+phase-10 #4 rc=0
+cmd: crugc -fsyntax-only -fcrug-slices -fcrug-result gcc/testsuite/crug.dg/safe-types/layout.c
+expected: exit 0, where the file `_Static_assert`s every size, alignment and offset recorded in `docs/crug/ABI.md` section 3 for `slice`, `option` and `result`.
+---
+

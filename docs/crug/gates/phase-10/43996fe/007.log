@@ -1,0 +1,8 @@
+phase-10 #7 rc=1
+cmd: crugc -fsyntax-only -fcrug-result gcc/testsuite/crug.dg/safe-types/match-non-exhaustive.c
+expected: exit 1 with an exhaustiveness diagnostic naming the missing variant and the stable code `[crug-ADT-011]`.
+---
+gcc/testsuite/crug.dg/safe-types/match-non-exhaustive.c: In function ‘f’:
+gcc/testsuite/crug.dg/safe-types/match-non-exhaustive.c:27:3: error: non-exhaustive ‘match’: no arm for ‘none’; add that arm or a ‘_’ arm [crug-ADT-011]
+   27 |   match (o) /* { dg-error "no arm for" } */
+      |   ^~~~~

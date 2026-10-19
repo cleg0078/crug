@@ -1,0 +1,5 @@
+phase-10 #2 rc=0
+cmd: scripts/check-safe-types.sh
+expected: exit 0, printed `safe-types: 77 tests, 0 failures`.
+---
+safe-types: 77 tests, 0 failures

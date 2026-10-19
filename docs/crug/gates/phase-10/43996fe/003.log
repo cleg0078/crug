@@ -1,0 +1,5 @@
+phase-10 #3 rc=0
+cmd: scripts/check-safe-bounds.sh
+expected: exit 0, printed `safe-bounds: in-range 0, out-of-range SIGILL, unchecked no trap, plain C no trap` (checked `s[i]` carries the length comparison and `ud2`, `-fno-crug-bounds-checks` and a plain C array carry none).
+---
+safe-bounds: in-range 0, out-of-range SIGILL, unchecked no trap, plain C no trap

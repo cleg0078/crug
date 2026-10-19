@@ -1,0 +1,5 @@
+phase-10 #8 rc=0
+cmd: scripts/check-owned-payloads.sh
+expected: exit 0, printed `owned-payloads: active variant dropped once, inactive never, six unsafe forms rejected`: the `drop` dump of `adts-drop.c` has exactly one `via destroy_buf` line, it names `[Text]`, and it has no line for the statically inactive `Number`; the program counts exactly one destruction; the `-O0` assembly guards the destructor with the tag and a null test; and the six unsafe forms are rejected with `crug-ADT-018` (by value at a function boundary), `crug-ADT-019` (a payload that was not moved in), `crug-ADT-020` (an owned variant without a binding, and a `_` arm over it), `crug-ADT-015` (an owned scrutinee that was not moved) and `crug-UAM-003` (a copy).
+---
+owned-payloads: active variant dropped once, inactive never, six unsafe forms rejected

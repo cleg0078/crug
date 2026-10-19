@@ -1,0 +1,7 @@
+phase-10 #6 rc=1
+cmd: crugc -fsyntax-only -fcrug-adt gcc/testsuite/crug.dg/safe-types/payload-enum-forward.c
+expected: exit 1 with `[crug-ADT-017]`, so a payload enum cannot complete a forward tag reference (its tag denotes a record, not an `ENUMERAL_TYPE`).
+---
+gcc/testsuite/crug.dg/safe-types/payload-enum-forward.c:26:6: error: redefinition of ‘enum M’ as a payload enum; define the payload enum before any reference to its tag [crug-ADT-017]
+   26 | enum M                          /* { dg-error "redefinition of 'enum M' as a payload enum" } */
+      |      ^

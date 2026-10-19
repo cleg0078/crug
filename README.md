@@ -51,8 +51,9 @@ no runtime and no helper calls - see
 [docs/crug/ABI.md](docs/crug/ABI.md). A payload may be owned
 (`own char *`): it is transferred into the constructor, dropped only when its
 variant is active, and moved into `match` (`crug-ADT-015`/`-018`/`-019`/`-020`).
-The Phase 10 gate is adjudicable and awaits its archived run. `libcrug`,
-goroutines and channels are not implemented. See
+The Phase 10 gate passes 10/10 at `43996fe` (logs under
+`docs/crug/gates/phase-10/43996fe/`). `libcrug`, goroutines and channels are
+not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

@@ -1,0 +1,10 @@
+phase-10 #1 rc=0
+cmd: make check-SAFE_TYPES
+expected: exit 0 with at least `# of expected passes 77` under `gcc/testsuite/crug.dg/safe-types/`: accepted programs compile and run at `-O2` under `-fcrug-slices`/`-fcrug-result`, every rejection is a `dg-error` case, `bounds-off.c` runs with `-fno-crug-bounds-checks`, and the payload-enum cases cover construction, a tagged payload enum, `match` over unit and payload variants, an owned payload destroyed exactly once, and the `crug-ADT-001`..`-004`, `-011`..`-013`, `-016`..`-020` rejections.
+---
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/safe-types/safe-types.exp ...
+# of expected passes		77

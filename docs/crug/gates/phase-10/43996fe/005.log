@@ -1,0 +1,5 @@
+phase-10 #5 rc=0
+cmd: crugc -fsyntax-only -fcrug-adt gcc/testsuite/crug.dg/safe-types/payload-enum-layout.c
+expected: exit 0, where the file `_Static_assert`s the frozen payload-enum row: tag at offset 0, union at the next `_Alignof` boundary, variant members at offset 0 of the union, and the recorded sizes and alignments.
+---
+

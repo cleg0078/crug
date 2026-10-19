@@ -178,8 +178,12 @@ reaches the call (asserted by `scripts/check-owned-payloads.sh` and the
 be moved into `match` (`crug-ADT-015`), an arm covering an owning variant must
 bind the payload (`crug-ADT-020`), and the value may not cross a function
 boundary by value (`crug-ADT-018`). `docs/crug/SAFE-TYPES.md` is the digest.
-The Phase 10 gate (amendment A-13) has no prose left and is adjudicable in full;
-its archived run is the remaining step.
+The Phase 10 gate (amendment A-13) has no prose left and **passes 10/10 at
+`43996fe`** (logs under `docs/crug/gates/phase-10/43996fe/`), so M10 is
+awarded: `make check-SAFE_TYPES`, the tally, the bounds script, the two layout
+compiles, the forward-reference rejection, the non-exhaustive `match`
+rejection, `scripts/check-owned-payloads.sh`, `make check-C_COMPAT` and
+`scripts/check-diagnostics.sh`.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -273,9 +277,10 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Close Phase 10**: run `scripts/gate.sh --run phase-10` and archive the
-   ten checks of amendment A-13 (the `adts-drop` observable is
-   `scripts/check-owned-payloads.sh`), then commit and push.
+1. **Push and open Phase 11** (ownership-aware optimization): the Phase 10
+   gate passes 10/10 at `43996fe`; push the branch, then start the three-arm
+   benchmark matrix (`bench/`) that Phase 11 requires before its gate can be
+   written.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.
