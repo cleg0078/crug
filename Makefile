@@ -270,7 +270,19 @@ check-CHANNELS_DG: ## run the Crug channel and select tests under DejaGnu
 	@. tools/dejagnu.env 2>/dev/null || true; \
 	set -o pipefail; \
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/channels/channels.exp' 2>&1 | tee $(OBJ_DIR)/check-channels-dg.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
-	exit ${PIPESTATUS[0]}
+	exit $${PIPESTATUS[0]}
+
+check-SEND_SYNC: ## run the Phase 17 Send/Sync checks
+	@$(MAKE) --no-print-directory check-SEND_SYNC_DG
+	scripts/check-send-sync.sh
+
+check-SEND_SYNC_DG: ## run the Crug Send/Sync tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/send-sync/send-sync.exp' 2>&1 | tee $(OBJ_DIR)/check-send-sync-dg.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 
 check-PAL: ## run the Phase 13 PAL contract checks on both backends
 	$(MAKE) -C libcrug check-PAL PAL=fake
@@ -333,5 +345,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
+	check-SEND_SYNC check-SEND_SYNC_DG \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean
