@@ -758,14 +758,14 @@ def main(argv):
     ap = argparse.ArgumentParser(
         prog="c2crug",
         description="conservative C to Crug migration assistant")
-    mode = ap.add_mutually_exclusive_group(required=True)
+    mode = ap.add_mutually_exclusive_group(required=False)
     mode.add_argument("--analyze", action="store_true",
                       help="report candidates without changing anything")
     mode.add_argument("--safe", action="store_true",
                       help="copy the tree and apply proven transformations")
     mode.add_argument("--diff", action="store_true",
                       help="print the diff that --safe would apply")
-    ap.add_argument("root")
+    ap.add_argument("root", nargs="?")
     ap.add_argument("-o", "--output", default=None)
     ap.add_argument("--report", default=None)
     ap.add_argument("--version", action="store_true")
@@ -773,6 +773,10 @@ def main(argv):
     if args.version:
         print("c2crug %s" % VERSION)
         return 0
+    if not (args.analyze or args.safe or args.diff):
+        ap.error("one of the arguments --analyze --safe --diff is required")
+    if args.root is None:
+        ap.error("a source tree argument is required unless --version is used")
     root = args.root
     if not os.path.isdir(root):
         print("c2crug: not a directory: %s" % root, file=sys.stderr)

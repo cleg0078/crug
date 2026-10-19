@@ -21,6 +21,10 @@ cannot prove is preserved byte for byte and reported as `raw`.
 `--analyze` resets `applied` on every entry: it is a plan, and the validator
 rejects an analyze report that claims an edit.
 
+Exactly one mode is required.  `./c2crug --version` is the exception: it
+prints `c2crug <version>` and exits 0 without a source tree, so a build script
+can probe the tool before it has a corpus.
+
 ## 2. What `--safe` inserts and rewrites
 
 For a variable whose ownership is proven (section 3):
@@ -131,7 +135,7 @@ migrated program still compiles as plain C and still frees manually.
 
 | Check | Result |
 |-------|--------|
-| `python3 scripts/test-c2crug.py` | 32 checks over 10 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected |
+| `python3 scripts/test-c2crug.py` | 36 checks over 11 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected, command line (`--version` without a tree, a run without a mode exits 2) |
 | `scripts/check-c2crug.sh` | the whole flow on `migration/`: analyze, safe, validate, compile with `crugc`, differential run, churn/comment band, report-to-tree agreement |
 | `scripts/c2crug-diff.sh SRC OUT [MAX]` | changed lines <= MAX% and comment lines equal |
 | `make check-C2CRUG` | both of the first two |

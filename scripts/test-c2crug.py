@@ -283,6 +283,27 @@ def test_validator():
         lie["entries"][0]["confidence"] = 0
         check(validator.check(lie), "the validator accepted a zero-confidence own entry")
 
+@case("command line")
+def test_command_line():
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        rc = c2crug.main(["--version"])
+    out = buffer.getvalue().strip()
+    check(rc == 0, "--version exited %d" % rc)
+    check(out == "c2crug %s" % c2crug.VERSION,
+          "--version printed %r" % out)
+    buffer = io.StringIO()
+    with contextlib.redirect_stderr(buffer):
+        try:
+            c2crug.main([])
+        except SystemExit as exc:
+            code = exc.code
+        else:
+            code = None
+    check(code == 2, "a run without a mode exited %r, want 2" % (code,))
+    check("--analyze" in buffer.getvalue(),
+          "the missing-mode error does not name the modes")
+
 
 def main():
     print("test-c2crug: all %d checks pass" % PASSED)
