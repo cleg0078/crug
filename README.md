@@ -95,7 +95,8 @@ corpora with the full flag set; both are described in
 [docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP` and
 `make check-DROP` run the ownership and destruction dg suites, and
 `scripts/check-drop-*.sh` assert exactly-once destruction, sanitizer
-cleanliness and the absence of helper calls.
+cleanliness and the absence of helper calls. Runnable programs that need no
+harness live in [examples/](examples/README.md), one per Phase 4-5 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
