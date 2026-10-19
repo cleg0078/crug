@@ -1,0 +1,5 @@
+phase-7 #1 rc=0
+cmd: scripts/check-borrow-suite.sh
+expected: exit 0, printed `borrow-suite: 88 tests, 0 failures` (the NLL programs, the escape and calling-convention rejections, and the Phase 6 set).
+---
+borrow-suite: 88 tests, 0 failures

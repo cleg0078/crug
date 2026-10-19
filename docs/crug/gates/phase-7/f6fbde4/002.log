@@ -1,0 +1,5 @@
+phase-7 #2 rc=0
+cmd: scripts/check-borrow-real-c.sh
+expected: exit 0, printed `borrow-real-c: 6 programs, 0 ICE` (six realistic programs compile and run under the checker).
+---
+borrow-real-c: 6 programs, 0 ICE

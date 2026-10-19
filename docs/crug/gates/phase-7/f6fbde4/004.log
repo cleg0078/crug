@@ -1,0 +1,5 @@
+phase-7 #4 rc=0
+cmd: scripts/check-borrow-nll.sh
+expected: exit 0, printed a `borrow-nll:` line with at least one last-use end and one scope-end end.
+---
+borrow-nll: last-use 2, scope-end 1

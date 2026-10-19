@@ -1,0 +1,5 @@
+phase-7 #3 rc=0
+cmd: scripts/check-borrow-escape.sh
+expected: exit 0, printed `borrow-escape: return rejected at use site, origin noted`.
+---
+borrow-escape: return rejected at use site, origin noted
