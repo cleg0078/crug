@@ -63,8 +63,15 @@ hand-written `restrict` twins at `-O2`/`-O3`, so the optimizer receives
 exactly the fact the source proves and nothing more - see
 [docs/crug/OPTIMIZATION.md](docs/crug/OPTIMIZATION.md) and
 [ADR 0010](docs/crug/adr/0010-noalias-lowering.md). The Phase 11 gate passes
-7/7 at `135dea9` (logs under `docs/crug/gates/phase-11/135dea9/`). `libcrug`,
-goroutines and channels are not implemented. See
+7/7 at `135dea9` (logs under `docs/crug/gates/phase-11/135dea9/`). Phase 12 adds
+`c2crug`, a migration tool: it inserts `own` only where a local structural proof
+shows exactly one release and no escape, rewrites that release to `drop`, keeps
+every other line byte-identical and reports the case as `raw`; the phase rests on
+a corpus with its own green test suite (`migration/`) and a machine-readable
+report - see [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) and
+[ADR 0023](docs/crug/adr/0023-c2crug-migration.md). The Phase 12 gate passes 7/7
+(logs under `docs/crug/gates/phase-12/`). `libcrug`, goroutines and channels are
+not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -86,7 +93,9 @@ Architecture decisions live in [docs/crug/adr/](docs/crug/adr/); release gates i
 [docs/crug/adr/0006-c-abi-policy.md](docs/crug/adr/0006-c-abi-policy.md) and the ABI facts it governs are
 registered in [docs/crug/ABI.md](docs/crug/ABI.md). The safe core types are
 digested in [docs/crug/SAFE-TYPES.md](docs/crug/SAFE-TYPES.md) (what parses per
-flag, the frozen layouts, the bounds check, and what is still open). The C FFI
+flag, the frozen layouts, the bounds check, and what is still open). The C-to-Crug
+migration tool is specified in [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) (proof
+rules, modes, confidence, report, corpus). The C FFI
 metadata format is
 [docs/crug/adr/0007-ffi-metadata-format.md](docs/crug/adr/0007-ffi-metadata-format.md)
 (`.crugffi` v1, with a reference fixture at
@@ -120,6 +129,9 @@ procedure and a 31-check acceptance matrix, governed by
   `mut` or `own` parameter, with the caller contract checked at every call
   site and a byte-identical result to a hand-written `restrict` twin
   (Phase 11, ADR 0010).
+- A conservative C-to-Crug migration tool, `c2crug`: it annotates only proven
+  ownership, reports everything else as `raw` with evidence, and never claims
+  the migrated program is memory-safe (Phase 12, ADR 0023).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -174,9 +186,12 @@ never an inactive one. `make check-ALIAS_FACTS` runs the alias-fact dg suite,
 adversarial checks and the LTO pass, `scripts/check-stop-conditions.sh` audits
 every derived fact against its source declaration, and `bench/run.py` runs the
 three-arm matrix (`--matrix alias --check`, `--matrix alias --lto`,
-`--plain-c --check`); `docs/crug/OPTIMIZATION.md` describes them. Runnable
-programs that need no harness live in [examples/](examples/README.md), one per
-Phase 4-11 feature.
+`--plain-c --check`); `docs/crug/OPTIMIZATION.md` describes them. `make
+check-C2CRUG` runs the migration tool's unit checks and the whole flow on
+`migration/` (transform, compile with `crugc`, differential run against the
+original output, report validation, churn band); `docs/crug/C2CRUG.md` describes
+them. Runnable programs that need no harness live in
+[examples/](examples/README.md), one per Phase 4-11 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

@@ -145,7 +145,8 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 - The borrow rules of Phases 6 and 7 exist (`BORROW.md`): whole-object
   borrows, the conflict matrix, last-use lifetimes, `ref`/`mut` parameters as
   live borrows, and the depth-zero interprocedural policy (ADR 0019). No member
-  or array-element borrows, no mutable reborrow (Phase 12), no struct fields.
+  or array-element borrows, no mutable reborrow (a later phase), no struct
+  fields.
 - Strict mode, `raw` and `unsafe` exist (`STRICT.md`); there is no
   provenance or UB sanitizer, and `unsafe` code is not analysed.
 - No goroutine, scope or channel lowering (Phase 14-16).

@@ -12,9 +12,10 @@ Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
 Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
 is no `libcrug` and no goroutine or channel support yet; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
-checked indexing) exist and are described below, and Phase 11 lets the
+checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
-as `restrict`). The `kernel-compat`
+as `restrict`), and Phase 12 adds `c2crug`, a conservative C-to-Crug migration
+tool (proof-based `own` insertion, `raw` for everything unproven). The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -206,6 +207,31 @@ than a factor of two. `bench/run.py --matrix alias --check`, `--matrix alias
 passes 7/7 at `135dea9` (logs under `docs/crug/gates/phase-11/135dea9/`),
 so M11 is awarded.
 
+Phase 12 adds `c2crug`, the migration tool (`./c2crug`, Python 3 standard
+library only, decision record ADR 0023, digest `docs/crug/C2CRUG.md`). Safe mode
+inserts `own` before a pointer only when a local structural proof holds -
+known allocating origin (`malloc`/`calloc`/`realloc`/`reallocarray`/`strdup`/
+`strndup`/`aligned_alloc` or a `.crugffi` `returns owned` function), exactly one
+standalone release at the declaration's brace depth, no early exit that skips it,
+and no address-of, reassignment, arithmetic, return, copy, unknown escape or use
+after release - and then rewrites that release to `drop`. Everything else stays
+byte-identical and is reported as `raw` with the line that defeated the proof.
+Line count never changes, so comments and structure survive. The three modes are
+`--analyze` (report only), `--safe -o OUT` (copy, refuse an existing OUT) and
+`--diff` (print only); `--report` writes `crug-c2crug-report-v1`, validated by an
+independent checker, and borrow suggestions (`ref` 0.80, `mut` 0.60) are advice
+that no mode applies. The corpus `migration/` is eight runnable programs with
+expected output, a `Makefile` test target and a libc sidecar: 5 `own` applied,
+5 `raw` preserved, 10 of 222 source lines changed (4.5 percent), comment lines
+16 -> 16, and both the original and the migrated tree print
+`migration: 8 programs pass`. `scripts/check-c2crug.sh` runs the whole flow,
+`scripts/test-c2crug.py` its 32 unit checks, `scripts/c2crug-diff.sh` the churn
+band, and `make check-C2CRUG` both. The corpus replaces `corpus/` because those
+thirty programs are compile-only fragments with no test suite (amendment A-15).
+The Phase 12 gate (amendment A-15) is seven runnable checks and passes 7/7; the
+run is archived under `docs/crug/gates/phase-12/` (the archive commit names the
+commit it adjudicated), so M12 is awarded.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -278,6 +304,7 @@ superseding ADR and owner ratification.
 | A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
 | The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/payload enums/`match`/checked indexing in `gcc/c/crug-safe.cc`; 77-pass dg suite, `scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh` and `scripts/check-owned-payloads.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increments 1, 2a and 2b; phase-10 gate 10/10 |
 | Ownership proved exclusivity but the optimizer never saw it, so `mut` was checked and then discarded | `-fcrug-alias-facts` (ADR 0010): `mut`/`own` parameters as `restrict`, BORROW-021..023 at unproven call sites, `-fcrug-dump=alias`, `bench/` three-arm matrix (Crug kernel objects byte-identical to the hand-written restrict twins, 8/8), `scripts/check-optimization.sh`, `scripts/check-stop-conditions.sh`; `docs/crug/OPTIMIZATION.md`; phase-11 gate 7/7 |
+| Migrating C to Crug was unspecified, so "safe mode" had no proof rule and no corpus | `c2crug` (`--analyze`/`--safe`/`--diff`), ADR 0023, `docs/crug/C2CRUG.md`, `migration/` (8 programs with expected output), `docs/crug/c2crug-report.schema.json`, `scripts/validate-c2crug-report.py`, `scripts/c2crug-diff.sh`, `scripts/check-c2crug.sh`, `scripts/test-c2crug.py`; 5 own applied, 5 raw preserved, 4.5% churn, comments unchanged; phase-12 gate 7/7 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -291,7 +318,7 @@ superseding ADR and owner ratification.
 | -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
 | -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phases 13-14 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
-| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
+| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | a later phase (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
 | -  | `chan T` does not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 13-14 (`chan`); a later ownership increment for aggregates |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
@@ -300,12 +327,11 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Push and open Phase 12** (the `c2crug` migration tool): the Phase 11
-   gate passes 7/7 at the gate commit; push the branch, then build `c2crug`
-   against the `corpus/` programs. Phase 12's prerequisite also asks for a C
-   corpus project with its own green test suite at a pinned commit, which
-   `corpus/` (30 programs) does not yet provide as a test suite - decide
-   whether to extend it with assertions or pin a small external project.
+1. **Push and open Phase 13** (the platform abstraction layer): the Phase 12
+   gate passes 7/7 at the gate commit; push the branch, then write the PAL v1
+   contract ADR (required file name `0011-pal-contract`) and build
+   `libcrug/core` against the fake PAL. Phase 13's gate also needs
+   `scripts/lint-no-os-apis.sh`, which does not exist yet.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

@@ -177,8 +177,8 @@ These are deferrals, not oversights. Each names the phase that owns it.
   `own` argument is not moved. Phase 8 (cross-function ownership) owns the
   transfer rules; borrows follow them.
 - **No place-level borrows.** Reborrowing a borrow (shared or mutable) is
-  rejected (crug-BORROW-010, crug-BORROW-016); Phase 12 owns place-level
-  borrows and with them reborrowing.
+  rejected (crug-BORROW-010, crug-BORROW-016); a later phase owns place-level
+  borrows and with them reborrowing (Phase 12 is the migration tool).
 - **No struct fields.** A borrow cannot be stored in a structure, so a borrow
   cannot outlive its function by being returned inside one either
   (crug-BORROW-018).
@@ -186,8 +186,8 @@ These are deferrals, not oversights. Each names the phase that owns it.
   helper functions cannot return borrows and borrows cannot reach libc until
   the FFI contracts of Phase 9.
 - **No interior-mutability story.** `_Atomic` and `volatile` are
-  neither borrowed nor excluded; Phase 12 decides how a shared borrow sees an
-  atomic.
+  neither borrowed nor excluded; a later phase decides how a shared borrow sees
+  an atomic.
 - **Kernel mode.** `-fcrug-kernel` still rejects `-fcrug-borrow`
   (ADR 0005 amendment A-7); Phase 19 revisits it together with `own`.
 
