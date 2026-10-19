@@ -25,6 +25,10 @@
 *.gcno
 *.gcda
 
+# Local GitHub token used to verify the CI gate; never commit it (build/ is
+# ignored wholesale, this covers the repository root).
+/.gh_token
+
 # Editor and OS noise.
 *~
 *.swp
