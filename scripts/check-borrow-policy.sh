@@ -4,8 +4,10 @@
 # Compiles one fixture per rejection class and requires the documented code in
 # the diagnostics: a mutable borrow while shared (BORROW-002), a second mutable
 # borrow (BORROW-003), a move while borrowed (BORROW-004), a drop while
-# borrowed (BORROW-005), a borrow that outlives its lender (BORROW-007), and a
-# write through a shared borrow (BORROW-008).
+# borrowed (BORROW-005), a borrow that outlives its lender (BORROW-007), a write
+# through a shared borrow (BORROW-008), a borrow stored where it outlives its
+# referent (BORROW-018), a borrow returned from its function (BORROW-019), and a
+# borrow passed to a function with no borrow contract (BORROW-020).
 #
 # Usage: scripts/check-borrow-policy.sh
 # Environment: CRUGC overrides the driver path.
@@ -59,6 +61,9 @@ check r04-move-while-borrowed.c BORROW-004
 check r05-drop-while-borrowed.c BORROW-005
 check r18-field-borrow.c BORROW-007
 check r07-write-through-ref.c BORROW-008
+check e18-static-borrow.c BORROW-018
+check escape-return.c BORROW-019
+check e20-plain-call.c BORROW-020
 
 echo "borrow-policy:$summary"
 
