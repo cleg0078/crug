@@ -5,8 +5,9 @@ Last updated: 2026-10-19
 ## Where the project stands
 
 The repository contains specification text, a phase-gate adjudicator, a
-reproducible GCC build and, from Phase 1, the `crugc` driver; there is no Crug
-syntax implementation, no `libcrug`, and no Crug test suite. The `kernel-compat`
+reproducible GCC build, the `crugc` driver (Phase 1), and from Phase 4 the first
+Crug productions - `own` and `move` - with their analysis, diagnostics and dg
+suite. There is no `libcrug`, no drop insertion, and no borrow checking yet. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -53,6 +54,19 @@ still parse as ordinary C identifiers under every combination. The Phase 3 gate
 passes its four checks at commit `78c759b` (evidence under
 `docs/crug/gates/phase-3/78c759b/`), and its prerequisite - the `kernel-compat`
 job being mandatory at HEAD - is met, so M3 closed on 2026-10-19.
+
+Phase 4 implements the ownership MVP: `own` is a declaration specifier that is
+erased from the type, `move` is an intrinsic identifier that lowers to a
+register copy, and the analysis tracks UNINIT/OWNED/MOVED/MAYBE_MOVED at
+variable granularity. It rejects use-after-move, double move, implicit copy of
+an owned value and use of a possibly-moved value after a join
+(`crug-UAM-001`..`crug-UAM-004`), and `-fcrug-dump=ownership` prints the join
+state. The ABI obligation is measured, not asserted: `abi-ptr.c` keeps
+`sizeof`/`_Alignof` identical and `move-zero-cost.c` disassembles to zero calls.
+`docs/crug/OWNERSHIP.md` is the digest; `make check-OWNERSHIP` runs 17 expected
+passes under `gcc/testsuite/crug.dg/ownership/`. Drop insertion, destructors and
+`adopt`/`release`/`drop` are Phase 5, and owning objects that are not moved
+leak until then by design.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -106,6 +120,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | The Phase 9 gate invoked the sidecar flag in a form the format does not define | docs/crug/EXIT-GATES.md phase 9 checks 4-5 now use `-fcrug-ffi=<path>` (amendment A-3) |
 | No feature flag existed, so no later phase could be gated on one and no build could say which Crug features it wanted | ten `-fcrug-*` options in `gcc/common.opt` with closure in `gcc/c-family/crug-common.cc`; `docs/crug/FLAGS.md`; `scripts/check-crug-flags.sh` (149 work items), `scripts/check-gnu-c-compat.sh` (50 files), `scripts/diff-obj.sh`; fixtures in `gcc/testsuite/crug.dg/flags/` |
 | Predefined feature macros contradicted the flags-off identity guarantee | ADR 0018 D9 R6 amendment A-1 and spec/000-PRECEDENCE.md C-12: `__CRUG__` and the feature macros exist only when a `-fcrug-*` option is active |
+| Ownership had no implementation, so the state machine and the zero-metadata claim were untested | `own`/`move` front-end (gcc/c/crug-ownership.cc), 17-pass dg suite, `-fcrug-dump=ownership`; docs/crug/OWNERSHIP.md; phase-4 gate 7/7 |
 
 ## Still open
 
@@ -117,15 +132,16 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
-| -  | No Crug production exists: the flags are accepted but nothing parses `own`, `move`, `borrow` or the rest, and no `-Wcrug-*` option is declared | Phase 4 (ownership MVP) onward |
+| -  | `own` and `move` exist but no drop is inserted, so an unmoved owning object leaks; `borrow`/`ref`/`mut` and the rest of the productions still do not parse; no `-Wcrug-*` option is declared | Phase 5 (drop), then Phase 6 (borrow); the warnings when the option layer lands |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 4** (ownership MVP: `own` and `move`): the flags and the
-   contextual-word infrastructure are in place, and ADRs 0003 and 0004 are binding
-   on where ownership lives and what a move may do. Phase 5 (drop) follows Phase 4,
-   and Phase 9's FFI parser comes after Phases 5 and 8.
+1. **Start Phase 5** (drop insertion): the ownership analysis already records
+   the path facts a drop decision needs, and ADR 0005 fixes where destruction
+   happens on return, `break`, `switch`, `goto`-out, `setjmp`, `exit` and task
+   scope exit. Phase 6 (borrow) follows Phase 5, and Phase 9's FFI parser comes
+   after Phases 5 and 8.
 2. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree.
 

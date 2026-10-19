@@ -16,10 +16,13 @@ compatibility) is closed: the driver accepts `-fcrug-kernel` as a mode marker,
 the kernel corpus and its no-runtime checks live in
 `gcc/testsuite/crug.dg/kernel/`, and the `kernel-compat` CI job builds the pinned
 baseline on every push and is a required status check on `main`. Phase 3
-(feature flags) is closed too: ten `-fcrug-*` options, their closure and the
-feature macros, with no production behind them yet - see
-[docs/crug/FLAGS.md](docs/crug/FLAGS.md). Crug syntax, ownership checking, drop
-and concurrency are not implemented. See
+(feature flags) is closed: ten `-fcrug-*` options, their closure and the feature
+macros - see [docs/crug/FLAGS.md](docs/crug/FLAGS.md). Phase 4 (ownership MVP)
+implements `own` and `move`: qualifiers are erased from the type, `move` lowers
+to a register copy, use-after-move and implicit copy are compile errors, and
+`-fcrug-dump=ownership` prints the post-join state - see
+[docs/crug/OWNERSHIP.md](docs/crug/OWNERSHIP.md). Drop insertion (Phase 5),
+borrow checking, `libcrug` and concurrency are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

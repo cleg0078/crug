@@ -1,9 +1,11 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented** (2026-10-19). The option set, its closure and the
-feature macros exist; the productions they gate do not (Phase 4 onward). This
-page is the digest - the normative text is ADR 0018 D1 and D9, RFC-0001
-sections 10 and 13, and the gate is `EXIT-GATES.md` phase 3.
+Status: **Phase 3 implemented, Phase 4 in progress** (2026-10-19). The option
+set, its closure and the feature macros exist. `-fcrug-ownership` now gates the
+`own` and `move` productions of Phase 4 (`OWNERSHIP.md`); the productions the
+other flags name do not exist yet. This page is the digest - the normative text is
+ADR 0018 D1 and D9, RFC-0001 sections 10 and 13, and the gate is
+`EXIT-GATES.md` phases 3 and 4.
 
 ## 1. The option set
 
@@ -23,6 +25,11 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-strict` | no production; promotes every `-Wcrug-*` warning to an error | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-modern` | everything above | all eight flags |
 | `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern` |
+
+`-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
+`Common Joined RejectNegative`, accepts only `ownership` today (an unknown kind
+is an error), writes `<stem>.crug-ownership` while the front end runs, and
+changes no code. `OWNERSHIP.md` section 4 gives the format.
 
 With no option at all, `crugc` is upstream GCC: the same predefined macros, the
 same parses, the same object code. That is the Phase 1 identity and it keeps
@@ -85,9 +92,10 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 
 - **Words stay identifiers.** `gcc/testsuite/crug.dg/flags/words-as-identifiers.c`
   declares every contextual word as an ordinary C identifier and must compile
-  under every accepted combination of flags. Phase 3 changes no parse, so this
-  is true trivially today; it becomes the regression test that stops a later
-  phase from reserving a word globally.
+  under every accepted combination of flags. With the flags off the parse is
+  upstream C; with a flag on, each production still requires an undeclared word
+  in a specific position (ADR 0018 D1 R1), so the fixture stays the regression
+  test that stops a later phase from reserving a word globally.
 - **Codegen is untouched.** `scripts/diff-obj.sh corpus/ "-O2" "-O2
   -fcrug-modern"` compares object bytes and finds zero differences. A flag is
   allowed to change what is accepted, never what is emitted.
@@ -100,13 +108,14 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
   readings both require an undeclared identifier in a specific position, so a
   project's macros keep working.
 
-## 5. What Phase 3 does not do
+## 5. What is not implemented yet
 
-- No ownership state, move checking or drop (Phase 4-5).
+- No drop insertion, destructors or `adopt`/`release`/`drop` (Phase 5);
+  `own` and `move` exist (`OWNERSHIP.md`).
 - No borrow rules (Phase 6).
 - No goroutine, scope or channel lowering (Phase 14-16).
-- No `-fdump-crug=*` dumps and no Crug-specific diagnostics
-  (`docs/crug/DIAGNOSTICS.md` stays all-planned).
+- Only the `ownership` dump exists (`-fcrug-dump=ownership`); no borrow,
+  goroutine or channel dump.
 - No `-Wcrug-*` option is declared yet; passing one is an unrecognized option.
 - No change to the driver beyond option acceptance: `gcc/crugc` is still the
   Phase 1 launcher.
@@ -119,8 +128,11 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `scripts/diff-obj.sh corpus/ "-O2" "-O2 -fcrug-modern"` | object bytes unchanged by the full flag set |
 | `make check-GNU_C_COMPAT` / `scripts/check-gnu-c-compat.sh` | the 30-program GNU C corpus and the 18-file kernel corpus still compile with the flags on |
 | `gcc/testsuite/crug.dg/flags/` | fixtures for the future DejaGnu tests named in ADR 0018 D1 |
+| `make check-OWNERSHIP` | `own` and `move` productions with the flag on: 17 expected passes under `gcc/testsuite/crug.dg/ownership/` |
+| `crugc -fcrug-dump=ownership` | the ownership dump of a branch join (`OWNERSHIP.md` section 4) |
 
-The phase-3 gate runs all four in order; see `EXIT-GATES.md`.
+The phase-3 gate runs the first four in order and the phase-4 gate runs the last
+two plus the ABI and diagnostic-code checks; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 
