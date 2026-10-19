@@ -169,6 +169,10 @@ struct crug_borrow
   bool is_mut;
   tree lender;
   size_t depth;
+  /* Where the borrow was created and how deep the lender lives.  The origin
+     is used by the crug-BORROW-019 note, LENDER_DEPTH by the escape rules.  */
+  location_t origin;
+  size_t lender_depth;
 };
 
 struct crug_fn_ctx
@@ -194,6 +198,21 @@ struct crug_fn_ctx
      depth of every owning or borrowing declaration that has a lifetime.  */
   std::set<tree> borrow_declared;
   std::map<tree, size_t> decl_depth;
+  /* Last-use liveness of borrows (Phase 7).  LIVE_BEFORE and LIVE_AFTER hold,
+     for every statement the analysis visits, the borrow bindings that are
+     live on entry and on exit; ACTIVE_BORROWS is the set in force while the
+     current statement is analysed.  LIVENESS_FAILED means the function
+     contains a construct the dataflow does not model (a goto, or a loop that
+     did not reach a fixpoint), and every registered borrow then counts as
+     live, which is the conservative rule of GAPS section 10.3.  */
+  std::map<tree, std::set<tree> > live_before;
+  std::map<tree, std::set<tree> > live_after;
+  std::set<tree> active_borrows;
+  std::set<tree> borrow_ended;
+  /* Every borrow binding the function declares, collected before the walk so
+     that a loop body can be solved without a fixpoint.  */
+  std::set<tree> all_borrows;
+  bool liveness_failed = false;
 };
 
 /* Declarations recorded as owning during parsing, keyed by DECL_UID rather
@@ -463,6 +482,21 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
       return;
     }
 
+  /* A borrow is a view of an object with a known lifetime, so it can only
+     live in an automatic variable of the function that created it (ADR 0019,
+     ADR 0005 A-1).  A static or file-scope borrow would outlive its referent,
+     and a member or an indirect store has no lifetime this pass can see.  */
+  /* DECL_CONTEXT is not set yet at this point of the declaration, so the
+     scope is read from the parser state: a file-scope declaration is parsed
+     with no current function, and a static local carries TREE_STATIC.  */
+  if (TREE_CODE (decl) == VAR_DECL
+      && (TREE_STATIC (decl) || current_function_decl == NULL_TREE))
+    {
+      error_at (loc, "a borrow must be an automatic variable; %qD would "
+		"outlive its referent [crug-BORROW-018]", decl);
+      return;
+    }
+
   tree type = TREE_TYPE (decl);
   if (type == NULL_TREE || type == error_mark_node)
     return;
@@ -662,7 +696,8 @@ dump_drops (enum crug_exit_kind kind, location_t loc,
    that is actually borrowed.  */
 
 static void
-dump_borrow (bool begin, location_t loc, tree binding, bool is_mut, tree lender)
+dump_borrow (bool begin, location_t loc, tree binding, bool is_mut, tree lender,
+	     const char *reason = NULL)
 {
   if (!dump_kind_enabled ("borrow"))
     return;
@@ -672,7 +707,7 @@ dump_borrow (bool begin, location_t loc, tree binding, bool is_mut, tree lender)
     return;
 
   expanded_location where = expand_location (loc);
-  fprintf (file, "%s %s:%d: %s %s %s\n",
+  fprintf (file, "%s %s:%d: %s %s %s",
 	   begin ? "borrow" : "end",
 	   where.file != NULL ? lbasename (where.file) : "<unknown>",
 	   where.line,
@@ -680,6 +715,293 @@ dump_borrow (bool begin, location_t loc, tree binding, bool is_mut, tree lender)
 	   is_mut ? "excludes" : "shares",
 	   lender != NULL_TREE && DECL_NAME (lender) != NULL_TREE
 	   ? IDENTIFIER_POINTER (DECL_NAME (lender)) : "<parameter>");
+  if (reason != NULL)
+    fprintf (file, " (%s)", reason);
+  fprintf (file, "\n");
+}
+
+/* Last-use liveness of borrows (Phase 7).
+
+   Phase 6 ended a borrow at the end of the block that declares it.  That is
+   sound but rejects correct programs: a shared borrow whose last use is
+   before a mutable borrow does not conflict with it, and an object can be
+   moved or destroyed once no borrow of it is read again.  This pass computes,
+   for every statement of the structured GENERIC body, the borrow bindings
+   that are live on entry and on exit, using the standard backward equations
+
+     in = use (S) | (out - def (S))
+
+   and taking the union at a join, which is the sound direction: a borrow is
+   live if any path still uses it.  No CFG is built and no IR is changed; the
+   recursion follows the same shape as the checking walk, so the two cannot
+   disagree about what a statement is.  */
+
+typedef std::set<tree> live_set;
+
+/* Collect the borrow bindings read (DEFS false) or written (DEFS true) by T.
+   A DECL_EXPR defines its declared binding and reads its initializer; for any
+   other statement the two sets are derived from its operands.  */
+
+static tree
+collect_borrow_use_cb (tree *tp, int *, void *data)
+{
+  tree t = *tp;
+  if (t != NULL_TREE && t != error_mark_node
+      && (TREE_CODE (t) == VAR_DECL || TREE_CODE (t) == PARM_DECL)
+      && crug_is_borrow_decl (t, NULL))
+    static_cast<live_set *> (data)->insert (t);
+  return NULL_TREE;
+}
+
+static void
+collect_borrow_refs (tree t, bool defs, live_set &out)
+{
+  if (t == NULL_TREE || t == error_mark_node)
+    return;
+
+  switch (TREE_CODE (t))
+    {
+    case DECL_EXPR:
+      {
+	tree d = DECL_EXPR_DECL (t);
+	if (d != NULL_TREE && TREE_CODE (d) == VAR_DECL)
+	  {
+	    if (defs && crug_is_borrow_decl (d, NULL))
+	      out.insert (d);
+	    /* The initializer is read even when the declaration is not a
+	       borrow: it can use another borrow.  */
+	    collect_borrow_refs (DECL_INITIAL (d), false, out);
+	  }
+	return;
+      }
+
+    case MODIFY_EXPR:
+      {
+	tree lhs = TREE_OPERAND (t, 0);
+	bool lhs_is_def = defs && lhs != NULL_TREE && TREE_CODE (lhs) == VAR_DECL
+	  && crug_is_borrow_decl (lhs, NULL);
+	if (lhs_is_def)
+	  out.insert (lhs);
+	else
+	  collect_borrow_refs (lhs, false, out);
+	collect_borrow_refs (TREE_OPERAND (t, 1), false, out);
+	return;
+      }
+
+    case BIND_EXPR:
+      collect_borrow_refs (BIND_EXPR_BODY (t), defs, out);
+      return;
+
+    case STATEMENT_LIST:
+      for (tree_stmt_iterator i = tsi_start (t); !tsi_end_p (i); tsi_next (&i))
+	collect_borrow_refs (tsi_stmt (i), defs, out);
+      return;
+
+    case LABEL_EXPR:
+    case CASE_LABEL_EXPR:
+      return;
+
+    default:
+      break;
+    }
+
+  if (TREE_CODE (t) == VAR_DECL || TREE_CODE (t) == PARM_DECL)
+    {
+      if (!defs && crug_is_borrow_decl (t, NULL))
+	out.insert (t);
+      return;
+    }
+
+  /* Every other node: let walk_tree find the bindings, whatever the shape of
+     the expression.  A hand-written operand walk missed `(void) r`, which is a
+     NOP_EXPR and therefore neither tcc_expression, tcc_statement nor
+     tcc_reference, and with it every borrow used only through a conversion.  */
+  walk_tree_without_duplicates (&t, collect_borrow_use_cb, &out);
+}
+
+static live_set
+solve_borrow_liveness (crug_fn_ctx &ctx, tree t, const live_set &out);
+
+/* The live-in set of a loop, as the fixpoint of "the body's in set is what
+   the next iteration needs".  A loop that does not converge within eight
+   passes abandons liveness for the whole function rather than guess.  */
+
+/* A loop needs a fixpoint, and a wrong fixpoint here would silently drop a
+   borrow that is still in use.  Rather than approximate the loop-back edge,
+   every borrow declared anywhere in the function is treated as live inside a
+   loop: the body is solved once with all of them in its out set.  That is the
+   conservative rule of GAPS section 10.3 and it costs nothing outside the
+   loop, because the loop's own live-out set is not widened.  */
+
+static live_set
+liveness_loop (crug_fn_ctx &ctx, tree body, tree cond, tree incr,
+	       const live_set &out)
+{
+  live_set body_out = out;
+  for (live_set::const_iterator i = ctx.all_borrows.begin ();
+       i != ctx.all_borrows.end (); ++i)
+    body_out.insert (*i);
+
+  live_set body_in = body != NULL_TREE
+    ? solve_borrow_liveness (ctx, body, body_out) : body_out;
+
+  if (incr != NULL_TREE)
+    body_in = solve_borrow_liveness (ctx, incr, body_in);
+
+  live_set after = body_in;
+  for (live_set::const_iterator i = out.begin (); i != out.end (); ++i)
+    after.insert (*i);
+
+  return cond != NULL_TREE
+    ? solve_borrow_liveness (ctx, cond, after) : after;
+}
+
+/* The live-in set of statement T given LIVE OUT.  Every visited statement is
+   recorded, because the checking walk asks for its set by node.  */
+
+static live_set
+solve_borrow_liveness (crug_fn_ctx &ctx, tree t, const live_set &out)
+{
+  if (t == NULL_TREE || t == error_mark_node)
+    return out;
+
+  live_set in;
+
+  switch (TREE_CODE (t))
+    {
+    case BIND_EXPR:
+      in = solve_borrow_liveness (ctx, BIND_EXPR_BODY (t), out);
+      break;
+
+    case STATEMENT_LIST:
+      {
+	live_set curr = out;
+	/* Backward dataflow: walk the list from its last statement to its first,
+	   carrying the live set that the statements after the current one need.  */
+	for (tree_stmt_iterator i = tsi_last (t); !tsi_end_p (i); tsi_prev (&i))
+	  curr = solve_borrow_liveness (ctx, tsi_stmt (i), curr);
+	in = curr;
+	break;
+      }
+
+    case COND_EXPR:
+      if (!VOID_TYPE_P (TREE_TYPE (t)))
+	{
+	  live_set uses;
+	  collect_borrow_refs (t, false, uses);
+	  in = out;
+	  for (live_set::const_iterator i = uses.begin (); i != uses.end (); ++i)
+	    in.insert (*i);
+	  break;
+	}
+      {
+	live_set uses;
+	collect_borrow_refs (TREE_OPERAND (t, 0), false, uses);
+	live_set a = solve_borrow_liveness (ctx, TREE_OPERAND (t, 1), out);
+	live_set b = solve_borrow_liveness (ctx, TREE_OPERAND (t, 2), out);
+	in = uses;
+	for (live_set::const_iterator i = a.begin (); i != a.end (); ++i)
+	  in.insert (*i);
+	for (live_set::const_iterator i = b.begin (); i != b.end (); ++i)
+	  in.insert (*i);
+	break;
+      }
+
+    case FOR_STMT:
+      in = liveness_loop (ctx, FOR_BODY (t), FOR_COND (t), FOR_EXPR (t), out);
+      if (FOR_INIT_STMT (t) != NULL_TREE)
+	in = solve_borrow_liveness (ctx, FOR_INIT_STMT (t), in);
+      break;
+
+    case WHILE_STMT:
+      in = liveness_loop (ctx, WHILE_BODY (t), WHILE_COND (t), NULL_TREE, out);
+      break;
+
+    case DO_STMT:
+      in = liveness_loop (ctx, DO_BODY (t), DO_COND (t), NULL_TREE, out);
+      break;
+
+    case SWITCH_STMT:
+      {
+	live_set uses;
+	collect_borrow_refs (SWITCH_COND (t), false, uses);
+	live_set body = solve_borrow_liveness (ctx, SWITCH_BODY (t), out);
+	in = uses;
+	for (live_set::const_iterator i = body.begin (); i != body.end (); ++i)
+	  in.insert (*i);
+	break;
+      }
+
+    case LABEL_EXPR:
+    case CASE_LABEL_EXPR:
+      /* Labels are only reachable through a goto, and a function with a goto
+	 does not get liveness at all.  */
+      in = out;
+      break;
+
+    case RETURN_EXPR:
+    case BREAK_STMT:
+    case CONTINUE_STMT:
+    case GOTO_EXPR:
+      {
+	live_set uses;
+	collect_borrow_refs (t, false, uses);
+	in = uses;
+	break;
+      }
+
+    default:
+      {
+	live_set uses;
+	live_set defs;
+	collect_borrow_refs (t, false, uses);
+	collect_borrow_refs (t, true, defs);
+	in = uses;
+	for (live_set::const_iterator i = out.begin (); i != out.end (); ++i)
+	  if (defs.find (*i) == defs.end ())
+	    in.insert (*i);
+	break;
+      }
+    }
+
+  ctx.live_before[t] = in;
+  ctx.live_after[t] = out;
+  return in;
+}
+
+/* A goto makes the structured walk an incomplete model of control flow, so
+   liveness is abandoned rather than approximated.  */
+
+static tree
+find_goto_cb (tree *tp, int *, void *)
+{
+  if (*tp != NULL_TREE && TREE_CODE (*tp) == GOTO_EXPR)
+    return *tp;
+  return NULL_TREE;
+}
+
+static void
+borrow_liveness (crug_fn_ctx &ctx)
+{
+  tree body = ctx.body;
+  if (body == NULL_TREE)
+    return;
+
+  /* The body walk registers the borrows it meets, so the declarations are
+     collected syntactically here; a borrowed parameter is already in
+     CTX.BORROWS and needs no declaration.  */
+  collect_borrow_refs (body, true, ctx.all_borrows);
+  if (ctx.all_borrows.empty () && ctx.borrows.empty ())
+    return;
+
+  if (walk_tree_without_duplicates (&body, find_goto_cb, NULL) != NULL_TREE)
+    {
+      ctx.liveness_failed = true;
+      return;
+    }
+
+  live_set out;
+  solve_borrow_liveness (ctx, body, out);
 }
 
 /* The analysis proper.  */
@@ -705,6 +1027,45 @@ node_location (tree t, location_t fallback = UNKNOWN_LOCATION)
 	return node_location (tsi_stmt (i), fallback);
     }
   return fallback;
+}
+
+/* End the borrows whose last use was CUR, at the point where NEXT begins.
+   The dump says why a borrow ended, so a reader can tell a last-use end from
+   a scope end.  */
+
+static void
+end_borrows_at (crug_fn_ctx &ctx, tree cur, tree next)
+{
+  if (ctx.liveness_failed || !dump_kind_enabled ("borrow"))
+    return;
+
+  std::map<tree, live_set>::const_iterator nb = ctx.live_before.find (next);
+  if (nb == ctx.live_before.end ())
+    return;
+
+  std::map<tree, live_set>::const_iterator cb = ctx.live_before.find (cur);
+
+  for (std::map<tree, crug_borrow>::const_iterator i = ctx.borrows.begin ();
+       i != ctx.borrows.end (); ++i)
+    {
+      tree b = i->first;
+      if (TREE_CODE (b) == PARM_DECL
+	  || ctx.borrow_ended.find (b) != ctx.borrow_ended.end ())
+	continue;
+
+      bool live_here = cb != ctx.live_before.end ()
+	&& cb->second.find (b) != cb->second.end ();
+      if (!live_here && TREE_CODE (cur) == DECL_EXPR
+	  && DECL_EXPR_DECL (cur) == b)
+	live_here = true;
+
+      if (live_here && nb->second.find (b) == nb->second.end ())
+	{
+	  dump_borrow (false, node_location (next), b, i->second.is_mut,
+		       i->second.lender, "last-use");
+	  ctx.borrow_ended.insert (b);
+	}
+    }
 }
 
 static crug_state
@@ -774,8 +1135,10 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
 	= ctx.borrows.find (f.borrows[i]);
       if (b != ctx.borrows.end ())
 	{
-	  dump_borrow (false, node_location (f.bind), f.borrows[i],
-		       b->second.is_mut, b->second.lender);
+	  /* A borrow already ended at its last use is not reported again.  */
+	  if (ctx.borrow_ended.find (f.borrows[i]) == ctx.borrow_ended.end ())
+	    dump_borrow (false, node_location (f.bind), f.borrows[i],
+			 b->second.is_mut, b->second.lender, "scope-end");
 	  ctx.borrows.erase (b);
 	}
       ctx.decl_depth.erase (f.borrows[i]);
@@ -801,16 +1164,23 @@ register_owned (crug_fn_ctx &ctx, state_map &env, tree decl)
    section 18.4 asks for last-use analysis in a later phase).  */
 
 static void
-register_borrow (crug_fn_ctx &ctx, tree binding, bool is_mut, tree lender)
+register_borrow (crug_fn_ctx &ctx, tree binding, bool is_mut, tree lender,
+		 location_t origin)
 {
   crug_borrow b;
   b.is_mut = is_mut;
   b.lender = lender;
   b.depth = ctx.frames.size () - 1;
+  b.origin = origin;
+  /* A borrowed parameter has no local lender, so it lives as long as the
+     function; every other lender has a frame depth of its own.  */
+  std::map<tree, size_t>::const_iterator ld = ctx.decl_depth.find (lender);
+  b.lender_depth = ld != ctx.decl_depth.end () ? ld->second : 0;
   ctx.frames.back ().borrows.push_back (binding);
   ctx.borrow_declared.insert (binding);
   ctx.decl_depth[binding] = b.depth;
   ctx.borrows[binding] = b;
+  ctx.borrow_ended.erase (binding);
   dump_borrow (true, DECL_SOURCE_LOCATION (binding), binding, is_mut, lender);
 }
 
@@ -841,6 +1211,16 @@ has_live_borrow (crug_fn_ctx &ctx, tree lender, bool *shared, bool *mut)
     {
       if (i->second.lender != lender)
 	continue;
+
+      /* Phase 7: a borrow stops excluding its lender at its last use.  A
+	 borrowed parameter always counts as live, since its lifetime is the
+	 caller's, and a function the liveness pass could not model falls back
+	 to the lexical rule (every registered borrow is live).  */
+      if (!ctx.liveness_failed
+	  && TREE_CODE (i->first) != PARM_DECL
+	  && ctx.active_borrows.find (i->first) == ctx.active_borrows.end ())
+	continue;
+
       any = true;
       if (i->second.is_mut)
 	{
@@ -1523,7 +1903,7 @@ assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
 	  if (root == NULL_TREE)
 	    return;
 	  borrow_escape_check (ctx, decl, root, loc);
-	  register_borrow (ctx, decl, src_mut, root);
+	  register_borrow (ctx, decl, src_mut, root, loc);
 	  return;
 	}
     }
@@ -1555,7 +1935,7 @@ assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       if (root == NULL_TREE)
 	root = r;
       borrow_escape_check (ctx, decl, root, loc);
-      register_borrow (ctx, decl, src_mut, root);
+      register_borrow (ctx, decl, src_mut, root, loc);
       return;
     }
 
@@ -1638,6 +2018,112 @@ warn_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc)
       }
 }
 
+/* True when E is a borrow value: a binding declared ref or mut, or a
+   borrow()/borrow_mut() call.  Nothing else carries a borrow.  */
+
+static bool
+is_borrow_value (tree e)
+{
+  if (e == NULL_TREE)
+    return false;
+
+  tree r = e;
+  STRIP_NOPS (r);
+
+  if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+      && crug_is_borrow_decl (r, NULL))
+    return true;
+
+  if (TREE_CODE (r) == CALL_EXPR)
+    {
+      enum crug_intrinsic kind;
+      if (is_intrinsic_call (r, &kind)
+	  && (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT))
+	return true;
+    }
+
+  return false;
+}
+
+/* Where the borrow value E was created, for the note of crug-BORROW-019.  */
+
+static location_t
+borrow_value_origin (crug_fn_ctx &ctx, tree e)
+{
+  if (e == NULL_TREE)
+    return UNKNOWN_LOCATION;
+
+  tree r = e;
+  STRIP_NOPS (r);
+
+  if (TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+    {
+      if (!crug_is_borrow_decl (r, NULL))
+	return UNKNOWN_LOCATION;
+      if (TREE_CODE (r) == PARM_DECL)
+	return DECL_SOURCE_LOCATION (r);
+      std::map<tree, crug_borrow>::const_iterator b = ctx.borrows.find (r);
+      return b != ctx.borrows.end () ? b->second.origin
+	: DECL_SOURCE_LOCATION (r);
+    }
+
+  if (TREE_CODE (r) == CALL_EXPR)
+    return EXPR_HAS_LOCATION (r) ? EXPR_LOCATION (r) : UNKNOWN_LOCATION;
+
+  return UNKNOWN_LOCATION;
+}
+
+/* A borrow may only cross a call boundary through a parameter that is itself
+   declared ref or mut.  This phase has no interprocedural summary (ADR 0019:
+   the summary depth is zero), so every other callee is rejected rather than
+   assumed to keep the referent alive.  A call whose callee is not a known
+   FUNCTION_DECL fails closed.  */
+
+static void
+check_borrow_call_args (tree call, location_t loc)
+{
+  tree fn = CALL_EXPR_FN (call);
+  tree fndecl = NULL_TREE;
+
+  if (fn != NULL_TREE)
+    {
+      tree f = fn;
+      STRIP_NOPS (f);
+      if (TREE_CODE (f) == ADDR_EXPR)
+	f = TREE_OPERAND (f, 0);
+      if (TREE_CODE (f) == FUNCTION_DECL)
+	fndecl = f;
+    }
+
+  for (int i = 0; i < call_expr_nargs (call); i++)
+    {
+      if (!is_borrow_value (CALL_EXPR_ARG (call, i)))
+	continue;
+
+      bool ok = false;
+      if (fndecl != NULL_TREE)
+	{
+	  tree parm = DECL_ARGUMENTS (fndecl);
+	  for (int n = 0; parm != NULL_TREE && n < i; n++)
+	    parm = DECL_CHAIN (parm);
+	  if (parm != NULL_TREE && TREE_CODE (parm) == PARM_DECL)
+	    ok = crug_is_borrow_decl (parm, NULL);
+	}
+
+      if (ok)
+	continue;
+
+      if (fndecl != NULL_TREE)
+	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
+		  "parameter; %qD has no borrow contract [crug-BORROW-020]",
+		  fndecl);
+      else
+	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
+		  "parameter; the called function has no borrow contract "
+		  "[crug-BORROW-020]");
+    }
+}
+
 static void
 walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 {
@@ -1682,6 +2168,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	  }
 	if (is_setjmp_call (t))
 	  warn_setjmp (ctx, env, loc);
+	check_borrow_call_args (t, loc);
 	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);
 	for (int i = 0; i < call_expr_nargs (t); i++)
 	  walk_expr (ctx, env, CALL_EXPR_ARG (t, i), loc);
@@ -1701,6 +2188,18 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    if (prev != ctx.borrows.end ())
 	      ctx.borrows.erase (prev);
 	    assign_borrow (ctx, env, lhs, rhs, loc, lhs_mut);
+	    return;
+	  }
+	/* A borrow stored into an object has no automatic lifetime, so the
+	   pass cannot bound it: reject the store (ADR 0019 section 2).  */
+	if (is_borrow_value (rhs)
+	    && (TREE_CODE (lhs) == COMPONENT_REF || TREE_CODE (lhs) == ARRAY_REF
+		|| TREE_CODE (lhs) == INDIRECT_REF || TREE_CODE (lhs) == MEM_REF))
+	  {
+	    error_at (loc, "a borrow cannot be stored in memory; it can only "
+		      "be an automatic variable [crug-BORROW-018]");
+	    walk_expr (ctx, env, lhs, loc);
+	    walk_expr (ctx, env, rhs, loc);
 	    return;
 	  }
 	tree base = expr_base_decl (lhs);
@@ -1898,6 +2397,24 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 
   location_t loc = node_location (t, locus);
 
+  /* Phase 7: the conflict checks read the borrows that are live at this
+     statement, not every borrow declared in the enclosing blocks.  A statement
+     the liveness pass did not record falls back to all registered borrows, the
+     lexical reading, so a gap in the model can only over-report.  */
+  if (!ctx.liveness_failed)
+    {
+      std::map<tree, live_set>::const_iterator lb = ctx.live_before.find (t);
+      if (lb != ctx.live_before.end ())
+	ctx.active_borrows = lb->second;
+      else
+	{
+	  ctx.active_borrows.clear ();
+	  for (std::map<tree, crug_borrow>::const_iterator i
+		 = ctx.borrows.begin (); i != ctx.borrows.end (); ++i)
+	    ctx.active_borrows.insert (i->first);
+	}
+    }
+
   switch (TREE_CODE (t))
     {
     case BIND_EXPR:
@@ -1920,9 +2437,13 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     case STATEMENT_LIST:
       {
 	bool reach = true;
+	tree prev = NULL_TREE;
 	for (tree_stmt_iterator i = tsi_start (t); !tsi_end_p (i); tsi_next (&i))
 	  {
 	    tree stmt = tsi_stmt (i);
+	    if (prev != NULL_TREE)
+	      end_borrows_at (ctx, prev, stmt);
+	    prev = stmt;
 	    if (!reach
 		&& (TREE_CODE (stmt) == LABEL_EXPR
 		    || TREE_CODE (stmt) == CASE_LABEL_EXPR))
@@ -1971,7 +2492,22 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
       {
 	bool has_value = TREE_OPERAND (t, 0) != NULL_TREE;
 	if (has_value)
-	  walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
+	  {
+	    /* The return value is either the expression or, for a function
+	       with a named return, an assignment to its RESULT_DECL.  */
+	    tree rv = TREE_OPERAND (t, 0);
+	    if (TREE_CODE (rv) == MODIFY_EXPR)
+	      rv = TREE_OPERAND (rv, 1);
+	    if (is_borrow_value (rv))
+	      {
+		location_t origin = borrow_value_origin (ctx, rv);
+		error_at (loc, "a borrow cannot be returned from the function "
+			  "that created it [crug-BORROW-019]");
+		if (origin != UNKNOWN_LOCATION)
+		  inform (origin, "borrow created here");
+	      }
+	    walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
+	  }
 	record_exit (ctx, env, t, CRUG_EXIT_RETURN, 0, loc, has_value);
 	return false;
       }
@@ -2434,11 +2970,18 @@ crug_check_function (tree fndecl, tree body)
       b.is_mut = is_mut;
       b.lender = NULL_TREE;
       b.depth = 0;
+      b.origin = DECL_SOURCE_LOCATION (a);
+      b.lender_depth = 0;
       ctx.frames[0].borrows.push_back (a);
       ctx.borrow_declared.insert (a);
       ctx.decl_depth[a] = 0;
       ctx.borrows[a] = b;
     }
+
+  /* Phase 7: the last use of every borrow is computed before the checking
+     walk, so the conflict checks can ask which borrows are live at a
+     statement.  */
+  borrow_liveness (ctx);
 
   bool reach = walk_stmt (ctx, env, BIND_EXPR_BODY (body));
   if (reach)
