@@ -1,0 +1,13 @@
+# Copyright (C) 2026 CLEG0078
+# This file is part of CRUG.
+#
+# The Phase 6 borrow tests.  Compile-only tests carry dg-error; the run
+# tests check that a borrow dissolves at code generation time.
+
+load_lib gcc-dg.exp
+
+set DEFAULT_CFLAGS ""
+
+dg-init
+dg-runtest [lsort [glob -nocomplain $srcdir/$subdir/*.\[cSi\]]] "" ""
+dg-finish
