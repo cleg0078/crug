@@ -96,7 +96,8 @@ reads that conflict with a live borrow are rejected with `crug-BORROW-002`..`-00
 `scripts/check-borrow-cost.sh` compares a borrowed function with its
 plain-pointer twin and `scripts/check-borrow-abi.sh` asserts the layout
 identities. `docs/crug/BORROW.md` is the digest; `make check-BORROW` runs 62
-expected passes under `gcc/testsuite/crug.dg/borrow/`.
+expected passes under `gcc/testsuite/crug.dg/borrow/`. The Phase 6 gate passes
+7/7 at `848b02e` (logs under `docs/crug/gates/phase-6/848b02e/`).
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

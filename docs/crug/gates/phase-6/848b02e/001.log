@@ -1,0 +1,5 @@
+phase-6 #1 rc=0
+cmd: scripts/check-borrow-suite.sh
+expected: exit 0, printed `borrow-suite: 62 tests, 0 failures`
+---
+borrow-suite: 62 tests, 0 failures

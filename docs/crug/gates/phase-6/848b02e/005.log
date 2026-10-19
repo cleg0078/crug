@@ -1,0 +1,5 @@
+phase-6 #5 rc=0
+cmd: scripts/check-borrow-policy.sh
+expected: exit 0, printed `borrow-policy: BORROW-002 BORROW-003 BORROW-004 BORROW-005 BORROW-007 BORROW-008`
+---
+borrow-policy: BORROW-002 BORROW-003 BORROW-004 BORROW-005 BORROW-007 BORROW-008

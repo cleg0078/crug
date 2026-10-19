@@ -1,0 +1,5 @@
+phase-6 #2 rc=0
+cmd: scripts/check-borrow-cost.sh
+expected: exit 0, printed `borrow-cost: 2 functions, 0 calls, identical objects`
+---
+borrow-cost: 2 functions, 0 calls, identical objects

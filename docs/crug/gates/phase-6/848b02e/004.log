@@ -1,0 +1,11 @@
+phase-6 #4 rc=1
+cmd: crugc -O2 -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/borrow/mut-plus-ref.c
+expected: exit 1
+---
+gcc/testsuite/crug.dg/borrow/mut-plus-ref.c: In function ‘f’:
+gcc/testsuite/crug.dg/borrow/mut-plus-ref.c:7:12: error: cannot mutably borrow ‘p’ while it is shared-borrowed [crug-BORROW-002]
+    7 |   mut int *m = borrow_mut (p); /* { dg-error "crug-BORROW-002" } */
+      |            ^
+gcc/testsuite/crug.dg/borrow/mut-plus-ref.c:5:12: warning: owned value ‘p’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+    5 |   own int *p = (int *) 1;
+      |            ^

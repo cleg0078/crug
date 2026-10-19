@@ -1,0 +1,5 @@
+phase-6 #6 rc=0
+cmd: scripts/check-borrow-dump.sh
+expected: exit 0, printed `borrow-dump: 2 shared, 1 mutable, 3 ends`
+---
+borrow-dump: 2 shared, 1 mutable, 3 ends
