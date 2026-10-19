@@ -1,0 +1,5 @@
+phase-4 #1 rc=0
+cmd: crugc -O2 -fcrug-ownership -c gcc/testsuite/crug.dg/ownership/abi-ptr.c && test -z "$(readelf -sW abi-ptr.o | grep '__crug_' || true)"
+expected: exit 0 (the `_Static_assert(sizeof(own Foo*)==sizeof(Foo*))` and the alignment assertions in that test compile, and the object carries no `__crug_` symbol).
+---
+

@@ -1,0 +1,5 @@
+phase-4 #6 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0 (every code referenced by docs/ and spec/ is registered, with no duplicate or unknown-area code).
+---
+check-diagnostics: 62 registered code(s); 62 referenced code(s); all references registered.

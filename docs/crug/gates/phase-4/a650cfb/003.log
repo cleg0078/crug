@@ -1,0 +1,10 @@
+phase-4 #3 rc=0
+cmd: make check-OWNERSHIP
+expected: exit 0, with at least one `dg-error` compile-fail case per rejection class: use-after-move, double move, implicit owned copy.
+---
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/crug.exp ...
+# of expected passes		17

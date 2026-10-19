@@ -1,0 +1,5 @@
+phase-4 #7 rc=0
+cmd: crugc -fcrug-ownership -fcrug-dump=ownership -c gcc/testsuite/crug.dg/ownership/branch-join.c && grep -q 'join .*: p=OWNED/MOVED -> MAYBE_MOVED' branch-join.crug-ownership
+expected: exit 0 (the dump prints the post-join state for the variable).
+---
+
