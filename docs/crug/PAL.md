@@ -60,6 +60,18 @@ reader will want to change:
 - **No process-shared wait in v1.** The wake word must live in one address
   space. Cross-process wakeups arrive with shared memory, if ever.
 
+### Consumers
+
+The first client is the scheduler (Phase 14, `docs/crug/TASKS.md`): it starts
+its workers with `thread_create`, blocks them in `wait_u32` on the scheduler
+epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
+`memory_reserve`/`memory_commit` with a 4 KiB guard page from
+`memory_protect_guard`, and reads the clock for its statistics. The contract
+suite covers exactly those calls, so a runtime linked against a new backend is
+tested by the same twelve cases as the fake one. Channels and scopes (P15-P16)
+are the next expected consumers; neither needs a v1 entry point that does not
+already exist.
+
 ## 3. Error model
 
 | Class | Meaning | Tested by |
@@ -163,7 +175,9 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
   candidate for a v1.1 addition, when an I/O phase needs it; adding it now
   would freeze an interface with no client.
 - No Windows, Darwin, FreeBSD or bare-metal backend (P18).
-- No task, scheduler, channel or scope API (P14-P16).
+- No task, scheduler, channel or scope API: Phase 14 added the scheduler as a
+  *consumer* (section 2), not a PAL entry point, and channels and scopes remain
+  clients of v1.
 - No timers as a service: `sleep_ns` is the only clock-based service, and it
   is not a timer wheel.
 - No affinity, priority or naming for threads.

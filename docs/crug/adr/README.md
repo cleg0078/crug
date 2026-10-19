@@ -7,13 +7,14 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Thirteen of the fifteen written ADRs are Accepted and are cited by number
+Sixteen of the eighteen written ADRs are Accepted and are cited by number
 throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
 2026-10-18, ADRs 0006 and 0007 on 2026-10-19, ADRs 0019 and 0020 on 2026-10-19
 as the Phase 7 planning decisions, ADR 0010 on 2026-10-19 together with the
 5% phase-11 acceptance band, ADR 0023 on 2026-10-19 with the phase-12 corpus
 and the "largely preserved" reading, and ADR 0011 on 2026-10-19 with the
-phase-13 PAL v1 surface. ADR 0021 (Phase 8) is Proposed: it is implemented
+phase-13 PAL v1 surface, and ADRs 0008, 0009 and 0013 on 2026-10-19 with the
+phase-14 task runtime. ADR 0021 (Phase 8) is Proposed: it is implemented
 and tested but awaits owner ratification. ADR 0022 (GCC baseline upgrade
 policy) is Proposed: its measurements are recorded, but the policy itself awaits
 ratification.
@@ -26,7 +27,10 @@ ratification.
 | 0004 | 0004-ownership-analysis-layer.md | owning aggregates, field places, drop order, unions, arrays, adoption | Accepted (2026-10-18) |
 | 0005 | 0005-drop-lowering.md | where drops run, setjmp/exit/abort, task scopes | Accepted (2026-10-18) |
 | 0010 | 0010-noalias-lowering.md | opt-in `restrict` fact from `mut`/`own`, caller obligations, 5% band, false-noalias stop conditions | Accepted (2026-10-19) |
+| 0008 | 0008-goroutine-stack-model.md | one fixed private stack per task from the PAL, a low guard page, the canary, no growth, the copied frame | Accepted (2026-10-19) |
+| 0009 | 0009-scheduler-model.md | M:N, one ready queue, cooperative scheduling, the epoch wait predicate, fatal spawn, idempotent shutdown | Accepted (2026-10-19) |
 | 0011 | 0011-pal-contract.md | one OS-boundary header, v1 surface, error model, wait predicate, contract suite, backend parity, versioning | Accepted (2026-10-19) |
+| 0013 | 0013-arch-context-switch-policy.md | the x86-64 SysV switch, the saved register set, stack alignment, no unwinding, compile-time arch selection, TSan limit | Accepted (2026-10-19) |
 | 0018 | 0018-grammar.md | productions, qualifier attachment, go/scope/select/match, payload enums | Accepted (2026-10-18) |
 | 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Accepted (2026-10-19) |
 | 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Accepted (2026-10-19) |
@@ -70,13 +74,17 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0007 ffi-metadata-format | written and accepted as `0007-ffi-metadata-format.md` |
 | 0010 noalias-lowering | written and accepted as `0010-noalias-lowering.md` |
 | 0011 pal-contract | written and accepted as `0011-pal-contract.md` |
-| 0008, 0009, 0012-0017 | not written |
+| 0008 goroutine-stack-model | written and accepted as `0008-goroutine-stack-model.md` |
+| 0009 scheduler-model | written and accepted as `0009-scheduler-model.md` |
+| 0013 arch-context-switch-policy | written and accepted as `0013-arch-context-switch-policy.md` |
+| 0012, 0014-0017 | not written |
 
 ## Candidate next ADRs
 
 | Number | Topic | Depends on |
 |--------|-------|------------|
-| 0008 | Goroutine stack model | ADR 0018 D4/D5 |
+| 0012 | OS backend policy | ADR 0011 |
+| 0014 | Portable I/O poller | a phase that needs I/O |
 | 0016 | Freestanding and no-runtime policy | ADR 0017 |
 | 0017 | Kernel ownership policy | C-09 (kernel pin) |
 
@@ -88,10 +96,12 @@ baseline upgrade would supersede ADR 0001 with the next free number (0024 today)
 ADR 0010 is written and accepted, so Phase 11 is unblocked on the document side;
 ADR 0023 is written and accepted, so Phase 12 is unblocked on the document side.
 ADR 0011 is written and accepted, so Phase 13 is unblocked on the document side
-and its gate is adjudicable. The next ADRs that unblock work are 0008/0009
-(goroutine stack and scheduler model, Phases 14-16) and 0012-0015 (OS backend,
-context switch, poller, kernel compatibility); 0016 and 0017 follow the kernel
-ownership work.
+and its gate is adjudicable. ADRs 0008, 0009 and 0013 are written and accepted,
+so Phase 14 is unblocked on the document side and its gate is adjudicable (the
+scheduler model they record carries Phases 15 and 16 as well). The next ADRs
+that unblock work are 0012 and 0014 (OS backend and poller, when a second port
+or an I/O phase opens) and 0015-0017 (kernel compatibility and ownership); 0016
+and 0017 follow the kernel ownership work.
 
 ## Writing rules
 

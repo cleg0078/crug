@@ -77,8 +77,17 @@ with no OS at all and a Linux one on `pthread`/`futex`/`mmap`), and a twelve-cas
 contract suite runs against both so a port is a backend and not a fork - see
 [docs/crug/PAL.md](docs/crug/PAL.md) and
 [ADR 0011](docs/crug/adr/0011-pal-contract.md). The Phase 13 gate passes 7/7 at
-`e8a0b22` (logs under `docs/crug/gates/phase-13/e8a0b22/`). The scheduler,
-goroutines, channels and tasks are not implemented. See
+`e8a0b22` (logs under `docs/crug/gates/phase-13/e8a0b22/`). Phase 14 adds the
+goroutine runtime: `go f (args);` lowers to a per-call-site frame struct, a
+static thunk and one `crug_task_spawn` call, M tasks run on N worker threads
+through the PAL, each task has a fixed stack with a guard page, and the capture
+rules (CONC-008, CONC-010 to CONC-014) make ownership explicit at the task
+boundary - see [docs/crug/TASKS.md](docs/crug/TASKS.md),
+[docs/crug/GOROUTINES.md](docs/crug/GOROUTINES.md),
+[ADR 0008](docs/crug/adr/0008-goroutine-stack-model.md),
+[ADR 0009](docs/crug/adr/0009-scheduler-model.md) and
+[ADR 0013](docs/crug/adr/0013-arch-context-switch-policy.md). Channels,
+`select` and structured `scope` are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -104,7 +113,9 @@ flag, the frozen layouts, the bounds check, and what is still open). The C-to-Cr
 migration tool is specified in [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) (proof
 rules, modes, confidence, report, corpus). The runtime's operating-system
 boundary is specified in [docs/crug/PAL.md](docs/crug/PAL.md) (contract, error
-model, backends, suite). The C FFI
+model, backends, suite). The task runtime and its stack and scheduler
+decisions are in [docs/crug/TASKS.md](docs/crug/TASKS.md), and the `go` surface
+and its lowering in [docs/crug/GOROUTINES.md](docs/crug/GOROUTINES.md). The C FFI
 metadata format is
 [docs/crug/adr/0007-ffi-metadata-format.md](docs/crug/adr/0007-ffi-metadata-format.md)
 (`.crugffi` v1, with a reference fixture at
@@ -146,8 +157,11 @@ procedure and a 31-check acceptance matrix, governed by
   contract suite with no OS at all, and a Linux backend maps the same twelve
   cases onto `pthread`/`futex`/`mmap`; the core names no system primitive
   (Phase 13, ADR 0011).
-- `go`, `scope`, `chan`, `select` for structured concurrency with explicit
-  ownership transfer on send.
+- `go` and `yield` with M:N scheduling: a task is a stackful fiber on one
+  worker thread, its frame is copied at spawn, and an owned value crosses the
+  boundary only through `move` (Phase 14, ADR 0008/0009/0013).
+- `scope`, `chan` and `select` for structured concurrency with explicit
+  ownership transfer on send (Phases 15-16).
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
 
 ## Building
@@ -208,6 +222,9 @@ them. `make check-PAL` builds and runs the twelve-case PAL contract suite on
 both backends, `scripts/check-pal.sh` asserts backend parity and that the fake
 backend links no system symbol, and `scripts/lint-no-os-apis.sh libcrug/core`
 asserts that the core names no OS primitive; `docs/crug/PAL.md` describes them.
+`make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
+the 100000-task stress run and the `strace` clone count;
+`docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
 Runnable programs that need no harness live in
 [examples/](examples/README.md), one per Phase 4-11 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.

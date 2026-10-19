@@ -157,6 +157,11 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-CONC-007` | `-Wcrug-select-form` | error | error | 'case v == recv(ch)' is not a select form; use 'case v = recv(ch)' | ADR 0018 D6 R4 |
 | `crug-CONC-008` | - | error | error | 'go' callee must return void | ADR 0018 D4 |
 | `crug-CONC-009` | - | error | error | select may not be used as an expression | ADR 0018 D6 R5 |
+| `crug-CONC-010` | - | error | error | 'go' requires a function | ADR 0018 D4, Phase 14 |
+| `crug-CONC-011` | - | error | error | owned value passed to concurrent task without ownership transfer | ADR 0018 D4, MASTER_SPEC 27, Phase 14 |
+| `crug-CONC-012` | - | error | error | a borrow cannot be captured by a concurrent task; capture an owned value with move(...) | ADR 0018 D4, Phase 14 |
+| `crug-CONC-013` | - | error | error | 'go' requires a prototype for its callee | ADR 0018 D4, Phase 14 |
+| `crug-CONC-014` | - | error | error | a destructor cannot cross a task boundary; the task destroys an owned parameter by itself | ADR 0008 D3, Phase 14 |
 
 ### 4.6 Payload enums and match (`ADT`)
 
@@ -334,8 +339,14 @@ caught by the script.
 
 ## 9. Status
 
-111 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
-DROP 8, CONC 9, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+116 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
+DROP 8, CONC 14, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 14 added five codes: CONC-010 ('go' requires a function), CONC-011 (an
+owned value captured without ownership transfer), CONC-012 (a borrow captured
+by a task), CONC-013 ('go' requires a prototype) and CONC-014 (a destructor
+crossing a task boundary), with CONC-008 ('go' callee must return void) moving
+from planned to implemented.
 
 Phase 11 added three codes, all in ADR 0010 D4: BORROW-021 (a plain pointer at a
 'mut' parameter), BORROW-022 (a shared borrow at a 'mut' parameter) and
@@ -353,13 +364,14 @@ adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
 at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 11 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+suite that the owning gate runs. Implemented today (Phases 4 to 14 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-023,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
 ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-015, ADT-016, ADT-017,
-ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013 and TYPE-014. ADT-014 (match
+ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013, TYPE-014, CONC-008 and
+CONC-010 to CONC-014. ADT-014 (match
 used as an expression) is still planned: it is reachable only after the
 expression form of `match` gets its own recovery path. Everything else is
 planned; the KERNEL area is still reserved only,
