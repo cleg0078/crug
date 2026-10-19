@@ -233,6 +233,10 @@ check-OPTIMIZATION: check-ALIAS_FACTS ## run the Phase 11 ownership-aware optimi
 	python3 bench/run.py --matrix alias --check
 	python3 bench/run.py --matrix alias --lto
 
+check-C2CRUG: ## run the Phase 12 c2crug migration checks
+	python3 scripts/test-c2crug.py
+	scripts/check-c2crug.sh
+
 fork-delta: ## print the fork delta against the pinned GCC vendor tag
 	scripts/fork-delta.sh
 
@@ -286,5 +290,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
 	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
+	check-C2CRUG \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

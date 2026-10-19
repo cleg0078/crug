@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crug.dev/schema/c2crug-report-v1.json",
+  "title": "c2crug migration report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "tool",
+    "version",
+    "mode",
+    "sources",
+    "entries",
+    "counts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "crug-c2crug-report-v1"
+    },
+    "tool": {
+      "const": "c2crug"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "mode": {
+      "enum": [
+        "analyze",
+        "safe"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "sha256"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "own",
+        "raw",
+        "borrow_suggestion",
+        "applied"
+      ],
+      "properties": {
+        "own": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "borrow_suggestion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "applied": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "line",
+        "text"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "line",
+        "column",
+        "kind",
+        "applied",
+        "confidence",
+        "reason",
+        "evidence"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "own",
+            "raw",
+            "borrow-suggestion"
+          ]
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "suggestion": {
+          "enum": [
+            "ref",
+            "mut"
+          ]
+        },
+        "transformation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "declaration_line",
+            "release_line",
+            "release_from",
+            "release_to"
+          ],
+          "properties": {
+            "declaration_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "release_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "release_from": {
+              "type": "string"
+            },
+            "release_to": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "applied": {
+                "const": true
+              }
+            },
+            "required": [
+              "applied"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "own"
+              },
+              "confidence": {
+                "exclusiveMinimum": 0
+              },
+              "transformation": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "transformation"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "raw"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "applied": {
+                "const": false
+              },
+              "confidence": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "borrow-suggestion"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "applied": {
+                "const": false
+              }
+            },
+            "required": [
+              "suggestion"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
