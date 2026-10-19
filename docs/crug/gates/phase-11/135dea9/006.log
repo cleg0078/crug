@@ -1,0 +1,5 @@
+phase-11 #6 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0 (BORROW-021, BORROW-022 and BORROW-023 registered, no duplicate or unknown-area code).
+---
+check-diagnostics: 111 registered code(s); 111 referenced code(s); all references registered.

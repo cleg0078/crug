@@ -1,0 +1,49 @@
+phase-11 #3 rc=0
+cmd: make check-OPTIMIZATION
+expected: exit 0: 16 DejaGnu `crug.dg/alias` cases plus `scripts/check-optimization.sh`, `--matrix alias --check` and `--matrix alias --lto` (LTO build, equal results, execution).
+---
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/alias/alias.exp ...
+# of expected passes		16
+scripts/check-optimization.sh
+golden: 4 signatures, 0 false noalias
+identity: 8/8 kernel objects byte-identical
+ref-only: shared borrow has no fact (object identical)
+flag-off: -fcrug-alias-facts alone changes nothing
+adversarial: borrow-021.c rejected with crug-BORROW-021
+adversarial: borrow-022.c rejected with crug-BORROW-022
+adversarial: borrow-002.c rejected with crug-BORROW-002
+adversarial: borrow-003.c rejected with crug-BORROW-003
+adversarial: borrow-023.c rejected with crug-BORROW-023
+runtime: alias-run exits 0
+optimization: golden, identity, flag-off, adversarial and runtime checks pass
+python3 bench/run.py --matrix alias --check
+vadd       -O2  plain    4057899  restrict    1486815  crug    1603191  crug/restrict  1.000  object identical  ok
+vadd       -O3  plain    1590183  restrict    1552311  crug    1561379  crug/restrict  1.000  object identical  ok
+stencil    -O2  plain    5796564  restrict    1947151  crug    1970540  crug/restrict  1.000  object identical  ok
+stencil    -O3  plain    2062747  restrict    3020038  crug    2938385  crug/restrict  1.000  object identical  ok
+strcopy    -O2  plain    4861923  restrict     420517  crug     379594  crug/restrict  1.000  object identical  ok
+strcopy    -O3  plain     371501  restrict    3731681  crug    3703390  crug/restrict  1.000  object identical  ok
+list       -O2  plain    1971029  restrict    1935673  crug    1880259  crug/restrict  1.000  object identical  ok
+list       -O3  plain    1858603  restrict    1810076  crug    1858145  crug/restrict  1.000  object identical  ok
+alias: band 1.05 versus the hand-written restrict twin
+alias: OK (crug kernel objects identical to the restrict arms)
+python3 bench/run.py --matrix alias --lto
+vadd       -O2  plain    4001856  restrict    1518659  crug    1571837  crug/restrict  1.000  object identical  ok
+vadd       -O3  plain    1686811  restrict    1634686  crug    1652154  crug/restrict  1.000  object identical  ok
+stencil    -O2  plain    6549391  restrict    2530633  crug    2189847  crug/restrict  1.000  object identical  ok
+stencil    -O3  plain    2428449  restrict    3193111  crug    3792973  crug/restrict  1.000  object identical  ok
+strcopy    -O2  plain    6488850  restrict     476958  crug     364253  crug/restrict  1.000  object identical  ok
+strcopy    -O3  plain     432430  restrict    4026393  crug    3639463  crug/restrict  1.000  object identical  ok
+list       -O2  plain    1776746  restrict    1886493  crug    1737527  crug/restrict  1.000  object identical  ok
+list       -O3  plain    1911387  restrict    1877266  crug    1843018  crug/restrict  1.000  object identical  ok
+alias: band 1.05 versus the hand-written restrict twin
+alias: OK (crug kernel objects identical to the restrict arms)
+vadd       lto  plain    1493634  restrict    1664857  crug    1502491
+stencil    lto  plain    2021418  restrict    1945236  crug    1911277
+strcopy    lto  plain     366953  restrict     327797  crug     342195
+list       lto  plain    2025781  restrict    1851030  crug    1888190
+lto: all arms build, agree on the result and run

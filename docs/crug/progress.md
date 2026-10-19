@@ -203,8 +203,8 @@ gate rests on identity because this host's runs of identical code swing by more
 than a factor of two. `bench/run.py --matrix alias --check`, `--matrix alias
 --lto` and `--plain-c --check` are the runnable checks, and
 `docs/crug/OPTIMIZATION.md` is the digest. The Phase 11 gate (amendment A-14)
-passes 11/11 at the gate commit (logs under `docs/crug/gates/phase-11/`), so
-M11 is awarded.
+passes 7/7 at `135dea9` (logs under `docs/crug/gates/phase-11/135dea9/`),
+so M11 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

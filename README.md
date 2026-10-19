@@ -63,7 +63,7 @@ hand-written `restrict` twins at `-O2`/`-O3`, so the optimizer receives
 exactly the fact the source proves and nothing more - see
 [docs/crug/OPTIMIZATION.md](docs/crug/OPTIMIZATION.md) and
 [ADR 0010](docs/crug/adr/0010-noalias-lowering.md). The Phase 11 gate passes
-7/7 at the gate commit (logs under `docs/crug/gates/phase-11/`). `libcrug`,
+7/7 at `135dea9` (logs under `docs/crug/gates/phase-11/135dea9/`). `libcrug`,
 goroutines and channels are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.

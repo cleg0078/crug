@@ -1,0 +1,15 @@
+phase-11 #2 rc=0
+cmd: scripts/check-optimization.sh
+expected: exit 0: the `-fdump-tree-alias` signatures of `noalias-golden.c` match `noalias-golden.expected` exactly (restrict on `mut`/`own` parameters only), 8/8 kernel objects are byte-identical, a ref-only function equals its plain twin, the flag alone changes nothing, and the five adversarial programs are rejected (BORROW-002, -003, -021, -022, -023).
+---
+golden: 4 signatures, 0 false noalias
+identity: 8/8 kernel objects byte-identical
+ref-only: shared borrow has no fact (object identical)
+flag-off: -fcrug-alias-facts alone changes nothing
+adversarial: borrow-021.c rejected with crug-BORROW-021
+adversarial: borrow-022.c rejected with crug-BORROW-022
+adversarial: borrow-002.c rejected with crug-BORROW-002
+adversarial: borrow-003.c rejected with crug-BORROW-003
+adversarial: borrow-023.c rejected with crug-BORROW-023
+runtime: alias-run exits 0
+optimization: golden, identity, flag-off, adversarial and runtime checks pass

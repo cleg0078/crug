@@ -1,0 +1,5 @@
+phase-11 #5 rc=0
+cmd: scripts/check-stop-conditions.sh
+expected: exit 0 printing `stop-conditions: N facts audited, 0 false-noalias reports` with N > 0 (a false noalias fact is a P0 and stops the phase).
+---
+stop-conditions: 8 facts audited, 0 false-noalias reports

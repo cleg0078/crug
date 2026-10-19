@@ -1,0 +1,14 @@
+phase-11 #1 rc=0
+cmd: bench/run.py --matrix alias --check
+expected: exit 0: for every kernel at -O2 and -O3 the Crug kernel object is byte-identical to its hand-written `restrict` twin, and the measured crug/restrict ratio is ≤ 1.05 wherever the objects differ (identical objects are reported as 1.000).
+---
+vadd       -O2  plain    4891741  restrict    1630804  crug    1786815  crug/restrict  1.000  object identical  ok
+vadd       -O3  plain    1968890  restrict    2015248  crug    1754893  crug/restrict  1.000  object identical  ok
+stencil    -O2  plain    6376491  restrict    2132706  crug    2188399  crug/restrict  1.000  object identical  ok
+stencil    -O3  plain    2094724  restrict    3914232  crug    3563658  crug/restrict  1.000  object identical  ok
+strcopy    -O2  plain    5158996  restrict     372049  crug     516786  crug/restrict  1.000  object identical  ok
+strcopy    -O3  plain     590229  restrict    3787903  crug    3737392  crug/restrict  1.000  object identical  ok
+list       -O2  plain    2400267  restrict    2325589  crug    1967776  crug/restrict  1.000  object identical  ok
+list       -O3  plain    1848600  restrict    1861429  crug    1847850  crug/restrict  1.000  object identical  ok
+alias: band 1.05 versus the hand-written restrict twin
+alias: OK (crug kernel objects identical to the restrict arms)

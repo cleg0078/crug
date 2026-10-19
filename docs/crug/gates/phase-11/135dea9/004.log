@@ -1,0 +1,23 @@
+phase-11 #4 rc=0
+cmd: bench/run.py --plain-c --check
+expected: exit 0: the plain kernel objects are byte-identical to `bench/baseline.json` at -O0/-O2/-O3 (a code change is then measured against the 1.02 band), and the LTO arm builds and runs correctly; LTO timing is not enforced because GCC's LTO objects are not byte-reproducible.
+---
+kernel     opt     baseline ns       now ns   ratio
+list       -O0         2318848      2173986   0.938  object identical
+list       -O2         1738320      1769527   1.018  object identical
+list       -O3         1843023      1728756   0.938  object identical
+stencil    -O0        20396102     19560342   0.959  object identical
+stencil    -O2         5461504      5422151   0.993  object identical
+stencil    -O3         1933374      1829501   0.946  object identical
+strcopy    -O0        19153257     19622730   1.025  object identical
+strcopy    -O2         4854175      4807585   0.990  object identical
+strcopy    -O3          349899       348823   0.997  object identical
+vadd       -O0        14399597     15497278   1.076  object identical
+vadd       -O2         4164679      4131467   0.992  object identical
+vadd       -O3         1481151      1653395   1.116  object identical
+list       lto         1843205      1822654   0.989  (lto timing informational)
+stencil    lto         1927170      1844086   0.957  (lto timing informational)
+strcopy    lto          348491       592215   1.699  (lto timing informational)
+vadd       lto         1452158      1537805   1.059  (lto timing informational)
+plain-c: worst observed ratio 1.116 (band 1.02; non-LTO object identity is the enforcement)
+plain-c: OK
