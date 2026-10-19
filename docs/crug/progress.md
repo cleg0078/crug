@@ -166,6 +166,17 @@ fixture, `gcc/testsuite/crug.dg/ffi/libc.crugffi`, implements the small libc
 catalog of MASTER_SPEC section 16.5 minus `realloc`. Phase 9 implemented the parser, the discovery option and the call-site
 consumption described in the paragraph above.
 
+The cost of the next GCC bump is measured, not estimated:
+`docs/crug/GCC-UPGRADE.md` records that the fork touches 9 upstream files with
+32 hunks, that 31 of those hunks still apply with identical context to
+upstream master (2026-10-19), that all 23 attachment symbols and all 8 behavioural
+pins hold, and that a 31-check acceptance matrix
+(`scripts/verify-upgrade.sh`) passes 31/31 at the current commit.
+`scripts/fork-delta.sh` and `scripts/check-gcc-drift.sh` keep the measurement
+reproducible. ADR 0022 (Proposed) turns it into policy: a re-pin and a minor
+upgrade are maintainer-executable on the matrix, a major upgrade needs a
+superseding ADR and owner ratification.
+
 ## Resolved in this revision
 
 | Item | Artefact |
@@ -207,6 +218,7 @@ consumption described in the paragraph above.
 | Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
 | Unanalysed operations (deref of a plain view, casts, asm, setjmp) had no policy, so "strict mode" was a word without a definition | ADR 0021 (Accepted 2026-10-19) + docs/crug/STRICT.md: `raw`, `unsafe` and five `crug-SAFE-*` restrictions with `-fcrug-strict`; C-08 resolved |
 | A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
+| The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
 
@@ -222,18 +234,20 @@ consumption described in the paragraph above.
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9 (a plain pointer still has no borrow contract, so `ref`/`mut` parameters remain stricter than `.crugffi`); recorded in docs/crug/BORROW.md section 5 |
 | -  | `slice<T>`, `chan T`, payload enums and `match` still do not parse | Phases 10 and 13-14 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
+| -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
+| -  | The upgrade procedure has never been executed against a real new release; the first M- or J-class upgrade is the drill | first GCC release after 16.2 |
 
 ## Next actions, in dependency order
 
 1. **Start Phase 10** (safe core types): `slice<T>`, `option<T>`, `result<T,E>`,
    payload enums and `match`, with the layouts this phase freezes recorded in
    `docs/crug/ABI.md` and active-variant destruction for ADTs.
-2. **Ratify ADR 0021 and ADR 0019/0020** as the owner: the strict policy and the
-   two borrow policies are implemented and tested but still carry Status Proposed.
+2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
+   policy, the baseline upgrade policy and the two borrow policies are implemented
+   and measured but still carry Status Proposed.
 3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
    `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
-   lowering.
    lowering.
 
 ## Working rules

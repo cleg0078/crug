@@ -69,6 +69,11 @@ registered in [docs/crug/ABI.md](docs/crug/ABI.md). The C FFI metadata format is
 `gcc/testsuite/crug.dg/ffi/libc.crugffi`). Diagnostic codes are registered
 in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 `scripts/check-diagnostics.sh` keeps the registry consistent with the docs.
+Moving the fork to a newer GCC is measured rather than guessed:
+[docs/crug/GCC-UPGRADE.md](docs/crug/GCC-UPGRADE.md) records the conflict surface
+(9 upstream files, 32 hunks), the porting map, the behavioural pins, the upgrade
+procedure and a 31-check acceptance matrix, governed by
+[ADR 0022](docs/crug/adr/0022-gcc-baseline-upgrade-policy.md).
 
 ## What Crug adds
 

@@ -7,11 +7,13 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Ten of the eleven written ADRs are Accepted and are cited by number throughout
-`spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18,
-ADRs 0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on 2026-10-19 as the
-Phase 7 planning decisions. ADR 0021 (Phase 8) is Proposed: it is implemented and
-tested but awaits owner ratification.
+Eleven of the twelve written ADRs are Accepted and are cited by number
+throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
+2026-10-18, ADRs 0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on
+2026-10-19 as the Phase 7 planning decisions. ADR 0021 (Phase 8) is Proposed: it
+is implemented and tested but awaits owner ratification. ADR 0022 (GCC baseline
+upgrade policy) is Proposed: its measurements are recorded, but the policy
+itself awaits ratification.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -26,6 +28,7 @@ tested but awaits owner ratification.
 | 0019 | 0019-interprocedural-borrow-policy.md | summary depth zero, borrows cross calls only as `ref`/`mut` arguments, no returned or stored borrows | Accepted (2026-10-19) |
 | 0020 | 0020-last-use-liveness.md | a borrow ends at its last use; joins union, loops are conservative, `goto` abandons liveness | Accepted (2026-10-19) |
 | 0021 | 0021-strict-mode-policy.md | strict mode is a checking mode, `raw`, `unsafe`, the five `crug-SAFE-*` restrictions and the two boundary call rules | Proposed (2026-10-19) |
+| 0022 | 0022-gcc-baseline-upgrade-policy.md | baseline upgrade classes P/M/J, the acceptance matrix, the drift gate, version claims, who ratifies | Proposed (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -74,7 +77,8 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
 ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
-last-use liveness). The next ADR that unblocks work is 0010 (alias/noalias model,
+last-use liveness). ADR 0022 keeps the GCC pin revisable on evidence; a major
+baseline upgrade would supersede ADR 0001 with the next free number (0023 today). The next ADR that unblocks work is 0010 (alias/noalias model,
 the prerequisite for Phase 11), unless scheduler work starts first and needs 0008
 and 0009. 0012 to 0015 have no written dependency yet and should be scheduled
 with the phase that needs them.
