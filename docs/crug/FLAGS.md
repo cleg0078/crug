@@ -10,9 +10,10 @@ unchecked-operation policy with `raw` and `unsafe` (`STRICT.md`),
 `-fcrug-slices`/`-fcrug-result` gate the safe core types, the value
 constructors and `match` (`SAFE-TYPES.md`), and `-fcrug-alias-facts`
 turns a proven `mut` or `own` parameter into a `restrict` fact
-(`OPTIMIZATION.md`), and `-fcrug-goroutines` gates the `go` and `yield`
-statements (`GOROUTINES.md`); the productions the remaining flags name
-(`scope`, `chan`, `select`, the kernel port) do not exist yet. This page is the digest - the normative text is
+(`OPTIMIZATION.md`), and `-fcrug-goroutines` gates the `go`, `yield`
+and `scope` statements (`GOROUTINES.md`, `SCOPE.md`); the
+productions the remaining flags name (`chan`, `select`, the kernel port)
+do not exist yet. This page is the digest - the normative text is
 ADR 0018 D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
 `EXIT-GATES.md` phases 3, 4, 5, 6, 7, 8, 9 and 10.
 
@@ -30,7 +31,7 @@ closure is computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-slices` | `slice<T>`, `slice (ptr, len)`, checked `s[i]` | - |
 | `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
 | `-fcrug-adt` | payload enums and `match` over `option`, `result` and payload enums | - |
-| `-fcrug-goroutines` | `go` and `yield` (`GOROUTINES.md`); `scope` when Phase 15 lands | - |
+| `-fcrug-goroutines` | `go` and `yield` (`GOROUTINES.md`) and `scope` (`SCOPE.md`) | - |
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-ffi=<file>` | reads one `.crugffi` sidecar; repeatable, merged in command-line order (`FFI.md`) | `-fcrug-ownership` |
@@ -154,9 +155,12 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
   `yield ()` lower to a per-call-site frame struct, a static thunk and one
   `crug_task_spawn` call (`GOROUTINES.md`); the capture rules are CONC-008,
   CONC-010 to CONC-014, and a capture needs `-fcrug-ownership` for an `own`
-  value or `-fcrug-borrow` for a borrow. There is no `scope` lowering
-  (Phase 15) and no channel, `send`, `recv`, `close`, `channel` or
-  `select` lowering (Phase 16).
+  value or `-fcrug-borrow` for a borrow. Structured scope exists (Phase 15):
+  `scope { ... }` is a task group that waits for its children, a scoped child
+  may capture a borrow of a value that outlives the block, and the extra codes
+  are CONC-015 (a goto into a scope) and CONC-016 (a lender that dies first)
+  (`SCOPE.md`, ADR 0024). There is no channel, `send`, `recv`, `close`,
+  `channel` or `select` lowering (Phase 16).
 - Ownership-aware optimization exists as an opt-in contract
   (`-fcrug-alias-facts`, `OPTIMIZATION.md`, ADR 0010): `mut` and `own`
   pointer parameters become `restrict` and the caller must pass a proven
@@ -212,6 +216,7 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `scripts/check-stop-conditions.sh` | every dumped fact names a `mut`/`own` parameter, a ref-only function has no fact, and 0 false-noalias reports |
 | `bench/run.py --matrix alias --check` / `--lto` / `--plain-c --check` | the 5% band with byte identity as the primary evidence, LTO correctness, and plain C not degraded (object identity, 1.02 band when code changes) |
 | `make check-GOROUTINES` / `scripts/check-goroutines.sh` | `go`/`yield` lowering: 27 DejaGnu cases, five runtime programs, 100000 tasks on 4 workers and 4 thread-creating calls under `strace` (`GOROUTINES.md`, `TASKS.md`) |
+| `make check-SCOPE` / `scripts/check-scope.sh` | `scope` lowering: 23 DejaGnu cases and eight group programs whose counters balance (`SCOPE.md`, ADR 0024) |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
 ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the
@@ -231,6 +236,9 @@ compatibility suites; the phase-11 gate runs `bench/run.py --matrix alias
 `scripts/check-diagnostics.sh` and `make check-C_COMPAT`; the phase-14 gate
 runs `make check-GOROUTINES`, the 100000-task stress run, the `strace` clone
 count, `make -C libcrug check-sanitizer`, the kernel object check,
+`scripts/lint-no-os-apis.sh`, `scripts/check-diagnostics.sh` and
+`make check-C_COMPAT`; the phase-15 gate runs `make check-SCOPE`, the
+scope-borrow and goto rejections, `make -C libcrug check-sanitizer`,
 `scripts/lint-no-os-apis.sh`, `scripts/check-diagnostics.sh` and
 `make check-C_COMPAT`; see `EXIT-GATES.md`.
 

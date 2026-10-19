@@ -13,8 +13,9 @@ Phase 7 last-use lifetimes and the depth-zero interprocedural policy. Phase 13
 adds `libcrug`'s platform abstraction layer (`libcrug/pal`, two backends, one
 contract suite); Phase 14 adds the task runtime and the `go`/`yield` lowering
 (M tasks on N workers, fixed stacks with a guard page, x86-64 System V context
-switch), so the goroutine language exists end to end while channels, `select`
-and `scope` do not; the Phase 10 safe
+switch); Phase 15 adds `scope`, the task group that owns its children and joins
+them on every exit, so of the concurrency surface only channels and `select`
+are missing; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
@@ -294,6 +295,34 @@ version 1 freezes the spawn/yield signatures and the stats fields
 runnable checks over these artefacts and passes 8/8 at `2ecfe35` (logs under
 `docs/crug/gates/phase-14/2ecfe35/`).
 
+Phase 15 makes concurrency structured. `scope { ... }` is a contextual statement
+gated by `-fcrug-goroutines`: the parser gives the block an artificial `void *`
+handle, stores `crug_scope_enter ()` in it as the block's first statement, and
+every `go` inside the block lowers to `crug_task_spawn_scoped (handle, ...)`
+instead of `crug_task_spawn (...)` (`docs/crug/SCOPE.md`). The wait is not
+special-cased at the end of the block: the ownership pass models it as a
+pseudo-destruction that is emitted before the block's own destructions, so
+`return`, `break`, `continue` and `goto` out all wait first and a borrowed value
+is still alive while the children run (ADR 0024 D3, D5). Two rules keep that
+sound: a `goto` into a scope body is rejected (CONC-015) and a scoped task may
+not borrow a value that dies before the block (CONC-016); inside the block a
+`borrow`/`borrow_mut` capture is allowed, with the usual exclusivity rules, so a
+mutable borrow taken by two tasks of one scope is BORROW-002/003. The runtime
+side is a group object with an atomic pending count: a scoped spawn counts
+before it queues, a completing task decrements and wakes, and
+`crug_scope_leave` waits for zero - yielding inside a task, `wait_u32` on the
+main thread - then frees the group. `crug_scope_stats_get` exposes
+entered/left/live, so a leak is a number and not a hope. Measured: `make
+check-SCOPE` prints `scope: 23 compiler test(s), 8 group program(s), 0 leaked
+group(s), 0 failure(s)`; the eight programs print `scope-wait: children=8
+slots=8`, `scope-owned: seen=S frees=1`, `scope-borrow: n=42`,
+`scope-early: early=1 marks=2` and `scope-stress: tasks=1000 entered=200
+left=200 leaked task group state: 0`; the sanitizer suite drives 3000 tasks
+under 200 scopes with
+LeakSanitizer clean. The group calls extend runtime ABI version 1 additively
+(`docs/crug/ABI.md` section 6). The Phase 15 gate (amendment A-18) runs seven
+runnable checks over these artefacts.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -369,6 +398,7 @@ superseding ADR and owner ratification.
 | Migrating C to Crug was unspecified, so "safe mode" had no proof rule and no corpus | `c2crug` (`--analyze`/`--safe`/`--diff`), ADR 0023, `docs/crug/C2CRUG.md`, `migration/` (8 programs with expected output), `docs/crug/c2crug-report.schema.json`, `scripts/validate-c2crug-report.py`, `scripts/c2crug-diff.sh`, `scripts/check-c2crug.sh`, `scripts/test-c2crug.py`; 5 own applied, 5 raw preserved, 4.5% churn, comments unchanged; phase-12 gate 7/7 |
 | The runtime could reach the operating system directly, so every port would become a scheduler fork | `libcrug/pal/include/crug_pal.h` (PAL v1, ADR 0011), `libcrug/core/pal_contract.c` (twelve backend-agnostic cases), `libcrug/pal/fake` and `libcrug/pal/linux`, `scripts/check-pal.sh` (backend parity, no system symbol in the fake object), `scripts/lint-no-os-apis.sh`, `make check-PAL`, `docs/crug/PAL.md`; phase-13 gate A-16 |
 | The language had `go`/`yield` in its grammar but no lowering and no runtime, so M:N concurrency was a word | `gcc/c/crug-tasks.cc` (frame + static thunk + `crug_task_spawn`), parser and capture hooks, CONC-008/010..014, `libcrug/core/task.c` (M:N, one ready queue, cooperative, epoch wait), `libcrug/arch/x86_64/sysv` (switch, stack preparation), 27 dg cases, five runtime programs, 100000-task stress run, `scripts/check-goroutines.sh`, `make check-GOROUTINES`; `docs/crug/TASKS.md`, `docs/crug/GOROUTINES.md`; ADRs 0008/0009/0013; phase-14 gate A-17 |
+| A task could outlive every lexical block that explains it, so a borrowed capture was unsound and a child could still run after its data died | `scope { ... }` (task group) in `gcc/c/crug-tasks.cc`, `gcc/c/crug-ownership.cc` and `gcc/c/c-parser.cc`, CONC-015/016, scoped borrow captures with BORROW-002/003, runtime `crug_scope_enter`/`crug_scope_leave`/`crug_task_spawn_scoped`/`crug_scope_stats_get`, 23 dg cases, eight group programs, 3000-task/200-group sanitizer stress, `scripts/check-scope.sh`, `make check-SCOPE`; `docs/crug/SCOPE.md`; ADR 0024; phase-15 gate A-18 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -383,9 +413,11 @@ superseding ADR and owner ratification.
 | -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phase 16 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | a later phase (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
-| -  | `chan T`, `select` and `scope` do not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phases 15-16; a later ownership increment for aggregates |
+| -  | `chan T` and `select` do not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 16; a later ownership increment for aggregates |
 | -  | The task runtime has no preemption, no cancellation, no growable stack, no I/O and no TSan support (the switch is invisible to ThreadSanitizer); a blocking call blocks a worker | ADRs 0008, 0009 and 0013 state the limits; preemption/place-level races are a later phase (17 Send/Sync), the poller is post-1.0 |
 | -  | A task frame is a plain C value: no generic task type, no closure over a local's address, and no task result; a task that must report a value needs a channel (Phase 16) | Phase 16 |
+| -  | A `scope` waits cooperatively and has no cancellation, no error aggregation and no detached child: a child that never returns hangs the scope, and a waiting scope burns scheduler turns because there is no parked WAITING state in v1 | ADR 0024 D3 and D7; cancellation and error propagation are a later RFC (CRUG-RFC-0003), a parked-waiter state is future work |
+| -  | A scoped borrow is whole-object only and must name a value declared at the scope's own block depth or shallower; reborrowing a field, borrowing an element and borrowing through a call are refused or unchecked as in Phase 7 | ADR 0024 D4; place-level borrows are a later phase |
 | -  | PAL v1 has no I/O poller and no second OS backend: the poller is deferred by the phase-13 non-goal (RFC-0001 section 32) and a Windows/Darwin/BSD/bare-metal backend is Phase 18 | ADR 0011 D2 and D9; a v1.1 amendment when an I/O phase needs the poller |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
@@ -394,11 +426,12 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Push and open Phase 15** (structured `scope`): the Phase 14 gate
-   adjudicates the task runtime (8/8 at `2ecfe35`), and Phase 15 adds the lexical
-   scope that owns its tasks and joins them at exit. `scope` is already in the grammar
-   (ADR 0018 D4); it needs a parser production, a scope object in
-   `libcrug/core/`, capture rules that reuse the `go` checks, and a dump."
+1. **Push and open Phase 16** (channels and `select`): the Phase 15 gate
+   adjudicates structured scope (7/7, amendment A-18), so the concurrency surface
+   that remains is `chan T` and `select`. Both are already in the grammar
+   (ADR 0018 D4-D5) and neither parses; the phase needs the channel type and its
+   frozen ABI row, buffered and unbuffered send/receive with ownership transfer at
+   send, `close` exactly once, and `select` over ready cases with a `default`.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

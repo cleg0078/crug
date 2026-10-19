@@ -68,7 +68,9 @@ epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
 `memory_reserve`/`memory_commit` with a 4 KiB guard page from
 `memory_protect_guard`, and reads the clock for its statistics. The contract
 suite covers exactly those calls, so a runtime linked against a new backend is
-tested by the same twelve cases as the fake one. Channels and scopes (P15-P16)
+tested by the same twelve cases as the fake one. A task group (Phase 15,
+`SCOPE.md`) adds no PAL call of its own: a waiter uses `wait_u32` on the group's
+pending count on the main thread and `yield` inside a task. Channels (P16)
 are the next expected consumers; neither needs a v1 entry point that does not
 already exist.
 

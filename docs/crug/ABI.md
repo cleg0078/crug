@@ -91,11 +91,14 @@ depend on a guessed layout for any of these types.
   offset, field name or tag value is an ABI change.
 - The runtime ABI has its own version (RFC-0001 section 37): **runtime ABI
   version 1** is `libcrug/core/task.h` as introduced by Phase 14 (ADR 0008,
-  ADR 0009, ADR 0013). The compiler emits calls to `crug_task_spawn` and
-  `crug_task_yield`; their signatures, the three task states and the
-  `struct crug_task_stats` field set are the versioned surface. The runtime ABI
-  version is independent of the Crug-native type ABI version 1 above and of the
-  PAL contract version (ADR 0011 D8).
+  ADR 0009, ADR 0013) and extended additively by Phase 15 (ADR 0024). The
+  compiler emits calls to `crug_task_spawn`, `crug_task_yield`,
+  `crug_scope_enter`, `crug_scope_leave` and `crug_task_spawn_scoped`; their
+  signatures, the three task states, the `struct crug_task_stats` field set and
+  the `struct crug_scope_stats` field set are the versioned surface. The group
+  API is additive: a program with no `scope` never references it. The runtime
+  ABI version is independent of the Crug-native type ABI version 1 above and of
+  the PAL contract version (ADR 0011 D8).
 - The `chan T` row is still **pending**, so no code may depend on a guessed
   layout for it.
 - `crugc --version` must eventually print compiler, language and Crug
@@ -125,3 +128,4 @@ depend on a guessed layout for any of these types.
 | 2026-10-19 | Phase 10 increment 2b recorded that an owned payload is analysis-only metadata: no layout change, asserted by `crug.dg/safe-types/payload-enum-own-abi.c`, and an owning payload enum may not cross a function boundary by value. No row changed value, so the ABI version stays 1. |
 | 2026-10-19 | Phase 11 recorded that `-fcrug-alias-facts` adds `restrict` to `mut`/`own` parameter types for the optimizer only; no layout, calling-convention or symbol row changed, so the ABI version stays 1. |
 | 2026-10-19 | Phase 14 froze **runtime ABI version 1** (`task.h`, ADR 0008/0009/0013): the spawn/yield signatures and the stats fields. No C-level type, layout, calling-convention or symbol row changed, so the Crug-native type ABI version stays 1. |
+| 2026-10-19 | Phase 15 added the task-group calls to runtime ABI version 1 additively (`crug_scope_enter`, `crug_scope_leave`, `crug_task_spawn_scoped`, `struct crug_scope_stats`; ADR 0024): existing signatures are unchanged, a program with no `scope` does not reference them, and no C-level type row changed. |

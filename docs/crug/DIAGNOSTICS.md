@@ -162,6 +162,8 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-CONC-012` | - | error | error | a borrow cannot be captured by a concurrent task; capture an owned value with move(...) | ADR 0018 D4, Phase 14 |
 | `crug-CONC-013` | - | error | error | 'go' requires a prototype for its callee | ADR 0018 D4, Phase 14 |
 | `crug-CONC-014` | - | error | error | a destructor cannot cross a task boundary; the task destroys an owned parameter by itself | ADR 0008 D3, Phase 14 |
+| `crug-CONC-015` | - | error | error | goto jumps into a scope block | ADR 0024 D5, Phase 15 |
+| `crug-CONC-016` | - | error | error | a scoped task borrows an object from a block that ends before the scope; declare it in the scope body | ADR 0024 D4, Phase 15 |
 
 ### 4.6 Payload enums and match (`ADT`)
 
@@ -339,8 +341,12 @@ caught by the script.
 
 ## 9. Status
 
-116 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
-DROP 8, CONC 14, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+118 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
+DROP 8, CONC 16, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 15 added two codes: CONC-015 (a goto into a scope block) and CONC-016
+(a scoped task borrowing an object whose block ends before the scope does);
+the scoped-borrow conflicts reuse BORROW-002 and BORROW-003 at the scope.
 
 Phase 14 added five codes: CONC-010 ('go' requires a function), CONC-011 (an
 owned value captured without ownership transfer), CONC-012 (a borrow captured
@@ -364,14 +370,14 @@ adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
 at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 14 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+suite that the owning gate runs. Implemented today (Phases 4 to 15 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-023,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
 ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-015, ADT-016, ADT-017,
 ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013, TYPE-014, CONC-008 and
-CONC-010 to CONC-014. ADT-014 (match
+CONC-010 to CONC-016. ADT-014 (match
 used as an expression) is still planned: it is reachable only after the
 expression form of `match` gets its own recovery path. Everything else is
 planned; the KERNEL area is still reserved only,

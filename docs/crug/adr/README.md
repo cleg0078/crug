@@ -7,14 +7,15 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Sixteen of the eighteen written ADRs are Accepted and are cited by number
+Seventeen of the nineteen written ADRs are Accepted and are cited by number
 throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
 2026-10-18, ADRs 0006 and 0007 on 2026-10-19, ADRs 0019 and 0020 on 2026-10-19
 as the Phase 7 planning decisions, ADR 0010 on 2026-10-19 together with the
 5% phase-11 acceptance band, ADR 0023 on 2026-10-19 with the phase-12 corpus
 and the "largely preserved" reading, and ADR 0011 on 2026-10-19 with the
-phase-13 PAL v1 surface, and ADRs 0008, 0009 and 0013 on 2026-10-19 with the
-phase-14 task runtime. ADR 0021 (Phase 8) is Proposed: it is implemented
+phase-13 PAL v1 surface, ADRs 0008, 0009 and 0013 on 2026-10-19 with the
+phase-14 task runtime, and ADR 0024 on 2026-10-19 with the phase-15 structured
+scope. ADR 0021 (Phase 8) is Proposed: it is implemented
 and tested but awaits owner ratification. ADR 0022 (GCC baseline upgrade
 policy) is Proposed: its measurements are recorded, but the policy itself awaits
 ratification.
@@ -39,6 +40,7 @@ ratification.
 | 0021 | 0021-strict-mode-policy.md | strict mode is a checking mode, `raw`, `unsafe`, the five `crug-SAFE-*` restrictions and the two boundary call rules | Proposed (2026-10-19) |
 | 0022 | 0022-gcc-baseline-upgrade-policy.md | baseline upgrade classes P/M/J, the acceptance matrix, the drift gate, version claims, who ratifies | Proposed (2026-10-19) |
 | 0023 | 0023-c2crug-migration.md | c2crug proof rules, three modes, confidence, report schema, migration corpus, no invented safety | Accepted (2026-10-19) |
+| 0024 | 0024-structured-scope.md | the scope statement as a task group, the wait policy, scoped borrowed captures, the goto rules, the additive runtime surface | Accepted (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -92,16 +94,17 @@ ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
 ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
 last-use liveness). ADR 0022 keeps the GCC pin revisable on evidence; a major
-baseline upgrade would supersede ADR 0001 with the next free number (0024 today).
+baseline upgrade would supersede ADR 0001 with the next free number (0025 today).
 ADR 0010 is written and accepted, so Phase 11 is unblocked on the document side;
 ADR 0023 is written and accepted, so Phase 12 is unblocked on the document side.
 ADR 0011 is written and accepted, so Phase 13 is unblocked on the document side
 and its gate is adjudicable. ADRs 0008, 0009 and 0013 are written and accepted,
 so Phase 14 is unblocked on the document side and its gate is adjudicable (the
-scheduler model they record carries Phases 15 and 16 as well). The next ADRs
-that unblock work are 0012 and 0014 (OS backend and poller, when a second port
-or an I/O phase opens) and 0015-0017 (kernel compatibility and ownership); 0016
-and 0017 follow the kernel ownership work.
+scheduler model they record carries Phase 16 as well). ADR 0024 is written and
+accepted, so Phase 15 is unblocked on the document side and its gate is
+adjudicable. The next ADRs that unblock work are 0012 and 0014 (OS backend and
+poller, when a second port or an I/O phase opens) and 0015-0017 (kernel
+compatibility and ownership); 0016 and 0017 follow the kernel ownership work.
 
 ## Writing rules
 

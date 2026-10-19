@@ -88,7 +88,15 @@ boundary - see [docs/crug/TASKS.md](docs/crug/TASKS.md),
 [ADR 0009](docs/crug/adr/0009-scheduler-model.md) and
 [ADR 0013](docs/crug/adr/0013-arch-context-switch-policy.md). The Phase 14 gate
 passes 8/8 at `2ecfe35` (logs under `docs/crug/gates/phase-14/2ecfe35/`).
-Channels, `select` and structured `scope` are not implemented. See
+Phase 15 adds structured concurrency: `scope { ... }` is a task group, every
+`go` inside the block joins it, and the block waits for every child before it
+ends - on the normal path, on `return`, `break`, `continue` and `goto` out.
+A scoped task may borrow a value that outlives the block (a mutable borrow must
+still be exclusive), a `goto` into a scope body is rejected (`CONC-015`) and so
+is a borrow of a value that dies before the scope (`CONC-016`) - see
+[docs/crug/SCOPE.md](docs/crug/SCOPE.md) and
+[ADR 0024](docs/crug/adr/0024-structured-scope.md). `chan` and `select` are not
+implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -161,8 +169,10 @@ procedure and a 31-check acceptance matrix, governed by
 - `go` and `yield` with M:N scheduling: a task is a stackful fiber on one
   worker thread, its frame is copied at spawn, and an owned value crosses the
   boundary only through `move` (Phase 14, ADR 0008/0009/0013).
-- `scope`, `chan` and `select` for structured concurrency with explicit
-  ownership transfer on send (Phases 15-16).
+- `scope` for structured concurrency: a block that waits for every task it
+  spawned and lets those tasks borrow what outlives the block (Phase 15,
+  ADR 0024).
+- `chan` and `select` with explicit ownership transfer on send (Phase 16).
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
 
 ## Building
@@ -226,6 +236,9 @@ asserts that the core names no OS primitive; `docs/crug/PAL.md` describes them.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
+`make check-SCOPE` runs 23 `scope` dg cases and eight group programs whose
+counters must balance (`leaked task group state: 0`); `docs/crug/SCOPE.md`
+describes them.
 Runnable programs that need no harness live in
 [examples/](examples/README.md), one per Phase 4-11 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.

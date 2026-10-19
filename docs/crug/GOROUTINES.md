@@ -1,9 +1,10 @@
 # GOROUTINES — the go statement and yield
 
 Status: **v1 implemented** (2026-10-19, Phase 14; ADRs 0008, 0009, 0013).
-Front end: `gcc/c/crug-tasks.cc` (lowering) with the parser hooks in
-`gcc/c/c-parser.cc` and the capture checks in `gcc/c/crug-ownership.cc`.
-Runtime: `docs/crug/TASKS.md`.
+The structured `scope` statement is part of the same surface and is described
+in `SCOPE.md` (Phase 15, ADR 0024). Front end: `gcc/c/crug-tasks.cc`
+(lowering) with the parser hooks in `gcc/c/c-parser.cc` and the capture checks
+in `gcc/c/crug-ownership.cc`. Runtime: `docs/crug/TASKS.md`.
 
 ```
 A go statement is the only way Crug code creates a task. Everything about it is
@@ -123,7 +124,15 @@ both ways. `yield` takes no arguments, is a statement, and is gated on the
 same flag. Because scheduling is cooperative, `yield ()` is the only
 preemption point in the language.
 
-## 6. Flags
+## 6. scope
+
+`scope { ... }` is a task group: every `go` inside the block joins it and the
+block waits for every child before it ends. It is a statement, gated on
+`-fcrug-goroutines`, and it changes what a capture may borrow. The lowering,
+the borrow rules, the runtime API and the limits are in `SCOPE.md`;
+`gcc/testsuite/crug.dg/scope/` and `libcrug/tests/scope/` are the tests.
+
+## 7. Flags
 
 `-fcrug-goroutines` enables the surface and `__CRUG_GOROUTINES__`, and it is
 part of `-fcrug-modern`. It does **not** imply `-fcrug-ownership`: `go` is
@@ -140,22 +149,25 @@ Without the flag, `go f (x);` is not a task: form B reads as a call to an
 undeclared function `go`, and form A is a declaration or an error, depending on
 the tokens.
 
-## 7. Tests
+## 8. Tests
 
 | Target | Covers |
 |---|---|
 | `make check-GOROUTINES_DG` | 17 DejaGnu cases under `gcc/testsuite/crug.dg/goroutines/`: two run forms, capture shapes, yield, owned capture, and the rejection cases for CONC-008/010/011/012/013/014 plus arity, flag-off, a variable named `go` and a `go:` label |
 | `make check-GOROUTINES` | the DejaGnu cases, the five runtime programs and the stress/`strace` counts |
+| `make check-SCOPE` | the structured-scope suite: 23 DejaGnu cases and eight group programs (`SCOPE.md`) |
 
 The five runtime programs (`libcrug/tests/goroutines/`) print their own
 `goroutines-*` line: `spawn` (8 tasks, sum=36), `yield` (4 yields),
 `capture` (zero args, an array and a struct), `owned` (an owned buffer moved
 into a task and released there) and `shutdown` (idempotent shutdown, restart).
 
-## 8. Limits
+## 9. Limits
 
 - A task's captures are plain C values: no generic task type, no tuple, no
-  closure over a local's address (a borrow is refused, CONC-012).
+  closure over a local's address. A borrow is refused outside a scope
+  (CONC-012); inside a `scope` block a borrow of a value that outlives the
+  block may be captured (`SCOPE.md`, ADR 0024 D4).
 - `go` cannot be used as an expression and there is no `go` with a result
   value; a task that must report a result needs a channel (Phase 16) or FFI
   callback.

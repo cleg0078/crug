@@ -659,7 +659,7 @@ ADR adds no test there and changes none.
 - Cost: three named idioms (`go (call);`, a typedef for pointer-to-channel, `_` instead of `default` in
   match) and one reinterpreted corner (`go (f(size_t));`), all documented and tested in the directory of
   the feature they belong to.
-- This ADR does not decide borrow rules (ADR 0006), the diagnostic registry (ADR 0012), the ABI of
+- This ADR does not decide borrow rules (ADR 0006), the diagnostic registry (`docs/crug/DIAGNOSTICS.md`), the ABI of
   Crug-native types (`docs/crug/ABI.md`), or the runtime.
 
 ## Rejected alternatives
