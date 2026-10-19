@@ -7,7 +7,9 @@
 #   * every flag is accepted on its own, and its feature-macro closure is exact;
 #   * an unknown -fcrug option is rejected as an unrecognized option;
 #   * every pair of flags is accepted, except that -fcrug-kernel conflicts with
-#     -fcrug-goroutines, -fcrug-channels and -fcrug-modern;
+#     -fcrug-goroutines, -fcrug-channels and -fcrug-modern, and with the flags
+#     whose closure asks for ownership (-fcrug-ownership, -fcrug-borrow,
+#     -fcrug-strict): kernel-mode drop lowering is Phase 19 (ADR 0005 A-7);
 #   * no flag means no __CRUG__ macro and a predefined set byte-identical to the
 #     baseline compiler's;
 #   * the contextual words still parse as C identifiers under every accepted
@@ -136,7 +138,7 @@ else
   pass "no flag: predefined macros match the baseline compiler (baseline absent, skipped)"
 fi
 
-# 3. Every unordered pair is accepted, except the three kernel conflicts.
+# 3. Every unordered pair is accepted, except the kernel conflicts above.
 read -r -a list <<< "$flags"
 n=${#list[@]}
 for ((i = 0; i < n; i++)); do
@@ -149,6 +151,11 @@ for ((i = 0; i < n; i++)); do
         goroutines|channels|modern)
           expect_rejected "-fcrug-kernel -fcrug-$other rejected" \
             "removes.*-fcrug-$other" \
+            "$cc" "-fcrug-kernel" "-fcrug-$other" -fsyntax-only "$words"
+          ;;
+        ownership|borrow|strict)
+          expect_rejected "-fcrug-kernel -fcrug-$other rejected" \
+            "cannot be combined" \
             "$cc" "-fcrug-kernel" "-fcrug-$other" -fsyntax-only "$words"
           ;;
         *)
