@@ -248,6 +248,18 @@ check-GOROUTINES_DG: ## run the Crug 'go'/'yield' tests under DejaGnu
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/goroutines/goroutines.exp' 2>&1 | tee $(OBJ_DIR)/check-goroutines-dg.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
 	exit $${PIPESTATUS[0]}
 
+check-SCOPE: ## run the Phase 15 structured-scope checks
+	$(MAKE) -C libcrug PAL=linux
+	$(MAKE) check-SCOPE_DG
+	scripts/check-scope.sh
+
+check-SCOPE_DG: ## run the Crug 'scope' tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/scope/scope.exp' 2>&1 | tee $(OBJ_DIR)/check-scope-dg.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 check-PAL: ## run the Phase 13 PAL contract checks on both backends
 	$(MAKE) -C libcrug check-PAL PAL=fake
 	$(MAKE) -C libcrug check-PAL PAL=linux
@@ -308,5 +320,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
 	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
+	check-SCOPE check-SCOPE_DG \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

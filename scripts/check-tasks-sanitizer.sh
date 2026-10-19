@@ -27,6 +27,7 @@ compile () {
 
 compile "$build/tasks-test" "$root/libcrug/tests/tasks_main.c" "$root/libcrug/core/task.c"
 compile "$build/tasks-stress" "$root/libcrug/tests/tasks_stress.c" "$root/libcrug/core/task.c"
+compile "$build/scope-stress" "$root/libcrug/tests/scope_stress.c" "$root/libcrug/core/task.c"
 
 ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   CRUG_TASKS_WORKERS=4 "$build/tasks-test" > "$build/tasks-test.log" 2>&1
@@ -36,4 +37,10 @@ ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   CRUG_TASKS_WORKERS=4 GOROUTINES_STRESS=1 "$build/tasks-stress" > "$build/tasks-stress.log" 2>&1
 cat "$build/tasks-stress.log"
 
-echo "tasks-sanitizer: ASan and UBSan clean over the suite and 100000 tasks"
+# The group API gets its own pass: every scope must release its state, so a
+# leak shows up as both a counter and a LeakSanitizer report.
+ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+  CRUG_TASKS_WORKERS=4 "$build/scope-stress" > "$build/scope-stress.log" 2>&1
+cat "$build/scope-stress.log"
+
+echo "tasks-sanitizer: ASan and UBSan clean over the suite, 100000 tasks and 200 scopes"
