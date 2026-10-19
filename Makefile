@@ -221,6 +221,18 @@ check-STRICT_UNSAFE: ## run the Crug strict mode, raw and unsafe tests under Dej
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/strict/strict.exp' 2>&1 | tee $(OBJ_DIR)/check-strict.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
 	exit $${PIPESTATUS[0]}
 
+check-ALIAS_FACTS: ## run the Crug alias-fact (-fcrug-alias-facts) tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/alias/alias.exp' 2>&1 | tee $(OBJ_DIR)/check-alias-facts.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
+check-OPTIMIZATION: check-ALIAS_FACTS ## run the Phase 11 ownership-aware optimization checks
+	scripts/check-optimization.sh
+	python3 bench/run.py --matrix alias --check
+	python3 bench/run.py --matrix alias --lto
+
 fork-delta: ## print the fork delta against the pinned GCC vendor tag
 	scripts/fork-delta.sh
 
@@ -273,6 +285,6 @@ distclean: ## remove build/ and sources/ entirely
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
-	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES \
+	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean
