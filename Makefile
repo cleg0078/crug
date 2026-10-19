@@ -204,6 +204,13 @@ check-BORROW: ## run the Crug borrow checker tests under DejaGnu
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/borrow/borrow.exp' 2>&1 | tee $(OBJ_DIR)/check-borrow.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
 	exit $${PIPESTATUS[0]}
 
+check-STRICT_UNSAFE: ## run the Crug strict mode, raw and unsafe tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/strict/strict.exp' 2>&1 | tee $(OBJ_DIR)/check-strict.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1
@@ -247,4 +254,5 @@ distclean: ## remove build/ and sources/ entirely
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
+	check-STRICT_UNSAFE \
 	status print-config reconfigure clean distclean
