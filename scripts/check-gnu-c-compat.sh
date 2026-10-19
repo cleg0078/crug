@@ -6,8 +6,13 @@
 # Phase 3 must not change the meaning of any C program it is given: the flags
 # exist so later phases can add productions, and until then every accepted
 # translation unit keeps its meaning (ADR 0018 D1).  This script compiles the
-# GNU C corpus and the kernel corpus with the full flag set, plus the macro
-# fixture, and fails on the first translation unit that the flags broke.
+# GNU C corpus and the kernel corpus with every syntax feature enabled, plus
+# the macro fixture, and fails on the first translation unit the flags broke.
+#
+# The corpus is compiled in hybrid mode, without -fcrug-strict: strict is a
+# checking mode that deliberately rejects unannotated asm and setjmp (ADR 0021
+# D2-D6), and the corpus is plain GNU C by design.  The strict suites cover the
+# strict policy; this script covers parsing and code generation.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -38,8 +43,11 @@ check () {
   fi
 }
 
+# Every syntax feature, without strict (ADR 0021 D8 keeps hybrid mode).
+features="-fcrug-ownership -fcrug-borrow -fcrug-goroutines -fcrug-channels -fcrug-slices -fcrug-result -fcrug-adt"
+
 while IFS= read -r src; do
-  check "$src" -fcrug-modern
+  check "$src" $features
 done < <(find "$corpus" -name '*.c' -type f | sort)
 
 while IFS= read -r src; do

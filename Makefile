@@ -214,6 +214,15 @@ check-STRICT_UNSAFE: ## run the Crug strict mode, raw and unsafe tests under Dej
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/strict/strict.exp' 2>&1 | tee $(OBJ_DIR)/check-strict.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
 	exit $${PIPESTATUS[0]}
 
+fork-delta: ## print the fork delta against the pinned GCC vendor tag
+	scripts/fork-delta.sh
+
+check-gcc-drift: ## check the fork's hunks, symbols and pins against upstream GCC
+	scripts/check-gcc-drift.sh
+
+verify-upgrade: ## run the upgrade acceptance matrix (ARGS='--build --gates' for the full run)
+	scripts/verify-upgrade.sh $(ARGS)
+
 crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1
@@ -258,4 +267,5 @@ distclean: ## remove build/ and sources/ entirely
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
 	check-STRICT_UNSAFE check-FFI \
+	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

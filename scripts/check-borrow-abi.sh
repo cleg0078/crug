@@ -39,18 +39,18 @@ if ! "$CRUGC" -O2 -fcrug-borrow -c "$DIR/b09-borrow-abi.c" -o "$OUT/abi.o" >"$OU
 fi
 
 cat >"$OUT/plain/twin.c" <<'EOF'
-extern int consume_plain (int *p);
+extern int consume_plain (int v);
 int read_plain (int *p)
 {
-  return *p + consume_plain (p);
+  return *p + consume_plain (*p);
 }
 EOF
 
 cat >"$OUT/borrow/twin.c" <<'EOF'
-extern int consume_plain (int *p);
+extern int consume_plain (int v);
 int read_plain (ref int *p)
 {
-  return *p + consume_plain (p);
+  return *p + consume_plain (*p);
 }
 EOF
 

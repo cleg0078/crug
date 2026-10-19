@@ -1,0 +1,14 @@
+# Known, accepted drift between this fork and a newer upstream GCC tree.
+#
+# scripts/check-gcc-drift.sh replays every context line of every fork hunk
+# against the upstream file and reports the lines that no longer exist. A line
+# listed here is understood and tolerated; a line that is missing and not
+# listed fails the check. Keep the reason column short but real: "the
+# declaration was removed" and "it was renamed" need different porting work.
+#
+# Columns, tab separated:
+#   path <TAB> missing context line <TAB> reason
+#
+# Remove an entry once the fork is ported and the line is no longer context.
+gcc/c/c-tree.h	BOOL_BITFIELD expr_const_operands : 1;	upstream changed BOOL_BITFIELD to bool (mechanical port)
+gcc/c/c-tree.h	BOOL_BITFIELD declspecs_seen_p : 1;	upstream changed BOOL_BITFIELD to bool (mechanical port)
