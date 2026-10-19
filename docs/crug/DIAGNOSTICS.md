@@ -120,6 +120,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-BORROW-015` | - | error | error | cannot use '%s' while it is mutably borrowed | MASTER_SPEC s10, Phase 6 |
 | `crug-BORROW-016` | - | error | error | cannot borrow '%s' while it is mutably borrowed | MASTER_SPEC s10, Phase 6 |
 | `crug-BORROW-017` | - | error | error | borrow '%s' must be initialized from borrow(), borrow_mut() or another borrow | ADR 0018 D3, Phase 6 |
+| `crug-BORROW-018` | - | error | error | a borrow must be an automatic variable; it cannot outlive its referent | ADR 0019 D3, Phase 7 |
+| `crug-BORROW-019` | - | error | error | a borrow cannot be returned from the function that created it | ADR 0019 D4, Phase 7 |
+| `crug-BORROW-020` | - | error | error | a borrow may only be passed to a 'ref' or 'mut' parameter | ADR 0019 D2, Phase 7 |
 
 ### 4.4 Destruction (`DROP`)
 
@@ -276,13 +279,13 @@ caught by the script.
 
 ## 9. Status
 
-76 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 17,
+79 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 20,
 DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4, 5 and 6 of the
+suite that the owning gate runs. Implemented today (Phases 4, 5, 6 and 7 of the
 roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
-OWN-007, OWN-009, OWN-010, BORROW-001 to BORROW-017, DROP-001, DROP-002,
+OWN-007, OWN-009, OWN-010, BORROW-001 to BORROW-020, DROP-001, DROP-002,
 DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002, TYPE-004, TYPE-005,
 TYPE-006, TYPE-007. Everything else is
 planned; the FFI and KERNEL areas are still reserved only. FFI has a defined format (ADR 0007) but no allocated

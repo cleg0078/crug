@@ -12,6 +12,7 @@ its first comment.
 | `04-use-after-move.c` | a program the compiler rejects (`[crug-UAM-001]`) | `./gcc/crugc -O2 -fcrug-ownership -fsyntax-only examples/04-use-after-move.c` |
 | `05-borrow.c` | `ref`/`mut`: a shared borrow read by a callee, then a mutable borrow alone | `./gcc/crugc -O2 -fcrug-borrow examples/05-borrow.c -o build/borrow && ./build/borrow` |
 | `06-borrow-conflict.c` | a program the compiler rejects (`[crug-BORROW-002]`: mutable while shared) | `./gcc/crugc -O2 -fcrug-borrow -fsyntax-only examples/06-borrow-conflict.c` |
+| `07-nll.c` | last-use lifetimes: shared then mutable borrow of the same object in one block, then a move | `./gcc/crugc -O2 -fcrug-borrow examples/07-nll.c -o build/nll && ./build/nll` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the

@@ -7,9 +7,10 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-All eight written ADRs are Accepted and are cited by number throughout `spec/`
-and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18 and ADRs
-0006 and 0007 on 2026-10-19.
+All ten written ADRs are Accepted and are cited by number throughout `spec/`
+and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18, ADRs
+0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on 2026-10-19 as the
+Phase 7 planning decisions.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -21,6 +22,8 @@ and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18 and ADRs
 | 0018 | 0018-grammar.md | productions, qualifier attachment, go/scope/select/match, payload enums | Accepted (2026-10-18) |
 | 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Accepted (2026-10-19) |
 | 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Accepted (2026-10-19) |
+| 0019 | 0019-interprocedural-borrow-policy.md | summary depth zero, borrows cross calls only as `ref`/`mut` arguments, no returned or stored borrows | Accepted (2026-10-19) |
+| 0020 | 0020-last-use-liveness.md | a borrow ends at its last use; joins union, loops are conservative, `goto` abandons liveness | Accepted (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -52,8 +55,8 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0003 ownership metadata storage | written and accepted as `0003-ownership-metadata-storage.md` |
 | 0004 ownership analysis layer | written and accepted as `0004-ownership-analysis-layer.md` |
 | 0005 drop lowering | written and accepted as `0005-drop-lowering.md` |
-| 0006 c-abi-policy | written and proposed as `0006-c-abi-policy.md` |
-| 0007 ffi-metadata-format | written and proposed as `0007-ffi-metadata-format.md` |
+| 0006 c-abi-policy | written and accepted as `0006-c-abi-policy.md` |
+| 0007 ffi-metadata-format | written and accepted as `0007-ffi-metadata-format.md` |
 | 0008-0017 | not written |
 
 ## Candidate next ADRs
@@ -66,9 +69,10 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0016 | Freestanding and no-runtime policy | ADR 0017 |
 | 0017 | Kernel ownership policy | C-09 (kernel pin) |
 
-ADR 0007 now defines the `.crugffi` v1 format that Phase 9's parser implements, so
-what remains before Phase 9 can close is owner ratification of 0006 and 0007, not
-another document. The next ADR that unblocks work is 0010 (alias/noalias model,
+ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
+both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
+ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
+last-use liveness). The next ADR that unblocks work is 0010 (alias/noalias model,
 the prerequisite for Phase 11), unless scheduler work starts first and needs 0008
 and 0009. 0012 to 0015 have no written dependency yet and should be scheduled
 with the phase that needs them.

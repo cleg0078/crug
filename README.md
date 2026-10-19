@@ -28,8 +28,13 @@ exit path, with `setjmp` and never-adopted values diagnosed - see
 implements the `ref` and `mut` qualifiers and the `borrow`/`borrow_mut`
 intrinsics: many shared borrows or exactly one mutable borrow, a lexical
 lifetime, and compile errors for every conflicting use - see
-[docs/crug/BORROW.md](docs/crug/BORROW.md). `libcrug`, goroutines, channels,
-`slice`/`match` and non-lexical lifetimes are not implemented. See
+[docs/crug/BORROW.md](docs/crug/BORROW.md). Phase 7 (non-lexical lifetimes)
+makes a borrow end at its last use and fixes the interprocedural policy at depth
+zero: a borrow may cross a call only as a `ref`/`mut` argument and may not be
+returned or stored - see [docs/crug/BORROW.md](docs/crug/BORROW.md) and ADRs
+[0019](docs/crug/adr/0019-interprocedural-borrow-policy.md) and
+[0020](docs/crug/adr/0020-last-use-liveness.md). `libcrug`, goroutines, channels,
+`slice`/`match`, `raw`/`unsafe` and strict mode are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -60,8 +65,9 @@ in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 
 - `own`, `ref`, `mut`, `raw` qualifiers with move-only ownership and
   deterministic destruction, without changing C layout or calling conventions.
-- Borrow checking (N shared or one exclusive) enforced at compile time for the
-  lexical extent of the borrow (Phases 6-8).
+- Borrow checking (N shared or one exclusive) enforced at compile time until the
+  borrow's last use (Phases 6-7), with borrows that escape a call rejected
+  (Phase 8 owns the remaining call-site direction).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -102,8 +108,9 @@ corpora with the full flag set; both are described in
 borrow dg suites; `scripts/check-drop-*.sh` assert exactly-once destruction,
 sanitizer cleanliness and the absence of helper calls, and
 `scripts/check-borrow-*.sh` assert that a borrowed function compiles to the same
-object as its plain-pointer twin. Runnable programs that need no harness live in
-[examples/](examples/README.md), one per Phase 4-6 feature.
+object as its plain-pointer twin, that a borrow ends at its last use in the dump,
+and that six realistic programs compile and run. Runnable programs that need no
+harness live in [examples/](examples/README.md), one per Phase 4-7 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

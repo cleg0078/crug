@@ -7,8 +7,9 @@ Last updated: 2026-10-19
 The repository contains specification text, a phase-gate adjudicator, a
 reproducible GCC build, the `crugc` driver (Phase 1), and from Phases 4 and 5 the
 first Crug productions - `own`, `move`, automatic destruction, `adopt`,
-`release` and `drop` - with their analysis, diagnostics and dg suites, and from
-Phase 6 the lexical borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`). There
+`release` and `drop` - with their analysis, diagnostics and dg suites, from
+Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
+Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
 is no `libcrug` and no goroutine, channel or `slice`/`match` support yet. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
@@ -99,6 +100,20 @@ identities. `docs/crug/BORROW.md` is the digest; `make check-BORROW` runs 62
 expected passes under `gcc/testsuite/crug.dg/borrow/`. The Phase 6 gate passes
 7/7 at `848b02e` (logs under `docs/crug/gates/phase-6/848b02e/`).
 
+Phase 7 turns the lexical borrow checker into a liveness analysis (ADR 0020): a
+borrow ends after the last statement that reads it, so the owner can then be
+moved, dropped, released or mutably borrowed. The set of live borrows is
+computed backward over the structured body (`in(S) = use(S) | (out(S) -
+def(S))`), joins union, loops are conservative and a `goto` in the function
+falls back to the lexical rule. The interprocedural policy is depth zero (ADR
+0019): a borrow crosses a call only as an argument to a `ref`/`mut` parameter
+(`crug-BORROW-020`), may not be returned (`crug-BORROW-019`) or stored in
+memory or a static (`crug-BORROW-018`), and no function is summarized, so a call
+can never extend a borrow. `make check-BORROW` runs 88 expected passes over 46
+fixtures, six programs under `real-c/` are compiled and run, and
+`-fcrug-dump=borrow` marks a last-use end with `(last-use)`.
+`docs/crug/BORROW.md` is the digest.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -128,10 +143,10 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | Syntax was sketched but ambiguous | docs/crug/adr/0018-grammar.md |
 | RFC-0001 stated syntax without deciding ambiguity, attachment or ABI erasure | spec/CRUG_RFC_0001.md 0.2-draft sections 13-25 + Appendix H |
 | ADR numbering conflicted with MASTER_SPEC §79 | resolved 2026-10-18: ADR 0003/0004 split + ADR 0005 renamed; mapping in docs/crug/adr/README.md |
-| The decision set was unratified, so nothing could be cited as settled | eight ADRs carry Status Accepted (six on 2026-10-18, ADRs 0006 and 0007 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
+| The decision set was unratified, so nothing could be cited as settled | ten ADRs carry Status Accepted (six on 2026-10-18; ADRs 0006 and 0007 on 2026-10-19; ADRs 0019 and 0020 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
-| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (76 codes; 40 implemented through Phases 4, 5 and 6) + scripts/check-diagnostics.sh |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (79 codes; 43 implemented through Phases 4 to 7) + scripts/check-diagnostics.sh |
 | The kernel baseline had no CI protection, so Phase 2 could not close and Phase 4 could not start | `.github/workflows/kernel-compat.yml` green on `78c759b`; branch protection on `main` requires `kernel-compat`; phase-2 and phase-3 gates 4/4 archived under docs/crug/gates/phase-{2,3}/78c759b/ |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
@@ -154,6 +169,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | Ownership had no implementation, so the state machine and the zero-metadata claim were untested | `own`/`move` front-end (gcc/c/crug-ownership.cc), 17-pass dg suite, `-fcrug-dump=ownership`; docs/crug/OWNERSHIP.md; phase-4 gate 7/7 |
 | Destruction was undefined, so every owning object leaked and the O1 claim was untestable | drop lowering in `gcc/c/crug-ownership.cc`, `adopt`/`release`/`drop` intrinsics, 39-pass dg suite, six `scripts/check-drop-*.sh` checks, `-fcrug-dump=drop`; docs/crug/DROP.md; ADR 0005 A-1..A-7; phase-5 gate |
 | Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
+| A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
 
 ## Still open
 
@@ -166,19 +182,20 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
 | -  | Ownership transfer at call sites is unchecked: a caller may pass a value it still owns to an owning parameter, and an owning return value is not tracked by the caller | a later phase; recorded in docs/crug/DROP.md section 8 |
-| -  | Borrow checking stops at the lexical subset: call sites, struct and array-element borrows, mutable reborrow, NLL and interior mutability are not implemented | Phases 7 (NLL), 8 (call sites) and 12 (interior mutability); recorded in docs/crug/BORROW.md section 5 |
+| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected | Phases 8 (call sites and plain-pointer direction) and 12 (place-level borrows and interior mutability); recorded in docs/crug/BORROW.md section 5 |
 | -  | `slice<T>`, `chan T`, payload enums and `match` still do not parse | Phases 10 and 13-14 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 7** (CFG borrowing and non-lexical lifetimes): last-use analysis
-   so a borrow ends before the end of its block, and mutable reborrowing
-   (`crug-BORROW-010` is the Phase 6 refusal). The lexical checker of Phase 6 is
-   the substrate; `docs/crug/BORROW.md` section 5 lists what it defers.
+1. **Start Phase 8** (strict mode, `raw` and `unsafe`): the three escape hatches
+   that the safety story rests on, plus the call-site direction Phase 7 left open
+   (a plain pointer passed where a `ref`/`mut` parameter is expected).
+   `docs/crug/BORROW.md` section 5 lists what Phase 6 and 7 defer.
 2. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
-   `-fcrug-ownership` until that phase decides kernel drop lowering.
+   `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
+   lowering.
 
 ## Working rules
 

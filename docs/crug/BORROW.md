@@ -1,22 +1,30 @@
 # CRUG Borrows
 
-Status: Phase 6 implemented, 2026-10-19. This file describes the borrow
-checker as it behaves today. ADR 0018 D2 and D3 remain canonical for the
-surface syntax; ADR 0003 remains canonical for what a borrow is (static
-analysis metadata, no object representation).
+Status: Phase 6 implemented and extended by Phase 7 (last-use liveness and the
+interprocedural policy), 2026-10-19. This file describes the borrow checker as
+it behaves today. ADR 0018 D2 and D3 remain canonical for the surface syntax;
+ADR 0003 remains canonical for what a borrow is (static analysis metadata, no
+object representation); ADR 0020 is canonical for when a borrow ends and ADR
+0019 for what may cross a call.
 
-## 1. What Phase 6 implements
+## 1. What the checker implements
 
 1. Two qualifiers, `ref` and `mut`, recognised as declaration
    specifiers exactly like `own` (ADR 0018 D2, amendment A-3: they must
    precede the type specifiers).
 2. Two intrinsics, `borrow(e)` and `borrow_mut(e)`, recognised in
    call position when no user declaration of the identifier is visible.
-3. A lexical borrow checker: one mutable borrow or many shared borrows, never
-   both; a borrow cannot outlive the block of the object it borrows.
-4. Rejections for every conflicting operation while a borrow is live.
-5. A static borrow dump, `-fcrug-dump=borrow`, which prints the lender of
-   every borrow and where it ends.
+3. A borrow checker: one mutable borrow or many shared borrows, never both.
+4. Last-use lifetimes (Phase 7, ADR 0020): a borrow ends after the last
+   statement that reads it, so the owner can then be moved, dropped, released
+   or mutably borrowed. Joins union, loops are conservative, a `goto` in the
+   body falls back to the lexical rule.
+5. A depth-zero interprocedural policy (Phase 7, ADR 0019): a borrow crosses a
+   call only as an argument to a `ref`/`mut` parameter; returning one, storing
+   one in memory, or passing one to a plain parameter is rejected.
+6. Rejections for every conflicting operation while a borrow is live.
+7. A static borrow dump, `-fcrug-dump=borrow`, which prints the lender of
+   every borrow and where it ends, with the reason when it ends at last use.
 
 Nothing is emitted for a borrow. `ref T *` and `mut T *` have the
 size, alignment and calling representation of `T *`; `borrow(e)`
@@ -63,21 +71,37 @@ first.
 
 ### 2.3 Lifetime
 
-The lifetime is the lexical block of the lender. A borrow declared in an inner
-block cannot be stored into a binding declared outside it (crug-BORROW-007), and
-no assignment can extend a borrow beyond its block. This is the
-non-lexical-lifetime rule reduced to the MVP: when the end of a borrow cannot be
-proven, the borrow stays live until the end of its block.
+A borrow begins at its declaration and ends after the last statement that reads
+it (ADR 0020). The set of borrows live at a statement is computed by a backward
+pass over the structured body:
+
+    in(S)  = use(S) | (out(S) - def(S))
+    out(S) = in(next statements), unioned at every join
+
+The conservative rules are part of the decision:
+
+- A join unions the two arms, so a borrow read in either arm is live after it.
+- Inside a loop, every borrow of the function is treated as live (no fixpoint),
+  but the loop's live-out set is not widened.
+- A `goto` in the body makes liveness fall back to the lexical rule.
+
+Escapes are unchanged: a borrow declared in an inner block cannot be stored into
+a binding declared outside it (crug-BORROW-007), and no assignment can extend a
+borrow beyond the block of the referent.
 
 ### 2.4 Borrows as parameters
 
 A parameter declared `ref T *p` or `mut T *p` is a live borrow
 inside the callee for the whole body, with an unknown lender. The callee can
 re-borrow a `ref` parameter (`ref T *q = borrow (p);`) but cannot
-move, drop or free it. Call sites are not checked in this phase: passing a plain
-pointer where a `ref T *` is expected is accepted, and the caller's own
-borrow obligations are not enforced around the call. That gap is recorded in
-section 5.
+move, drop or free it.
+
+Call sites are checked at depth zero (ADR 0019): a borrow may be passed only to
+a `ref`/`mut` parameter (crug-BORROW-020), a borrow may not be returned
+(crug-BORROW-019) or stored in memory or a static (crug-BORROW-018), and no
+function is summarized, so a call can never extend a borrow's lifetime. Passing
+a plain pointer where a `ref T *` is expected remains accepted: the callee
+then has a borrow the caller never granted, and Phase 8 owns that direction.
 
 ### 2.5 Where a borrow may appear
 
@@ -115,6 +139,9 @@ implemented in this phase:
 | crug-BORROW-015 | cannot read an owner while it is mutably borrowed |
 | crug-BORROW-016 | cannot borrow while it is mutably borrowed |
 | crug-BORROW-017 | borrow must be initialized from borrow(), borrow_mut() or another borrow |
+| crug-BORROW-018 | a borrow must be an automatic variable, or cannot be stored in memory |
+| crug-BORROW-019 | a borrow cannot be returned from the function that created it |
+| crug-BORROW-020 | a borrow may only be passed to a ref or mut parameter |
 
 ## 4. Dump
 
@@ -124,10 +151,10 @@ object (the flag takes a comma-separated list, so
 
 ```
 crug borrow dump v1
-borrow b01-multiple-shared.c:27: a shares p
-borrow b01-multiple-shared.c:28: b shares p
-end b01-multiple-shared.c:24: a shares p
-end b01-multiple-shared.c:24: b shares p
+borrow b10-last-use-shared.c:28: a shares p
+end b10-last-use-shared.c:29: a shares p (last-use)
+borrow b10-last-use-shared.c:31: m excludes p
+end b10-last-use-shared.c:35: m excludes p
 ```
 
 The first word of a line is the record kind (`borrow`, `end`); the
@@ -143,11 +170,15 @@ These are deferrals, not oversights. Each names the phase that owns it.
   `ref T *` is not checked against the caller's live borrows, and an
   `own` argument is not moved. Phase 8 (cross-function ownership) owns the
   transfer rules; borrows follow them.
-- **No mutable reborrow.** `borrow_mut` of a borrow is rejected
-  (crug-BORROW-010) rather than checked. Reborrowing is a Phase 7 decision.
+- **No place-level borrows.** Reborrowing a borrow (shared or mutable) is
+  rejected (crug-BORROW-010, crug-BORROW-016); Phase 12 owns place-level
+  borrows and with them reborrowing.
 - **No struct fields.** A borrow cannot be stored in a structure, so a borrow
-  cannot outlive its function by being returned inside one either.
-- **No NLL.** A borrow dies at the end of its block, not at its last use.
+  cannot outlive its function by being returned inside one either
+  (crug-BORROW-018).
+- **No interprocedural summaries.** Depth is zero by decision (ADR 0019), so
+  helper functions cannot return borrows and borrows cannot reach libc until
+  the FFI contracts of Phase 9.
 - **No interior-mutability story.** `_Atomic` and `volatile` are
   neither borrowed nor excluded; Phase 12 decides how a shared borrow sees an
   atomic.
@@ -156,18 +187,23 @@ These are deferrals, not oversights. Each names the phase that owns it.
 
 ## 6. Tests and gate
 
-`gcc/testsuite/crug.dg/borrow/` holds 34 fixtures run by
-`make check-BORROW` (DejaGnu, `borrow.exp`): 7 programs that must
-run, 4 that must compile and dump or size-check, and 23 that must be rejected
-with a specific code.
+`gcc/testsuite/crug.dg/borrow/` holds 46 fixtures run by
+`make check-BORROW` (DejaGnu, `borrow.exp`): 88 tests at the Phase 7 commit,
+13 programs that must run, 4 that must compile and dump or size-check, and 29
+that must be rejected with a specific code. The six programs under
+`real-c/` are compiled and run by a script, not by the dg suite.
 
 | check | script |
 |---|---|
 | the dg suite | `scripts/check-borrow-suite.sh` |
+| realistic programs | `scripts/check-borrow-real-c.sh` |
+| escape rejection and origin note | `scripts/check-borrow-escape.sh` |
+| last-use and scope ends in the dump | `scripts/check-borrow-nll.sh` |
 | zero cost | `scripts/check-borrow-cost.sh` |
 | ABI identity | `scripts/check-borrow-abi.sh` |
 | stable codes | `scripts/check-borrow-policy.sh` |
 | dump shape | `scripts/check-borrow-dump.sh` |
 | registry consistency | `scripts/check-diagnostics.sh` |
 
-The exit gate for Phase 6 is in docs/crug/EXIT-GATES.md (amendment A-7).
+The exit gate for Phase 6 is in docs/crug/EXIT-GATES.md (amendment A-7); the
+Phase 7 gate is in the same document (amendment A-8).

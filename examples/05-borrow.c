@@ -5,9 +5,9 @@
  *   ./gcc/crugc -O2 -fcrug-borrow examples/05-borrow.c -o build/borrow
  *
  * A borrow may name a whole owned object.  Reads through a shared borrow may
- * be many at once; a mutable borrow must be alone.  Ending a borrow is
- * lexical: the closing brace of the block that declared it (phase 6 has no
- * last-use analysis yet).
+ * be many at once; a mutable borrow must be alone.  Each borrow here lives to
+ * the closing brace of the block that declared it; example 07 shows the phase 7
+ * rule, where a borrow ends at its last use instead.
  */
 
 #include <stdio.h>
