@@ -1,0 +1,5 @@
+phase-3 #3 rc=0
+cmd: for f in -fcrug-ownership -fcrug-borrow -fcrug-slices -fcrug-result -fcrug-adt -fcrug-goroutines -fcrug-channels -fcrug-strict -fcrug-modern -fcrug-kernel; do crugc "$f" -fsyntax-only gcc/testsuite/crug.dg/flags/words-as-identifiers.c; done
+expected: exit 0 (every contextual word stays an ordinary C identifier under every single flag).
+---
+

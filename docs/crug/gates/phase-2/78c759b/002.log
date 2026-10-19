@@ -1,0 +1,5 @@
+phase-2 #2 rc=0
+cmd: scripts/check-kernel-objects.sh out
+expected: exit 0, printed `kernel-objects: <n> objects, __crug_=0, libcrug=0`.
+---
+kernel-objects: 20 objects, __crug_=0, libcrug=0

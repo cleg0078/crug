@@ -1,9 +1,8 @@
 # CRUG kernel and GNU C compatibility (Phase 2)
 
-**Status:** Phase 2 open — the local checks pass and are archived; the CI check is
-pending because the repository has not been pushed and the `kernel-compat` job is
-not yet required in branch protection. Phase 2 closes only when all four gate
-checks pass and are archived (section 7).
+**Status:** Phase 2 closed on 2026-10-19 at commit `78c759b`. All four gate checks
+pass and are archived (section 7), including a `kernel-compat` check run that
+concluded success on that commit and its status as a required check on `main`.
 
 **Closes:** M2 — Linux-kernel/GNU-C baseline, and the evidence basis for conformance
 `class K0` (RFC-0001 section 7.2). Phase 2 does **not** claim K0: K0 also needs the
@@ -120,35 +119,41 @@ crugc -fcrug-kernel -ffreestanding -nostdlib -O2 -c -o out/<name>.o <source>
 ## 6. Continuous integration and branch protection
 
 The workflow is `.github/workflows/kernel-compat.yml`. It runs one job, named
-`kernel-compat`, on `ubuntu-24.04`: it checks disk headroom, installs the build
-prerequisites, runs `make baseline JOBS=4` (the pinned GCC 16.2.0 tree is in the
-repository), then `make check-KERNEL_COMPAT`. It runs on pushes and pull requests to
-`main` and on demand, with `contents: read` and a 180-minute cap. It does **not**
-cache: a build tree is about 5.3 GiB and a stale cache would silently change what
-is being tested.
+`kernel-compat`, on `ubuntu-24.04`: it frees disk space, checks the headroom left,
+installs the build prerequisites, runs `make baseline JOBS=$(nproc)` (the pinned
+GCC 16.2.0 tree is in the repository), then `make check-KERNEL_COMPAT`. It runs on
+pushes and pull requests to `main` and on demand, with `contents: read` and a
+300-minute cap. It does **not** cache: a build tree is about 5.3 GiB and a stale
+cache would silently change what is being tested.
 
-Phase 2 requires the job to be **required** for `main`, not merely green. The owner,
-in this order:
+The repository is public since 2026-10-19, so branch protection is free and the job
+runs on the public 4 CPU / 16 GB runner. The workflow still frees disk space first:
+the image ships toolchains the build never uses, and the GCC build plus the
+checkout needs about 8 GiB.
 
-1. Make pushes work. `git remote` is `git@github.com:cleg0078/crug.git`; pushes
-   currently fail on this host with `Bad owner or permissions on
-   /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`. Either fix that file's
-   ownership or push over HTTPS with a personal access token.
-2. Push `main` (it is ahead of `origin/main`, which still has only the initial commit).
-3. Enable GitHub Actions for the repository and wait for the first
-   `kernel-compat` run on `main`.
-4. In Settings → Branches, add a branch protection rule for `main` and require the
-   status check named exactly `kernel-compat`.
-5. Grant the token repo read access (admin for the protection endpoint) and run
-   `GH_TOKEN=... scripts/check-ci-gate.sh`. It prints
+Phase 2 requires the job to be **required** for `main`, not merely green. Branch
+protection on `main` requires the status check named exactly `kernel-compat`
+(`strict` false, so a later commit does not need a fresh run before landing;
+`enforce_admins` false, so the owner can still push directly, while the check binds
+every other writer and shows as a red required check on the branch).
+
+The owner-side setup was completed on 2026-10-19:
+
+1. pushes use `GIT_SSH_COMMAND='ssh -F ~/.ssh/config'` because this host's
+   `/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf` has bad ownership;
+2. `main` and the tag `releases/gcc-16.2` are pushed to `origin`;
+3. Actions is enabled, and the first `kernel-compat` run was queued for the pushed
+   commit;
+4. branch protection on `main` requires `kernel-compat`;
+5. `GH_TOKEN=... scripts/check-ci-gate.sh` prints
    `ci-gate: kernel-compat success=<sha> required=true` when both facts hold.
-6. Run `scripts/gate.sh --run phase-2` on the clean tree and commit the archive.
 
 `scripts/check-ci-gate.sh` reads `GH_TOKEN` or `GITHUB_TOKEN`, resolves
 `owner/repo` from `origin` (or `CRUG_REPO`), checks the check run on the exact HEAD
 commit, then checks `required_status_checks` for the branch (default `main`, override
 with `CRUG_BRANCH`). It exits 2 when tooling or the token is missing, 1 when a fact
-does not hold. No token is needed for checks 1–3.
+does not hold. No token is needed for checks 1-3. A fine-grained token needs
+Metadata read plus Contents, Actions and Administration read.
 
 ## 7. Exit gate
 
@@ -165,17 +170,18 @@ CI-protected. The gate is defined in `docs/crug/EXIT-GATES.md`, Phase 2:
 Checks 2 and 3 consume the objects written by check 1, so the gate must run them
 in order (it does). Phase 2 is **open** until check 4 passes; local green checks are
 evidence for checks 1–3 only, and a declaration that CI is "set up" satisfies
-nothing.
+nothing. Check 4 passed at `78c759b` on 2026-10-19.
 
 Recorded runs:
 
 | Date | Commit | Checks 1–3 | Check 4 | Archive |
 |------|--------|------------|---------|---------|
 | 2026-10-19 | 29868e2 | PASS | FAIL — no `GH_TOKEN` (CI never ran) | `docs/crug/gates/phase-2/29868e2/` |
+| 2026-10-19 | 78c759b | PASS | PASS — `kernel-compat` success and required | `docs/crug/gates/phase-2/78c759b/` |
 
-The 29868e2 run is the state this document describes: the local baseline is green
-and archived, and the phase cannot close until the owner pushes and requires the
-job. Re-running the gate on a later commit records a new archive; the old one stays
+The 29868e2 run recorded only the local half: the CI check failed because no token
+existed and the job had never run. The 78c759b run is the closing adjudication;
+re-running the gate on a later commit records a new archive, and the old ones stay
 as history.
 
 ## 8. Known limits
@@ -189,7 +195,7 @@ as history.
   lists, and a construct absent from the list is untested.
 - The freestanding unit includes no headers at all, so it does not exercise GCC's
   freestanding header set; that belongs to Phase 19.
-- CI is a single job with no matrix and no caching; if it exceeds the 180-minute
+- CI is a single job with no matrix and no caching; if it exceeds the 300-minute
   cap the job fails rather than silently truncating.
 - Phase 2 cannot detect an optimizer defect that only appears on kernel-shaped
   input at a specific `-O` level; the corpus is fixed and compiled at `-O2`.

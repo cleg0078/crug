@@ -1,0 +1,5 @@
+phase-2 #4 rc=0
+cmd: scripts/check-ci-gate.sh
+expected: exit 0, printed `ci-gate: kernel-compat success=<sha> required=true` (the `kernel-compat` job concluded success on HEAD and is a required status check on the branch).
+---
+ci-gate: kernel-compat success=78c759bfa12f407fb8faefb4a9409bce283d40c2 required=true

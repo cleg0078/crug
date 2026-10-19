@@ -12,11 +12,11 @@ architecture decisions, and the pinned GCC 16.2.0 tree that the fork modifies
 is tagged `releases/gcc-16.2`). Phase 1 of the release gates is implemented:
 `gcc/crugc` is the CRUG driver, which for now behaves exactly like the GCC it
 is built from, so plain C compiles and links identically. Phase 2 (kernel/GNU C
-compatibility) is implemented locally: the driver accepts `-fcrug-kernel` as a
-mode marker, the kernel corpus and its no-runtime checks live in
-`gcc/testsuite/crug.dg/kernel/`, and the `kernel-compat` CI job is defined but
-still has to be enabled and made mandatory by the repository owner. Phase 3
-(feature flags) is implemented: ten `-fcrug-*` options, their closure and the
+compatibility) is closed: the driver accepts `-fcrug-kernel` as a mode marker,
+the kernel corpus and its no-runtime checks live in
+`gcc/testsuite/crug.dg/kernel/`, and the `kernel-compat` CI job builds the pinned
+baseline on every push and is a required status check on `main`. Phase 3
+(feature flags) is closed too: ten `-fcrug-*` options, their closure and the
 feature macros, with no production behind them yet - see
 [docs/crug/FLAGS.md](docs/crug/FLAGS.md). Crug syntax, ownership checking, drop
 and concurrency are not implemented. See

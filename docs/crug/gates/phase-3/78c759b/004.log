@@ -1,0 +1,6 @@
+phase-3 #4 rc=0
+cmd: make check-GNU_C_COMPAT
+expected: exit 0, printed `GNU_C_COMPAT: 50 files, 0 FAIL` (the 30-program GNU C corpus and the 18-file kernel corpus still compile with the flag sets on, plus the macro fixture).
+---
+scripts/check-gnu-c-compat.sh
+GNU_C_COMPAT: 50 files, 0 FAIL

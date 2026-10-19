@@ -1,0 +1,154 @@
+phase-3 #1 rc=0
+cmd: scripts/check-crug-flags.sh
+expected: exit 0, printed `crug-flags: <n>/<n> work items PASS`. Covers every flag alone, the exact feature-macro closure of each, every accepted pair, the three `-fcrug-kernel` conflicts, the unknown-option rejection, and the contextual-words fixture.
+---
+PASS: -fcrug-ownership accepted
+PASS: -fcrug-ownership defines __CRUG_OWNERSHIP__
+PASS: -fcrug-ownership leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-ownership leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-ownership leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-ownership leaves __CRUG_ADT__ undefined
+PASS: -fcrug-ownership leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-ownership leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-ownership leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-ownership leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-borrow accepted
+PASS: -fcrug-borrow defines __CRUG_OWNERSHIP__
+PASS: -fcrug-borrow defines __CRUG_BORROW__
+PASS: -fcrug-borrow leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-borrow leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-borrow leaves __CRUG_ADT__ undefined
+PASS: -fcrug-borrow leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-borrow leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-borrow leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-borrow leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-slices accepted
+PASS: -fcrug-slices leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-slices leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-slices defines __CRUG_SLICES__
+PASS: -fcrug-slices leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-slices leaves __CRUG_ADT__ undefined
+PASS: -fcrug-slices leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-slices leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-slices leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-slices leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-result accepted
+PASS: -fcrug-result leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-result leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-result leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-result defines __CRUG_RESULT__
+PASS: -fcrug-result defines __CRUG_ADT__
+PASS: -fcrug-result leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-result leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-result leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-result leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-adt accepted
+PASS: -fcrug-adt leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-adt leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-adt leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-adt leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-adt defines __CRUG_ADT__
+PASS: -fcrug-adt leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-adt leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-adt leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-adt leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-goroutines accepted
+PASS: -fcrug-goroutines leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_ADT__ undefined
+PASS: -fcrug-goroutines defines __CRUG_GOROUTINES__
+PASS: -fcrug-goroutines leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-goroutines leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-channels accepted
+PASS: -fcrug-channels leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-channels leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-channels leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-channels leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-channels leaves __CRUG_ADT__ undefined
+PASS: -fcrug-channels defines __CRUG_GOROUTINES__
+PASS: -fcrug-channels defines __CRUG_CHANNELS__
+PASS: -fcrug-channels leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-channels leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-strict accepted
+PASS: -fcrug-strict defines __CRUG_OWNERSHIP__
+PASS: -fcrug-strict defines __CRUG_BORROW__
+PASS: -fcrug-strict leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-strict leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-strict leaves __CRUG_ADT__ undefined
+PASS: -fcrug-strict leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-strict leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-strict defines __CRUG_STRICT__
+PASS: -fcrug-strict leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-modern accepted
+PASS: -fcrug-modern defines __CRUG_OWNERSHIP__
+PASS: -fcrug-modern defines __CRUG_BORROW__
+PASS: -fcrug-modern defines __CRUG_SLICES__
+PASS: -fcrug-modern defines __CRUG_RESULT__
+PASS: -fcrug-modern defines __CRUG_ADT__
+PASS: -fcrug-modern defines __CRUG_GOROUTINES__
+PASS: -fcrug-modern defines __CRUG_CHANNELS__
+PASS: -fcrug-modern defines __CRUG_STRICT__
+PASS: -fcrug-modern leaves __CRUG_KERNEL__ undefined
+PASS: -fcrug-kernel accepted
+PASS: -fcrug-kernel leaves __CRUG_OWNERSHIP__ undefined
+PASS: -fcrug-kernel leaves __CRUG_BORROW__ undefined
+PASS: -fcrug-kernel leaves __CRUG_SLICES__ undefined
+PASS: -fcrug-kernel leaves __CRUG_RESULT__ undefined
+PASS: -fcrug-kernel leaves __CRUG_ADT__ undefined
+PASS: -fcrug-kernel leaves __CRUG_GOROUTINES__ undefined
+PASS: -fcrug-kernel leaves __CRUG_CHANNELS__ undefined
+PASS: -fcrug-kernel leaves __CRUG_STRICT__ undefined
+PASS: -fcrug-kernel defines __CRUG_KERNEL__
+PASS: no flag: __CRUG__ is not predefined
+PASS: no flag: predefined macros match the baseline compiler
+PASS: -fcrug-ownership -fcrug-borrow accepted
+PASS: -fcrug-ownership -fcrug-slices accepted
+PASS: -fcrug-ownership -fcrug-result accepted
+PASS: -fcrug-ownership -fcrug-adt accepted
+PASS: -fcrug-ownership -fcrug-goroutines accepted
+PASS: -fcrug-ownership -fcrug-channels accepted
+PASS: -fcrug-ownership -fcrug-strict accepted
+PASS: -fcrug-ownership -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-ownership accepted
+PASS: -fcrug-borrow -fcrug-slices accepted
+PASS: -fcrug-borrow -fcrug-result accepted
+PASS: -fcrug-borrow -fcrug-adt accepted
+PASS: -fcrug-borrow -fcrug-goroutines accepted
+PASS: -fcrug-borrow -fcrug-channels accepted
+PASS: -fcrug-borrow -fcrug-strict accepted
+PASS: -fcrug-borrow -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-borrow accepted
+PASS: -fcrug-slices -fcrug-result accepted
+PASS: -fcrug-slices -fcrug-adt accepted
+PASS: -fcrug-slices -fcrug-goroutines accepted
+PASS: -fcrug-slices -fcrug-channels accepted
+PASS: -fcrug-slices -fcrug-strict accepted
+PASS: -fcrug-slices -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-slices accepted
+PASS: -fcrug-result -fcrug-adt accepted
+PASS: -fcrug-result -fcrug-goroutines accepted
+PASS: -fcrug-result -fcrug-channels accepted
+PASS: -fcrug-result -fcrug-strict accepted
+PASS: -fcrug-result -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-result accepted
+PASS: -fcrug-adt -fcrug-goroutines accepted
+PASS: -fcrug-adt -fcrug-channels accepted
+PASS: -fcrug-adt -fcrug-strict accepted
+PASS: -fcrug-adt -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-adt accepted
+PASS: -fcrug-goroutines -fcrug-channels accepted
+PASS: -fcrug-goroutines -fcrug-strict accepted
+PASS: -fcrug-goroutines -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-goroutines rejected
+PASS: -fcrug-channels -fcrug-strict accepted
+PASS: -fcrug-channels -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-channels rejected
+PASS: -fcrug-strict -fcrug-modern accepted
+PASS: -fcrug-kernel -fcrug-strict accepted
+PASS: -fcrug-kernel -fcrug-modern rejected
+PASS: -fcrug-nonexistent rejected
+PASS: -fcrug-kernel -fcrug-modern names the conflict
+crug-flags: 149/149 work items PASS
