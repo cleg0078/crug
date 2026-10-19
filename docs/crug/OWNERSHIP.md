@@ -131,7 +131,7 @@ argument to -fcrug-dump=`), and the option changes no object code.
 | Missing | Phase |
 | --- | --- |
 | ownership transfer at call sites: a callee does not check what a caller does with its owning parameters, and an owning return value is not tracked by the caller | later |
-| borrow checking beyond the lexical subset of [BORROW.md](BORROW.md): call sites, members, array elements, mutable reborrow, NLL | 6 (lexical subset), 7 (NLL), 8 (call sites) |
+| borrow checking beyond whole objects ([BORROW.md](BORROW.md)): members, array elements, mutable reborrow, interior mutability | 12 (place-level borrows); Phase 7 added last-use lifetimes and the depth-zero call policy |
 | partial moves (`move (s.field)`); rejected with `crug-UAM-006` | post-MVP, ADR 0004 D4 |
 | termination on `exit`, `abort` or a signal (no destructor runs, documented in DROP.md section 5) | intentional |
 | `setjmp`/`longjmp` destructor elision (warned with `crug-DROP-003`, not repaired) | post-MVP |

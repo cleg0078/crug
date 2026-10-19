@@ -145,15 +145,18 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `crugc -fcrug-dump=ownership` | the ownership dump of a branch join (`OWNERSHIP.md` section 4) |
 | `make check-DROP` | destruction and its rejections: 39 expected passes under `gcc/testsuite/crug.dg/drop/` |
 | `scripts/check-drop-dump.sh` | the `drop` dump records every exit kind (`DROP.md` section 6) |
-| `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on: 62 expected passes under `gcc/testsuite/crug.dg/borrow/` |
+| `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on, including last-use lifetimes and the call policy: 88 expected passes under `gcc/testsuite/crug.dg/borrow/` |
 | `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
 | `scripts/check-borrow-dump.sh` | the `borrow` dump records shared and mutable borrows and their ends (`BORROW.md` section 4) |
+| `scripts/check-borrow-nll.sh` / `check-borrow-escape.sh` / `check-borrow-real-c.sh` | a borrow ends at last use in the dump, an escaping borrow is rejected with its origin noted, and six realistic programs compile and run |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
 ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the
 six `scripts/check-drop-*.sh` and `scripts/check-diagnostics.sh` checks, and the
 phase-6 gate runs the five `scripts/check-borrow-*.sh` scripts, one compile-fail
-exit status and `scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
+exit status and `scripts/check-diagnostics.sh`; the phase-7 gate runs the eight
+borrow scripts, the two compatibility suites and `scripts/check-diagnostics.sh`;
+see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

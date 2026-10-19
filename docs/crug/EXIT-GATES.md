@@ -140,9 +140,9 @@ P25→M23 (closes)                 P26→M24
 - `CHECK: scripts/check-borrow-cost.sh` => exit 0, printed `borrow-cost: 2 functions, 0 calls, identical objects`
 - `CHECK: scripts/check-borrow-abi.sh` => exit 0, printed `borrow-abi: 4 assertions, 0 differences`
 - `CHECK: crugc -O2 -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/borrow/mut-plus-ref.c` => exit 1
-- `CHECK: scripts/check-borrow-policy.sh` => exit 0, printed `borrow-policy: BORROW-002 BORROW-003 BORROW-004 BORROW-005 BORROW-007 BORROW-008`
+- `CHECK: scripts/check-borrow-policy.sh` => exit 0, printed `borrow-policy:` and the Phase 6 codes
 - `CHECK: scripts/check-borrow-dump.sh` => exit 0, printed `borrow-dump: 2 shared, 1 mutable, 3 ends`
-- `CHECK: scripts/check-diagnostics.sh` => exit 0, printed `check-diagnostics: 76 registered code(s); 76 referenced code(s); all references registered.`
+- `CHECK: scripts/check-diagnostics.sh` => exit 0 (the registry stays consistent; later phases add codes)
 **Non-goals:** no NLL/last-use (P7), no interprocedural lifetimes, no Send/Sync (P17), no runtime borrow tracking, no changes to plain-C pointer rules.
 **Risk of skipping:** a borrow checker built before drop is exact will accept programs whose cleanup paths the IR cannot prove, producing UAF that reviewers trust because "borrow checked".
 
