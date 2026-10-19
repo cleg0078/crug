@@ -1,0 +1,5 @@
+phase-8 #3 rc=0
+cmd: scripts/check-strict-suite.sh
+expected: exit 0, printed `strict-suite: 21 tests, 0 failures`
+---
+strict-suite: 21 tests, 0 failures

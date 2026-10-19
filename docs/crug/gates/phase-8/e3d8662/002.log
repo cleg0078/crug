@@ -1,0 +1,5 @@
+phase-8 #2 rc=0
+cmd: scripts/check-strict-codegen.sh
+expected: exit 0, printed `strict-codegen: 4 programs, 0 differences`
+---
+strict-codegen: 4 programs, 0 differences

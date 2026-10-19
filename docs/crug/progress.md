@@ -127,8 +127,9 @@ no ownership contract (`crug-OWN-012`), and a discarded `adopt` is an error in
 both modes (`crug-OWN-013`). Strict mode changes no object byte:
 `scripts/check-strict-codegen.sh` compares four programs compiled with and
 without the flag. `docs/crug/STRICT.md` is the digest and `make check-STRICT_UNSAFE`
-runs 21 expected passes; the Phase 8 gate is the seven-check list in
-`docs/crug/EXIT-GATES.md` (amendment A-9).
+runs 21 expected passes, and the Phase 8 gate passes 7/7 at `e3d8662` (logs
+under `docs/crug/gates/phase-8/e3d8662/`; the definition is the seven-check list
+in `docs/crug/EXIT-GATES.md`, amendment A-9).
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

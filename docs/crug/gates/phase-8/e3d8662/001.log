@@ -1,0 +1,5 @@
+phase-8 #1 rc=0
+cmd: scripts/check-strict-raw.sh
+expected: exit 0, printed `strict-raw: hybrid exit 0, strict [crug-SAFE-001]`
+---
+strict-raw: hybrid exit 0, strict [crug-SAFE-001]

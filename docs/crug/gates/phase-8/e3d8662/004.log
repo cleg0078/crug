@@ -1,0 +1,5 @@
+phase-8 #4 rc=0
+cmd: scripts/check-strict-policy.sh
+expected: exit 0, printed `strict-policy: SAFE-001 SAFE-002 SAFE-003 SAFE-004 SAFE-005 OWN-011 OWN-012`
+---
+strict-policy: SAFE-001 SAFE-002 SAFE-003 SAFE-004 SAFE-005 OWN-011 OWN-012
