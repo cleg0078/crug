@@ -11989,6 +11989,13 @@ c_parser_postfix_expression (c_parser *parser)
 		  expr.value = error_mark_node;
 		else
 		  {
+		    /* An intrinsic reads its operands: move transfers the value,
+		       borrow views it, adopt and release take it over.  Mark them
+		       read, or -Wunused-but-set-variable reports a variable whose
+		       only use is inside the intrinsic.  */
+		    mark_exp_read (arg0.value);
+		    if (kind == CRUG_INTR_ADOPT)
+		      mark_exp_read (arg1.value);
 		    call = crug_build_intrinsic_call (kind, intr_loc,
 						      arg0.value,
 						      kind == CRUG_INTR_ADOPT
