@@ -321,7 +321,8 @@ left=200 leaked task group state: 0`; the sanitizer suite drives 3000 tasks
 under 200 scopes with
 LeakSanitizer clean. The group calls extend runtime ABI version 1 additively
 (`docs/crug/ABI.md` section 6). The Phase 15 gate (amendment A-18) runs seven
-runnable checks over these artefacts.
+runnable checks over these artefacts and passes 7/7 at `1f42cc7` (logs under
+`docs/crug/gates/phase-15/1f42cc7/`), so M15 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

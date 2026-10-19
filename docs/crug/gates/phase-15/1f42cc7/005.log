@@ -1,0 +1,5 @@
+phase-15 #5 rc=0
+cmd: scripts/lint-no-os-apis.sh libcrug/core
+expected: exit 0: the group waits with `crug_pal_wait_u32`/`crug_task_yield`, never an operating-system primitive.
+---
+lint-no-os-apis: 4 file(s) under libcrug/core, 0 operating-system primitive references

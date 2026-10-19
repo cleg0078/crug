@@ -1,0 +1,8 @@
+phase-15 #2 rc=1
+cmd: crugc -fcrug-goroutines -fsyntax-only gcc/testsuite/crug.dg/scope/scope-goto-in.c
+expected: exit 1 with `[crug-CONC-015]`: a control transfer cannot enter a scope block, because the group would never be entered or left.
+---
+gcc/testsuite/crug.dg/scope/scope-goto-in.c: In function ‘main’:
+gcc/testsuite/crug.dg/scope/scope-goto-in.c:33:3: error: goto jumps into a ‘scope’ block [crug-CONC-015]
+   33 |   goto inside;                  /* { dg-error "crug-CONC-015" } */
+      |   ^~~~

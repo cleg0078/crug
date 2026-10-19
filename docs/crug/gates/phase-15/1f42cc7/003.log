@@ -1,0 +1,8 @@
+phase-15 #3 rc=1
+cmd: crugc -fcrug-goroutines -fcrug-ownership -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/scope/scope-borrow-lifetime.c
+expected: exit 1 with `[crug-CONC-016]`: a scoped task may not borrow an object that dies before the scope ends, so a child never outlives its lender.
+---
+gcc/testsuite/crug.dg/scope/scope-borrow-lifetime.c: In function ‘main’:
+gcc/testsuite/crug.dg/scope/scope-borrow-lifetime.c:42:9: error: a scoped task borrows ‘n’ from a block that ends before the scope; declare it in the scope body [crug-CONC-016]
+   42 |         go bump (borrow_mut (n));       /* { dg-error "crug-CONC-016" } */
+      |         ^~

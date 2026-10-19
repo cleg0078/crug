@@ -1,0 +1,40 @@
+phase-15 #1 rc=0
+cmd: make check-SCOPE
+expected: exit 0, printing `scope: 23 compiler test(s), 8 group program(s), 0 leaked group(s), 0 failure(s)`. The eight group programs include scope-waits-for-all-children (`scope-wait: children=8 slots=8`, every slot filled before the block returns), the owned-capture transfer (`scope-owned: seen=S frees=1`, exactly one free), the scoped borrow (`scope-borrow: n=42`), early return (`scope-early: early=1 marks=2`) and the counters `entered == left` with `leaked task group state: 0`.
+---
+make -C libcrug PAL=linux
+make[1]: Entering directory '/home/cleg/MyDev/crug/libcrug'
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: ok
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[linux]: 12 cases, 0 failed, 0 skipped
+guard-fault: SIGSEGV on the guarded page as claimed
+make[1]: Leaving directory '/home/cleg/MyDev/crug/libcrug'
+make check-SCOPE_DG
+make[1]: Entering directory '/home/cleg/MyDev/crug'
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/scope/scope.exp ...
+# of expected passes		23
+make[1]: Leaving directory '/home/cleg/MyDev/crug'
+scripts/check-scope.sh
+scope-borrow: n=42
+scope-early: early=1 marks=2
+scope-in-task: inner=3
+scope-loop: last=2 marks=3
+scope-nested: after-inner=1 after-outer=2
+scope-owned: seen=S frees=1
+scope-stress: tasks=1000 entered=200 left=200 leaked task group state: 0
+scope-wait: children=8 slots=8
+scope: 23 compiler test(s), 8 group program(s), 0 leaked group(s), 0 failure(s)

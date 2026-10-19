@@ -95,8 +95,9 @@ A scoped task may borrow a value that outlives the block (a mutable borrow must
 still be exclusive), a `goto` into a scope body is rejected (`CONC-015`) and so
 is a borrow of a value that dies before the scope (`CONC-016`) - see
 [docs/crug/SCOPE.md](docs/crug/SCOPE.md) and
-[ADR 0024](docs/crug/adr/0024-structured-scope.md). `chan` and `select` are not
-implemented. See
+[ADR 0024](docs/crug/adr/0024-structured-scope.md). The Phase 15 gate passes
+7/7 at `1f42cc7` (logs under `docs/crug/gates/phase-15/1f42cc7/`). `chan` and
+`select` are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
