@@ -1,5 +1,6 @@
 
-/* capture.c - the argument frame: no arguments, a decaying array and a struct.
+/* capture.c - the argument frame: no arguments and a struct by value.  An
+   array decays to a pointer and is not Send (ADR 0026 D2).
    Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.  */
 
 #include <stdio.h>
@@ -23,10 +24,10 @@ tick (void)
 }
 
 static void
-fill (int *p, int n)
+fill (void)
 {
-  for (int i = 0; i < n; i++)
-    p[i] = i + 1;
+  for (int i = 0; i < 4; i++)
+    buf[i] = i + 1;
 }
 
 static void
@@ -41,7 +42,7 @@ main (void)
   struct Pair p = { 7, 9 };
 
   go tick ();
-  go fill (buf, 4);
+  go fill ();
   go use_pair (p);
   crug_task_runtime_shutdown ();
 

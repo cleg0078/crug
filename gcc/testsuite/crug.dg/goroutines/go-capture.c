@@ -19,8 +19,9 @@
 /* { dg-do compile } */
 /* { dg-options "-fcrug-goroutines" } */
 
-/* Arguments are captured by value: no arguments, an array that decays to a
-   pointer and a struct all work.  */
+/* Arguments are captured by value: no arguments and a struct work.  An
+   array decays to a pointer, which is not Send, so that capture is rejected
+   (ADR 0026 D2).  */
 
 struct Pair
 {
@@ -53,7 +54,7 @@ main (void)
   struct Pair p = { 7, 9 };
 
   go tick ();
-  go fill (buf, 4);
+  go fill (buf, 4);		/* { dg-error "crug-CONC-024" } */
   go use_pair (p);
   return buf[0];
 }

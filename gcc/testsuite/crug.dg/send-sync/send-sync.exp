@@ -1,0 +1,31 @@
+# Copyright (C) 2026 CLEG0078
+#
+# This file is part of GCC.
+#
+# GCC is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free
+# Software Foundation; either version 3, or (at your option) any later
+# version.
+#
+# GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with GCC; see the file COPYING3.  If not see
+# <http://www.gnu.org/licenses/>.
+
+# The Send/Sync checks of ADR 0026 are compile-time only: every case here
+# is a dg-do compile with its own -fcrug-* flags.  The runtime side (a task
+# really receiving a copied value) lives in libcrug/tests/goroutines and
+# scripts/check-send-sync.sh.
+
+load_lib gcc-dg.exp
+
+# The default flags of this directory are none; each test names its flags.
+set DEFAULT_CFLAGS ""
+
+dg-init
+dg-runtest [lsort [glob -nocomplain $srcdir/$subdir/*.\[cSi\]]] "" $DEFAULT_CFLAGS
+dg-finish

@@ -11,7 +11,7 @@ int
 main (void)
 {
   chan int a = channel (1);
-  chan char *b = channel (1);
+  chan double b = channel (1);
   chan struct pair c = channel (1);
   chan own char *d = channel (1);
 
