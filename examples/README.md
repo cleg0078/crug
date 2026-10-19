@@ -23,6 +23,7 @@ its first comment.
 | `15-alias-facts.c` | `-fcrug-alias-facts`: a `mut` parameter is compiled as `restrict` and the caller passes `borrow_mut`; the dump records the fact | `./gcc/crugc -O2 -fcrug-borrow -fcrug-alias-facts examples/15-alias-facts.c -o build/alias-facts && ./build/alias-facts` |
 | `16-goroutines.c` | `go`/`yield`: eight by-value captures plus one indirect `go (fn (99))`, two tasks that take ownership of a heap buffer with `move` and release it themselves, then the runtime stats after shutdown | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -Ilibcrug/core examples/16-goroutines.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o -pthread -o build/ex-goroutines && ./build/ex-goroutines` |
 | `17-scope.c` | `scope` (a task group): four children, a nested scope with a mutable borrow of an owned local, an owned capture moved into a task; the block waits for every child and the group counters balance | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -fcrug-borrow -Ilibcrug/core examples/17-scope.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o -pthread -o build/ex-scope && ./build/ex-scope` |
+| `18-channels.c` | `chan T`/`send`/`recv`/`close` and `select`: a scope fills a channel with tasks, an owned `char *` is moved through a channel and released by the receiver, and `select` receives from whichever channel is ready | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-channels -fcrug-ownership -Ilibcrug/core examples/18-channels.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o libcrug/build/linux/chan.o -pthread -o build/ex-channels && ./build/ex-channels` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
@@ -32,7 +33,8 @@ borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, the
 safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`,
 ownership-aware optimization in `docs/crug/OPTIMIZATION.md`, and the `go` and
 `yield` statements in `docs/crug/GOROUTINES.md` with the runtime in
-`docs/crug/TASKS.md`, and the `scope` statement in `docs/crug/SCOPE.md`.
+`docs/crug/TASKS.md`, the `scope` statement in `docs/crug/SCOPE.md`,
+and channels and `select` in `docs/crug/CHANNELS.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.
