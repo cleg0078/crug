@@ -24,6 +24,7 @@ its first comment.
 | `16-goroutines.c` | `go`/`yield`: eight by-value captures plus one indirect `go (fn (99))`, two tasks that take ownership of a heap buffer with `move` and release it themselves, then the runtime stats after shutdown | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -Ilibcrug/core examples/16-goroutines.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o -pthread -o build/ex-goroutines && ./build/ex-goroutines` |
 | `17-scope.c` | `scope` (a task group): four children, a nested scope with a mutable borrow of an owned local, an owned capture moved into a task; the block waits for every child and the group counters balance | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -fcrug-borrow -Ilibcrug/core examples/17-scope.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o -pthread -o build/ex-scope && ./build/ex-scope` |
 | `18-channels.c` | `chan T`/`send`/`recv`/`close` and `select`: a scope fills a channel with tasks, an owned `char *` is moved through a channel and released by the receiver, and `select` receives from whichever channel is ready | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-channels -fcrug-ownership -Ilibcrug/core examples/18-channels.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o libcrug/build/linux/chan.o -pthread -o build/ex-channels && ./build/ex-channels` |
+| `19-send-sync.c` | what may cross a task or channel boundary: a struct of plain values and a channel handle are `Send`, a `mut` parameter is an exclusive scoped borrow, an owned buffer moves into a task; the comment names the constructs the same rules reject (raw pointer, `chan int *`, thread-affine FFI handle) | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -fcrug-borrow -fcrug-channels -Ilibcrug/core examples/19-send-sync.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o libcrug/build/linux/chan.o -pthread -o build/ex-send-sync && ./build/ex-send-sync` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
@@ -34,7 +35,8 @@ safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`,
 ownership-aware optimization in `docs/crug/OPTIMIZATION.md`, and the `go` and
 `yield` statements in `docs/crug/GOROUTINES.md` with the runtime in
 `docs/crug/TASKS.md`, the `scope` statement in `docs/crug/SCOPE.md`,
-and channels and `select` in `docs/crug/CHANNELS.md`.
+and channels and `select` in `docs/crug/CHANNELS.md`, and the `Send`/`Sync`
+crossing rules in `docs/crug/SEND-SYNC.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.
