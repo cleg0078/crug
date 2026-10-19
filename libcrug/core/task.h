@@ -78,6 +78,44 @@ void crug_task_stats_get (struct crug_task_stats *out);
 /* The calling task's identifier (0 on the main thread).  */
 uint32_t crug_task_current_id (void);
 
+
+/* ---- task groups (the runtime half of 'scope') ------------------------- */
+
+/* A scope statement is a task group: the group is created when the block is
+   entered, every scoped spawn joins it, and leaving the block waits until the
+   group is empty.  The compiler lowers
+
+     scope { go worker (a); }
+
+   to crug_scope_enter (), the body, crug_task_spawn_scoped (group, ...) for
+   each child, and crug_scope_leave (group) on every path out of the block.
+   The group is opaque: only the two calls below may touch the handle.
+   Leaving a group from a task yields, from the main thread it waits in the
+   PAL, so the handle never blocks a worker while it waits (ADR 0024).  */
+
+/* Create a group.  Never returns NULL: creating a group is not allowed to
+   fail silently (the process dies with a diagnostic instead).  */
+void *crug_scope_enter (void);
+
+/* Wait for every child of the group, then release it.  A NULL handle is a
+   no-op, so a scope whose entry was skipped by a goto still leaves cleanly;
+   the compiler rejects such a goto instead.  */
+void crug_scope_leave (void *scope);
+
+/* Queue one task as a child of the group: the group's pending count rises
+   until the task returns.  A NULL group is crug_task_spawn ().  */
+void crug_task_spawn_scoped (void *scope, crug_task_entry entry,
+			     const void *frame, size_t frame_size);
+
+struct crug_scope_stats
+{
+  uint64_t entered;  /* groups created                                   */
+  uint64_t left;     /* groups released                                  */
+  uint64_t live;     /* groups created but not released                  */
+};
+
+void crug_scope_stats_get (struct crug_scope_stats *out);
+
 #ifdef __cplusplus
 }
 #endif

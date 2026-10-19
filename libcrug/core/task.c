@@ -43,6 +43,7 @@
 #define CRUG_TASK_GUARD_BYTES 4096u
 #define CRUG_TASK_WORKERS_DEFAULT_MAX 8u
 #define CRUG_TASK_QUEUE_WAKE_ONE 1
+#define CRUG_SCOPE_MAGIC 0x5c0be5c0be5c0be5ull
 
 enum crug_task_state
 {
@@ -51,10 +52,21 @@ enum crug_task_state
   CRUG_TASK_DONE = 2
 };
 
+/* A task group: the pending count of the children that have not returned yet.
+   It is incremented before a scoped spawn queues its task and decremented by
+   crug_task_finish(); the waiter is woken with crug_pal_wake_all() on the last
+   decrement.  */
+struct crug_scope
+{
+  uint64_t magic;
+  _Atomic uint32_t pending;
+};
+
 struct crug_task
 {
   uint64_t magic;
   void *sp;
+  struct crug_scope *scope;
   void *stack_reserve;
   size_t stack_reserve_size;
   void *stack_canary;
@@ -79,6 +91,9 @@ struct crug_sched
   _Atomic uint64_t yielded;
   _Atomic uint64_t corrupt;
   _Atomic uint64_t lost;
+  _Atomic uint64_t scopes_entered;
+  _Atomic uint64_t scopes_left;
+  _Atomic uint32_t scopes_live;
   uint32_t configured_workers;
   uint32_t worker_count;
   uint32_t queue_peak;
@@ -266,6 +281,19 @@ crug_task_finish (void)
   atomic_fetch_add_explicit (&sched.completed, 1u, memory_order_relaxed);
   atomic_fetch_sub_explicit (&sched.live, 1u, memory_order_acq_rel);
   atomic_fetch_add_explicit (&sched.epoch, 1u, memory_order_release);
+
+  /* Leave the task group, if any, before the task's stack goes away: the
+     group's waiter must observe the decrement after the child has finished
+     all of its work (ADR 0024).  */
+  if (task->scope != NULL)
+    {
+      struct crug_scope *scope = task->scope;
+      task->scope = NULL;
+      if (atomic_fetch_sub_explicit (&scope->pending, 1u, memory_order_acq_rel)
+	  == 1u)
+	crug_pal_wake_all (&scope->pending);
+    }
+
   if (atomic_load_explicit (&sched.shutdown, memory_order_acquire)
       && atomic_load_explicit (&sched.live, memory_order_acquire) == 0)
     crug_pal_wake_all (&sched.epoch);
@@ -340,8 +368,12 @@ crug_worker_main (void *arg)
 
 /* ---- public interface ------------------------------------------------- */
 
-void
-crug_task_spawn (crug_task_entry entry, const void *frame, size_t frame_size)
+/* The common body of spawn: SCOPE is the task group the new task joins, or
+   NULL for an unstructured task.  */
+
+static void
+spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
+	      struct crug_scope *scope)
 {
   struct crug_task *task;
   void *reserve;
@@ -379,6 +411,7 @@ crug_task_spawn (crug_task_entry entry, const void *frame, size_t frame_size)
   *((uint64_t *) task->stack_canary) = CRUG_TASK_CANARY;
   task->frame_size = frame_size;
   task->entry = entry;
+  task->scope = scope;
   task->next = NULL;
   atomic_store_explicit (&task->state, CRUG_TASK_READY, memory_order_relaxed);
   if (frame != NULL && frame_size > 0)
@@ -396,6 +429,86 @@ crug_task_spawn (crug_task_entry entry, const void *frame, size_t frame_size)
   atomic_fetch_add_explicit (&sched.live, 1u, memory_order_acq_rel);
   atomic_fetch_add_explicit (&sched.spawned, 1u, memory_order_relaxed);
   queue_push (task);
+}
+
+void
+crug_task_spawn (crug_task_entry entry, const void *frame, size_t frame_size)
+{
+  spawn_common (entry, frame, frame_size, NULL);
+}
+
+void *
+crug_scope_enter (void)
+{
+  struct crug_scope *scope = (struct crug_scope *) malloc (sizeof *scope);
+
+  if (scope == NULL)
+    crug_runtime_fatal ("cannot create a task group");
+  scope->magic = CRUG_SCOPE_MAGIC;
+  atomic_store_explicit (&scope->pending, 0u, memory_order_relaxed);
+  atomic_fetch_add_explicit (&sched.scopes_entered, 1u, memory_order_relaxed);
+  atomic_fetch_add_explicit (&sched.scopes_live, 1u, memory_order_acq_rel);
+  return scope;
+}
+
+void
+crug_scope_leave (void *handle)
+{
+  struct crug_scope *scope = (struct crug_scope *) handle;
+  uint32_t pending;
+
+  if (scope == NULL)
+    return;
+  if (scope->magic != CRUG_SCOPE_MAGIC)
+    crug_runtime_fatal ("leave of an invalid task group");
+
+  while ((pending = atomic_load_explicit (&scope->pending,
+					  memory_order_acquire)) != 0)
+    {
+      /* Inside a task a yield gives the workers back; a plain thread waits in
+	 the PAL.  Blocking a worker here would starve the very children this
+	 thread is waiting for (ADR 0024).  */
+      if (current_task != NULL)
+	crug_task_yield ();
+      else
+	crug_pal_wait_u32 (&scope->pending, pending);
+    }
+
+  scope->magic = 0;
+  free (scope);
+  atomic_fetch_add_explicit (&sched.scopes_left, 1u, memory_order_relaxed);
+  atomic_fetch_sub_explicit (&sched.scopes_live, 1u, memory_order_acq_rel);
+}
+
+void
+crug_task_spawn_scoped (void *handle, crug_task_entry entry,
+			 const void *frame, size_t frame_size)
+{
+  struct crug_scope *scope = (struct crug_scope *) handle;
+
+  if (scope == NULL)
+    {
+      spawn_common (entry, frame, frame_size, NULL);
+      return;
+    }
+  if (scope->magic != CRUG_SCOPE_MAGIC)
+    crug_runtime_fatal ("spawn into an invalid task group");
+
+  /* Count the child before it can finish, so the waiter cannot see an empty
+     group while a task for it is still being built.  */
+  atomic_fetch_add_explicit (&scope->pending, 1u, memory_order_acq_rel);
+  spawn_common (entry, frame, frame_size, scope);
+}
+
+void
+crug_scope_stats_get (struct crug_scope_stats *out)
+{
+  if (out == NULL)
+    return;
+  out->entered = atomic_load_explicit (&sched.scopes_entered,
+				       memory_order_relaxed);
+  out->left = atomic_load_explicit (&sched.scopes_left, memory_order_relaxed);
+  out->live = atomic_load_explicit (&sched.scopes_live, memory_order_relaxed);
 }
 
 void
