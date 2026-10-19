@@ -1,0 +1,5 @@
+phase-12 #6 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0 (the tool introduces no diagnostic code; ADT-001..020 and the option-to-code map stay valid).
+---
+check-diagnostics: 111 registered code(s); 111 referenced code(s); all references registered.

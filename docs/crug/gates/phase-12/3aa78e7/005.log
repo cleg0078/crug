@@ -1,0 +1,19 @@
+phase-12 #5 rc=0
+cmd: make check-C2CRUG
+expected: exit 0: `scripts/test-c2crug.py` passes its 32 checks (transform, confidence, raw preservation, analyze writes nothing, safe copies, a lying report rejected) and then the whole pipeline above runs again.
+---
+python3 scripts/test-c2crug.py
+ok   sidecar parsing
+ok   proven heap value becomes own and drop
+ok   unknown origin stays raw and untouched
+ok   conditional release stays raw
+ok   double release stays raw
+ok   alias stays raw
+ok   use after release stays raw
+ok   analyze changes nothing
+ok   safe copies and leaves other files identical
+ok   report validator accepts a real report and rejects a lie
+test-c2crug: all 32 checks pass
+scripts/check-c2crug.sh
+c2crug: 5 applied entr(ies) match the output tree
+c2crug: 5 own applied, 5 raw preserved, 8/8 programs pass, c2crug-diff: 10 of 222 source line(s) changed (4.5% <= 20%), comment lines 16 -> 16

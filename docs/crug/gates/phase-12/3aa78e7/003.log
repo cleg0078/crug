@@ -1,0 +1,5 @@
+phase-12 #3 rc=0
+cmd: scripts/c2crug-diff.sh migration/ build/c2crug-check/out 20
+expected: exit 0: at most 20 percent of the source lines changed (measured 10 of 222, 4.5 percent) and the comment-line count unchanged (16 -> 16), so comments and structure are preserved.
+---
+c2crug-diff: 10 of 222 source line(s) changed (4.5% <= 20%), comment lines 16 -> 16

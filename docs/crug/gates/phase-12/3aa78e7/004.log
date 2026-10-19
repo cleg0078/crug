@@ -1,0 +1,5 @@
+phase-12 #4 rc=0
+cmd: mkdir -p build/c2crug-check && ./c2crug --analyze migration/ --report build/c2crug-check/analyze.json > build/c2crug-check/analyze.txt && grep -q "raw confidence" build/c2crug-check/analyze.txt && python3 scripts/validate-c2crug-report.py build/c2crug-check/analyze.json
+expected: exit 0: ambiguous ownership appears as `raw` with a reason and an evidence line, the analyze report validates, and it claims no applied edit (no invented safety).
+---
+c2crug-report: valid (5 own, 5 raw, 2 suggestion(s), 0 applied)

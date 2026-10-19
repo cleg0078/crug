@@ -1,0 +1,6 @@
+phase-12 #1 rc=0
+cmd: scripts/check-c2crug.sh
+expected: exit 0: the whole flow on `migration/` — `--analyze` reports ambiguous ownership and writes nothing, `--safe` copies the tree and applies five `own` edits, both reports validate, every transformed file compiles with `crugc -fcrug-ownership -fcrug-borrow -fcrug-ffi=libc.crugffi`, the migrated programs and the original corpus both print `migration: 8 programs pass` with identical output, and the report agrees with the output tree (5 own applied, 5 raw preserved).
+---
+c2crug: 5 applied entr(ies) match the output tree
+c2crug: 5 own applied, 5 raw preserved, 8/8 programs pass, c2crug-diff: 10 of 222 source line(s) changed (4.5% <= 20%), comment lines 16 -> 16

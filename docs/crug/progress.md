@@ -228,9 +228,8 @@ expected output, a `Makefile` test target and a libc sidecar: 5 `own` applied,
 `scripts/test-c2crug.py` its 32 unit checks, `scripts/c2crug-diff.sh` the churn
 band, and `make check-C2CRUG` both. The corpus replaces `corpus/` because those
 thirty programs are compile-only fragments with no test suite (amendment A-15).
-The Phase 12 gate (amendment A-15) is seven runnable checks and passes 7/7; the
-run is archived under `docs/crug/gates/phase-12/` (the archive commit names the
-commit it adjudicated), so M12 is awarded.
+The Phase 12 gate (amendment A-15) passes 7/7 at `3aa78e7` (logs under
+`docs/crug/gates/phase-12/3aa78e7/`), so M12 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

@@ -69,8 +69,8 @@ shows exactly one release and no escape, rewrites that release to `drop`, keeps
 every other line byte-identical and reports the case as `raw`; the phase rests on
 a corpus with its own green test suite (`migration/`) and a machine-readable
 report - see [docs/crug/C2CRUG.md](docs/crug/C2CRUG.md) and
-[ADR 0023](docs/crug/adr/0023-c2crug-migration.md). The Phase 12 gate passes 7/7
-(logs under `docs/crug/gates/phase-12/`). `libcrug`, goroutines and channels are
+[ADR 0023](docs/crug/adr/0023-c2crug-migration.md). The Phase 12 gate passes 7/7 at
+`3aa78e7` (logs under `docs/crug/gates/phase-12/3aa78e7/`). `libcrug`, goroutines and channels are
 not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.

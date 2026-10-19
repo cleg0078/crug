@@ -1,0 +1,5 @@
+phase-12 #2 rc=0
+cmd: python3 scripts/validate-c2crug-report.py build/c2crug-check/safe.json
+expected: exit 0: the safe-mode report is schema-valid (`crug-c2crug-report-v1`), every applied `own` carries a confidence and an evidence line, and no `raw` entry is applied.
+---
+c2crug-report: valid (5 own, 5 raw, 2 suggestion(s), 5 applied)
