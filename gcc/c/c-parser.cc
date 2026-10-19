@@ -32476,11 +32476,17 @@ crug_parse_match (c_parser *parser)
   DECL_CONTEXT (tmp) = current_function_decl;
   DECL_SOURCE_LOCATION (tmp) = loc;
   add_stmt (build1 (DECL_EXPR, void_type_node, tmp));
+  /* c_finish_expr_stmt already adds the statement to the current list; adding
+     its result again would evaluate the scrutinee twice.  */
   if (scrutinee != error_mark_node)
-    add_stmt (c_finish_expr_stmt (loc, build_modify_expr (loc, tmp, NULL_TREE,
-							  NOP_EXPR, loc,
-							  scrutinee,
-							  NULL_TREE)));
+    c_finish_expr_stmt (loc, build_modify_expr (loc, tmp, NULL_TREE,
+						NOP_EXPR, loc, scrutinee,
+						NULL_TREE));
+
+  /* The ownership pass needs to know that TMP is the consumed scrutinee of
+     this match, so that the payloads it moves into arm bindings are not
+     destroyed twice (ADR 0018 D8 R4/R5).  */
+  crug_register_match_scrutinee (tmp);
 
   tag = crug_safe_tag_ref (loc, tmp, stype);
 
@@ -32550,6 +32556,11 @@ crug_parse_match (c_parser *parser)
 	    c_parser_consume_token (parser);
 	}
 
+      /* A variant whose payload type-name was written 'own' carries a value
+	 that must leave the match as an owned binding.  */
+      bool owns_variant = is_payload_enum && variant >= 0
+	&& crug_payload_enum_variant_owns_p (stype, variant);
+
       if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
 	{
 	  c_parser_consume_token (parser);
@@ -32571,6 +32582,32 @@ crug_parse_match (c_parser *parser)
 		      == NULL_TREE)
 	    error_at (aloc, "variant %qs does not take a payload "
 		      "[crug-ADT-004]", crug_variant_name (stype, variant));
+	}
+
+      /* An owned payload can only be destroyed by a binding, because the arm
+	 body is where its destructor lives (ADR 0018 D8 R4).  */
+      if (this_wildcard && is_payload_enum && crug_payload_enum_owns_p (stype))
+	{
+	  /* A '_' arm may cover the variants that own nothing, because nothing
+	     has to be destroyed for them.  Every owning variant needs its own
+	     arm so that its payload has a binding to be destroyed from.  */
+	  for (int v = 0; v < nvariants; v++)
+	    if (crug_payload_enum_variant_owns_p (stype, v) && !seen[v])
+	      {
+		error_at (aloc, "a %<_%> arm cannot cover owned variant %qs; "
+			  "name it and bind the payload [crug-ADT-020]",
+			  crug_variant_name (stype, v));
+		bad_pattern = true;
+		break;
+	      }
+	}
+      if (!this_wildcard && owns_variant && bind_name == NULL_TREE)
+	{
+	  error_at (aloc, "an arm covering owned variant %qs must bind its "
+		    "payload; write %qs (name) => ... [crug-ADT-020]",
+		    crug_variant_name (stype, variant),
+		    crug_variant_name (stype, variant));
+	  bad_pattern = true;
 	}
 
       /* '=>' is two tokens, '=' and '>'.  */
@@ -32605,13 +32642,13 @@ crug_parse_match (c_parser *parser)
 	  TREE_USED (var) = 1;
 	  pushdecl (var);
 	  add_stmt (build1 (DECL_EXPR, void_type_node, var));
+	  if (owns_variant)
+	    crug_register_match_binding (var, tmp, variant);
 	  tree pref = crug_safe_payload_ref (loc, tmp, stype, variant);
 	  if (pref != NULL_TREE && pref != error_mark_node)
-	    add_stmt (c_finish_expr_stmt (loc,
-					  build_modify_expr (loc, var,
-							     NULL_TREE, NOP_EXPR,
-							     loc, pref,
-							     NULL_TREE)));
+	    c_finish_expr_stmt (loc, build_modify_expr (loc, var, NULL_TREE,
+							NOP_EXPR, loc, pref,
+							NULL_TREE));
 	  if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
 	    add_stmt (c_parser_compound_statement (parser, NULL));
 	  else

@@ -94,6 +94,14 @@ extern bool crug_intrinsic_enabled (enum crug_intrinsic kind);
 extern tree crug_build_intrinsic_call (enum crug_intrinsic kind,
 				       location_t loc, tree arg0, tree arg1);
 
+/* A match statement lowered by the parser (ADR 0018 D8 R4/R5) hides an
+   artificial temporary: TMP holds the moved scrutinee and each arm binds one
+   payload out of it.  The parser registers the temporary and every binding so
+   that the ownership pass can transfer the payload's destructor to the
+   binding and treat the temporary as consumed.  */
+extern void crug_register_match_scrutinee (tree tmp);
+extern void crug_register_match_binding (tree binding, tree tmp, int variant);
+
 /* Check BODY, the GENERIC body of FNDECL, for ownership errors, insert the
    destruction of every owned object on every exit edge, and remove the
    intrinsic calls.  */

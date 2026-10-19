@@ -732,6 +732,15 @@ crug_payload_enum_variant_has_payload (tree type, int variant)
 }
 
 bool
+crug_payload_enum_variant_owns_p (tree type, int variant)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  if (pe == NULL || variant < 0 || variant >= (int) pe->owning.size ())
+    return false;
+  return pe->owning[variant];
+}
+
+bool
 crug_payload_enum_owns_p (tree type)
 {
   struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
@@ -801,6 +810,57 @@ crug_payload_enum_ctor (location_t loc, tree type, int variant, tree payload)
 			       union_field, union_value);
     }
   return crug_constructor_expr (loc, type, ctor);
+}
+
+/* Decompose a payload-enum constructor expression.  See crug-safe.h.  */
+
+bool
+crug_payload_ctor_parts (tree expr, tree *type, int *variant, tree *payload)
+{
+  tree stmt, decl, ctor, tag, payload_value = NULL_TREE;
+
+  if (expr == NULL_TREE || expr == error_mark_node)
+    return false;
+  if (TREE_CODE (expr) != COMPOUND_LITERAL_EXPR)
+    return false;
+  stmt = TREE_OPERAND (expr, 0);
+  if (stmt == NULL_TREE || TREE_CODE (stmt) != DECL_EXPR)
+    return false;
+  decl = TREE_OPERAND (stmt, 0);
+  if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL)
+    return false;
+  if (!crug_payload_enum_type_p (TREE_TYPE (expr)))
+    return false;
+  ctor = DECL_INITIAL (decl);
+  if (ctor == NULL_TREE || TREE_CODE (ctor) != CONSTRUCTOR
+      || CONSTRUCTOR_NELTS (ctor) == 0)
+    return false;
+  tag = CONSTRUCTOR_ELT (ctor, 0)->value;
+  if (tag == NULL_TREE || TREE_CODE (tag) != INTEGER_CST)
+    return false;
+
+  int v = (int) TREE_INT_CST_LOW (tag);
+  if (v < 0 || v >= crug_payload_enum_variant_count (TREE_TYPE (expr)))
+    return false;
+
+  /* The second element, when present, is the union member constructor.  Its
+     single element is the payload expression.  */
+  if (CONSTRUCTOR_NELTS (ctor) > 1)
+    {
+      payload_value = CONSTRUCTOR_ELT (ctor, 1)->value;
+      if (payload_value != NULL_TREE
+	  && TREE_CODE (payload_value) == CONSTRUCTOR
+	  && CONSTRUCTOR_NELTS (payload_value) > 0)
+	payload_value = CONSTRUCTOR_ELT (payload_value, 0)->value;
+    }
+
+  if (type != NULL)
+    *type = TREE_TYPE (expr);
+  if (variant != NULL)
+    *variant = v;
+  if (payload != NULL)
+    *payload = payload_value;
+  return true;
 }
 
 void

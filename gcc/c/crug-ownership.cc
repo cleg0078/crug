@@ -63,6 +63,7 @@
 #include "flags.h"
 #include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
+#include "crug-safe.h"
 
 #include <map>
 #include <set>
@@ -84,12 +85,20 @@ enum crug_state
 /* One tracked object: its state and the destructor that would be called if
    the object is destroyed here.  DTOR is NULL_TREE when no destructor is
    known, which is not the same as "no destruction needed": an OWNED object
-   without a destructor leaks, and the -Wcrug-unadopted-own warning says so.  */
+   without a destructor leaks, and the -Wcrug-unadopted-own warning says so.
+
+   An owning payload enum (ADR 0018 D8) is destroyed conditionally, because
+   only the active variant owns a payload.  VARIANT_DTORS maps the variant
+   indices that this object may hold to the destructor that variant needs; an
+   entry with a NULL destructor means the variant owns nothing (a unit
+   variant or a non-owning payload) and needs no call.  An empty map is the
+   "no destructor known" case, which leaks like a NULL DTOR.  */
 
 struct crug_ostate
 {
   crug_state state;
   tree dtor;
+  std::map<int, tree> variant_dtors;
 
   crug_ostate () : state (CRUG_EMPTY), dtor (NULL_TREE) {}
   crug_ostate (crug_state s, tree d) : state (s), dtor (d) {}
@@ -97,12 +106,18 @@ struct crug_ostate
 
 typedef std::map<tree, crug_ostate> state_map;
 
-/* One destruction that an exit edge performs.  */
+/* One destruction that an exit edge performs.  For an owning payload enum,
+   ENUM_TYPE is the payload enum type and VARIANT_DTORS holds the destructor
+   of each variant that owns a payload; DTOR then stays NULL_TREE.  */
 
 struct crug_drop
 {
   tree decl;
   tree dtor;
+  tree enum_type;
+  std::map<int, tree> variant_dtors;
+
+  crug_drop () : decl (NULL_TREE), dtor (NULL_TREE), enum_type (NULL_TREE) {}
 };
 
 enum crug_exit_kind
@@ -185,6 +200,11 @@ struct crug_fn_ctx
   std::map<tree, std::vector<crug_drop> > scope_drops;
   std::map<tree, std::vector<crug_drop> > explicit_drops;
   std::map<tree, tree> stmt_replace;
+  /* The ownership state of a match scrutinee temporary when the match
+     consumed it.  The temporary is not dropped itself; its destructors were
+     either transferred to an arm's binding or belong to a variant that owns
+     nothing (see crug_register_match_scrutinee).  */
+  std::map<tree, crug_ostate> match_scrutinee_state;
   std::map<tree, state_map> label_envs;
   std::map<tree, crug_label_info> labels;
   std::vector<crug_goto> gotos;
@@ -307,6 +327,92 @@ crug_intrinsic_enabled (enum crug_intrinsic kind)
     default:
       return crug_ownership_enabled ();
     }
+}
+
+/* Match statements: the parser registers the scrutinee temporary and every
+   payload binding it creates (ADR 0018 D8 R4/R5).  */
+
+struct crug_match_binding_reg
+{
+  tree tmp;
+  int variant;
+};
+
+static std::map<tree, tree> *crug_match_scrutinee_map = NULL;
+static std::map<tree, crug_match_binding_reg> *crug_match_binding_map = NULL;
+
+void
+crug_register_match_scrutinee (tree tmp)
+{
+  if (tmp == NULL_TREE)
+    return;
+  if (crug_match_scrutinee_map == NULL)
+    crug_match_scrutinee_map = new std::map<tree, tree> ();
+  (*crug_match_scrutinee_map)[tmp] = tmp;
+}
+
+void
+crug_register_match_binding (tree binding, tree tmp, int variant)
+{
+  struct crug_match_binding_reg reg;
+
+  if (binding == NULL_TREE || tmp == NULL_TREE)
+    return;
+  if (crug_match_binding_map == NULL)
+    crug_match_binding_map = new std::map<tree, crug_match_binding_reg> ();
+  reg.tmp = tmp;
+  reg.variant = variant;
+  (*crug_match_binding_map)[binding] = reg;
+}
+
+static bool
+match_scrutinee_p (tree decl)
+{
+  return crug_match_scrutinee_map != NULL
+    && crug_match_scrutinee_map->find (decl)
+       != crug_match_scrutinee_map->end ();
+}
+
+static bool
+match_binding_reg (tree decl, tree *tmp, int *variant)
+{
+  if (crug_match_binding_map == NULL)
+    return false;
+  std::map<tree, crug_match_binding_reg>::iterator it
+    = crug_match_binding_map->find (decl);
+  if (it == crug_match_binding_map->end ())
+    return false;
+  if (tmp != NULL)
+    *tmp = it->second.tmp;
+  if (variant != NULL)
+    *variant = it->second.variant;
+  return true;
+}
+
+/* True when TYPE is a payload enum that owns at least one payload.  Such a
+   value is owning as a whole even though 'own' cannot be written on it: the
+   qualifier belongs to the payload type-name, not to the enum type.  */
+static bool
+owns_payload_enum_type_p (tree type)
+{
+  if (type == NULL_TREE || type == error_mark_node)
+    return false;
+  type = TYPE_MAIN_VARIANT (type);
+  return crug_payload_enum_type_p (type) && crug_payload_enum_owns_p (type);
+}
+
+/* True when DECL is an owned object: either an explicitly owning declarator
+   ('own Foo *p') or a value of an owning payload enum type.  */
+static bool
+decl_owns (tree decl)
+{
+  if (decl == NULL_TREE || !DECL_P (decl))
+    return false;
+  if (crug_is_owning_decl (decl))
+    return true;
+  if (TREE_CODE (decl) != VAR_DECL && TREE_CODE (decl) != PARM_DECL)
+    return false;
+  return owns_payload_enum_type_p (TREE_TYPE (decl));
 }
 
 static const char *
@@ -773,13 +879,36 @@ dump_drops (enum crug_exit_kind kind, location_t loc,
 
   expanded_location where = expand_location (loc);
   for (size_t i = 0; i < drops.size (); i++)
-    fprintf (file, "drop %s:%d: %s %s via %s\n",
-	     where.file != NULL ? lbasename (where.file) : "<unknown>",
-	     where.line, exit_kind_name (kind),
-	     IDENTIFIER_POINTER (DECL_NAME (drops[i].decl)),
-	     drops[i].dtor != NULL_TREE
-	     && DECL_NAME (drops[i].dtor) != NULL_TREE
-	     ? IDENTIFIER_POINTER (DECL_NAME (drops[i].dtor)) : "none");
+    {
+      const crug_drop &dr = drops[i];
+      if (dr.enum_type != NULL_TREE)
+	{
+	  /* An owning payload enum is destroyed per variant, so name the
+	     variants whose destructor this exit can call.  A variant that
+	     owns nothing has no entry here, which is the drop=0 evidence.  */
+	  for (std::map<int, tree>::const_iterator vi
+		 = dr.variant_dtors.begin ();
+	       vi != dr.variant_dtors.end (); ++vi)
+	    {
+	      if (vi->second == NULL_TREE)
+		continue;
+	      fprintf (file, "drop %s:%d: %s %s [%s] via %s\n",
+		       where.file != NULL ? lbasename (where.file) : "<unknown>",
+		       where.line, exit_kind_name (kind),
+		       IDENTIFIER_POINTER (DECL_NAME (dr.decl)),
+		       crug_payload_enum_variant_name (dr.enum_type, vi->first),
+		       DECL_NAME (vi->second) != NULL_TREE
+		       ? IDENTIFIER_POINTER (DECL_NAME (vi->second)) : "none");
+	    }
+	  continue;
+	}
+      fprintf (file, "drop %s:%d: %s %s via %s\n",
+	       where.file != NULL ? lbasename (where.file) : "<unknown>",
+	       where.line, exit_kind_name (kind),
+	       IDENTIFIER_POINTER (DECL_NAME (dr.decl)),
+	       dr.dtor != NULL_TREE && DECL_NAME (dr.dtor) != NULL_TREE
+	       ? IDENTIFIER_POINTER (DECL_NAME (dr.dtor)) : "none");
+    }
 }
 
 /* A borrow begins at its declaration and ends with the block that declares
@@ -1189,6 +1318,57 @@ set_state (state_map &env, tree decl, crug_state state)
   env[decl] = crug_ostate (state, NULL_TREE);
 }
 
+/* Copy the ownership that SRC confers onto DECL.  */
+static void
+set_owned_from (state_map &env, tree decl, const crug_ostate &src)
+{
+  env[decl] = crug_ostate (CRUG_OWNED, src.dtor);
+  env[decl].variant_dtors = src.variant_dtors;
+}
+
+/* True when destroying DECL would call something.  For an owning payload
+   enum that depends on the variant, and the map must be non-empty: an empty
+   map means no destructor is known at all, which is the leak case.  */
+static bool
+state_needs_drop (const crug_ostate &st, tree decl)
+{
+  if (owns_payload_enum_type_p (TREE_TYPE (decl)))
+    {
+      for (std::map<int, tree>::const_iterator i = st.variant_dtors.begin ();
+	   i != st.variant_dtors.end (); ++i)
+	if (i->second != NULL_TREE)
+	  return true;
+      return false;
+    }
+  return st.dtor != NULL_TREE;
+}
+
+/* True when no destructor is known for the owned object DECL, which is what
+   -Wcrug-unadopted-own reports.  */
+static bool
+state_dtor_unknown (const crug_ostate &st, tree decl)
+{
+  if (owns_payload_enum_type_p (TREE_TYPE (decl)))
+    return st.variant_dtors.empty ();
+  return st.dtor == NULL_TREE;
+}
+
+static crug_drop
+make_drop (tree decl, const crug_ostate &st)
+{
+  crug_drop dr;
+
+  dr.decl = decl;
+  if (owns_payload_enum_type_p (TREE_TYPE (decl)))
+    {
+      dr.enum_type = TYPE_MAIN_VARIANT (TREE_TYPE (decl));
+      dr.variant_dtors = st.variant_dtors;
+    }
+  else
+    dr.dtor = st.dtor;
+  return dr;
+}
+
 static crug_state
 merge_state (crug_state a, crug_state b)
 {
@@ -1403,8 +1583,21 @@ merge_into (crug_fn_ctx &ctx, state_map &dst, const state_map &other,
       crug_state result = merge_state (sa.state, sb.state);
       if (announce && sa.state != sb.state)
 	dump_join (loc, d, sa.state, sb.state, result);
-      dst[d] = crug_ostate (result, choose_dtor (ctx, d, sa.dtor, sb.dtor,
-						 loc));
+      crug_ostate merged (result, choose_dtor (ctx, d, sa.dtor, sb.dtor, loc));
+      /* Merge the per-variant destructors of an owning payload enum: a
+	 variant that only one path can hold keeps its destructor, and two
+	 different destructors for the same variant conflict (crug-OWN-010).  */
+      merged.variant_dtors = sa.variant_dtors;
+      for (std::map<int, tree>::const_iterator i = sb.variant_dtors.begin ();
+	   i != sb.variant_dtors.end (); ++i)
+	{
+	  std::map<int, tree>::iterator j = merged.variant_dtors.find (i->first);
+	  if (j == merged.variant_dtors.end ())
+	    merged.variant_dtors[i->first] = i->second;
+	  else
+	    j->second = choose_dtor (ctx, d, j->second, i->second, loc);
+	}
+      dst[d] = merged;
     }
 }
 
@@ -1465,21 +1658,16 @@ collect_drops (crug_fn_ctx &ctx, state_map &env, size_t keep_depth,
 	    case CRUG_MOVED:
 	      break;
 	    case CRUG_OWNED:
-	      if (st.dtor != NULL_TREE)
-		{
-		  crug_drop dr;
-		  dr.decl = d;
-		  dr.dtor = st.dtor;
-		  out.push_back (dr);
-		}
-	      else
+	      if (state_needs_drop (st, d))
+		out.push_back (make_drop (d, st));
+	      else if (state_dtor_unknown (st, d))
 		warn_unadopted (ctx, d, loc);
 	      break;
 	    case CRUG_MAYBE_MOVED:
 	    case CRUG_MAYBE_EMPTY:
-	      if (st.dtor != NULL_TREE)
+	      if (state_needs_drop (st, d))
 		ambiguous_state (ctx, d, st.state, loc);
-	      else
+	      else if (state_dtor_unknown (st, d))
 		warn_unadopted (ctx, d, loc);
 	      break;
 	    }
@@ -1604,13 +1792,13 @@ is_null_pointer (tree t)
   return TREE_CODE (t) == INTEGER_CST && integer_zerop (t);
 }
 
-/* Mark an object as moved out of and return the destructor it passed on.  */
+/* Mark an object as moved out of and return the ownership it passed on.  */
 
-static tree
+static crug_ostate
 process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
 {
   if (arg == NULL_TREE || arg == error_mark_node)
-    return NULL_TREE;
+    return crug_ostate ();
 
   tree r = arg;
   STRIP_NOPS (r);
@@ -1619,20 +1807,20 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
     {
       error_at (loc, "move of aggregate field %qE is not supported; move the "
 		"whole object [crug-UAM-006]", r);
-      return NULL_TREE;
+      return crug_ostate ();
     }
 
   if (TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
     {
       /* A prvalue: there is no object to move out of.  */
       walk_expr (ctx, env, arg, loc);
-      return NULL_TREE;
+      return crug_ostate ();
     }
 
-  if (!crug_is_owning_decl (r))
+  if (!decl_owns (r))
     {
       error_at (loc, "move() operand is not an owned object [crug-OWN-001]");
-      return NULL_TREE;
+      return crug_ostate ();
     }
 
   bool shared = false;
@@ -1640,8 +1828,12 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
   if (has_live_borrow (ctx, r, &shared, &mutborrow))
     error_at (loc, "cannot move %qD while it is borrowed [crug-BORROW-004]", r);
 
+  crug_ostate moved;
+  state_map::const_iterator it = env.find (r);
+  if (it != env.end ())
+    moved = it->second;
+
   crug_state st = state_of (env, r);
-  tree dtor = dtor_of (env, r);
 
   if (st == CRUG_MOVED)
     error_at (loc, "move of already-moved value %qD [crug-UAM-002]", r);
@@ -1650,7 +1842,9 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
 	      "[crug-UAM-004]", r);
 
   env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
-  return dtor;
+  if (st == CRUG_MOVED || st == CRUG_MAYBE_MOVED)
+    return crug_ostate ();
+  return moved;
 }
 
 static tree
@@ -1758,7 +1952,7 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
   STRIP_NOPS (r);
 
   if ((TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
-      || !crug_is_owning_decl (r))
+      || !decl_owns (r))
     {
       error_at (loc, "drop() operand is not an owned object [crug-DROP-001]");
       return;
@@ -1770,7 +1964,6 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
     error_at (loc, "cannot drop %qD while it is borrowed [crug-BORROW-005]", r);
 
   crug_state st = state_of (env, r);
-  tree dtor = dtor_of (env, r);
 
   switch (st)
     {
@@ -1781,25 +1974,165 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
       break;
     case CRUG_MAYBE_MOVED:
     case CRUG_MAYBE_EMPTY:
-      if (dtor != NULL_TREE)
+      if (state_needs_drop (env[r], r))
 	ambiguous_state (ctx, r, st, loc);
-      else
+      else if (state_dtor_unknown (env[r], r))
 	warn_unadopted (ctx, r, loc);
       break;
     case CRUG_OWNED:
-      if (dtor != NULL_TREE)
-	{
-	  crug_drop dr;
-	  dr.decl = r;
-	  dr.dtor = dtor;
-	  ctx.explicit_drops[call].push_back (dr);
-	}
-      else
+      if (state_needs_drop (env[r], r))
+	ctx.explicit_drops[call].push_back (make_drop (r, env[r]));
+      else if (!owns_payload_enum_type_p (TREE_TYPE (r)))
 	warn_unadopted (ctx, r, loc);
       break;
     }
 
   env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+}
+
+/* The destructor that the payload of an owned payload-enum variant brings
+   with it.  The payload is either moved in (the destructor travels with the
+   value), adopted with an explicit destructor, a fresh allocation, or null.
+   Any other expression would leave an owned payload behind without a
+   destructor, which is exactly the leak the ownership layer exists to
+   prevent, so it is rejected (ADR 0018 D8 R4, ADR 0004 D8).  */
+
+static tree
+payload_transfer_dtor (crug_fn_ctx &ctx, state_map &env, tree payload,
+		       location_t loc, tree enum_type, int variant)
+{
+  if (payload == NULL_TREE || payload == error_mark_node)
+    return NULL_TREE;
+
+  tree r = payload;
+  STRIP_NOPS (r);
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (r) == CALL_EXPR && is_intrinsic_call (r, &kind))
+    {
+      if (kind == CRUG_INTR_MOVE)
+	return process_move (ctx, env, CALL_EXPR_ARG (r, 0), loc).dtor;
+      if (kind == CRUG_INTR_ADOPT)
+	return check_adopt (ctx, env, r, loc);
+    }
+
+  if (is_null_pointer (r))
+    {
+      walk_expr (ctx, env, payload, loc);
+      return NULL_TREE;
+    }
+
+  if (is_allocation_call (r))
+    {
+      walk_expr (ctx, env, payload, loc);
+      return known_free ();
+    }
+
+  /* A call whose .crugffi contract says it returns an owned value hands the
+     variant that value with the destructor the sidecar names (ADR 0007 D3).  */
+  if (TREE_CODE (r) == CALL_EXPR)
+    {
+      tree ffi_dtor;
+      if (crug_ffi_returns_owned (crug_call_fndecl (r), &ffi_dtor))
+	{
+	  walk_expr (ctx, env, payload, loc);
+	  return ffi_dtor;
+	}
+    }
+
+  walk_expr (ctx, env, payload, loc);
+  error_at (loc, "the payload of owned variant %qs must be moved in, adopted, "
+	    "or a fresh allocation; write move (...), adopt (...) or an "
+	    "allocation call [crug-ADT-019]",
+	    crug_payload_enum_variant_name (enum_type, variant));
+  return NULL_TREE;
+}
+
+/* Assign the ownership state that EXPR confers on DECL when DECL holds an
+   owning payload enum (ADR 0018 D8).  The state carries one destructor per
+   variant the object may hold: a constructor supplies exactly one entry, and
+   a move transfers the map of the source.  */
+
+static void
+assign_owning_enum (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
+		    location_t loc)
+{
+  tree type = TYPE_MAIN_VARIANT (TREE_TYPE (decl));
+  bool is_scrutinee = match_scrutinee_p (decl);
+
+  if (expr == NULL_TREE || expr == error_mark_node)
+    {
+      set_state (env, decl, CRUG_EMPTY);
+      if (is_scrutinee)
+	ctx.match_scrutinee_state[decl] = crug_ostate ();
+      return;
+    }
+
+  tree r = expr;
+  STRIP_NOPS (r);
+
+  if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+      && decl_owns (r))
+    {
+      crug_state s = state_of (env, r);
+      if (s == CRUG_MOVED)
+	error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      else if (s == CRUG_MAYBE_MOVED)
+	error_at (loc, "use of possibly-moved value %qD after a branch join "
+		  "[crug-UAM-004]", r);
+      else if (is_scrutinee)
+	error_at (loc, "an owned scrutinee must be moved into match: write "
+		  "match (move (%qD)) [crug-ADT-015]", r);
+      else
+	error_at (loc, "implicit copy of owned value %qD; owned values are "
+		  "not copyable [crug-UAM-003]", r);
+      set_state (env, decl, CRUG_EMPTY);
+      if (is_scrutinee)
+	ctx.match_scrutinee_state[decl] = crug_ostate ();
+      return;
+    }
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (r) == CALL_EXPR && is_intrinsic_call (r, &kind)
+      && kind == CRUG_INTR_MOVE)
+    {
+      crug_ostate moved = process_move (ctx, env, CALL_EXPR_ARG (r, 0), loc);
+      set_owned_from (env, decl, moved);
+      if (is_scrutinee)
+	{
+	  ctx.match_scrutinee_state[decl] = moved;
+	  /* The temporary consumed the value: its payloads were either moved
+	     into an arm binding or belong to a variant that owns nothing.  */
+	  env[decl] = crug_ostate (CRUG_MOVED, NULL_TREE);
+	}
+      return;
+    }
+
+  tree ctor_type = NULL_TREE;
+  int variant = -1;
+  tree payload = NULL_TREE;
+  if (crug_payload_ctor_parts (r, &ctor_type, &variant, &payload)
+      && ctor_type != NULL_TREE
+      && TYPE_MAIN_VARIANT (ctor_type) == type)
+    {
+      tree dtor = NULL_TREE;
+      if (crug_payload_enum_variant_owns_p (type, variant))
+	dtor = payload_transfer_dtor (ctx, env, payload, loc, type, variant);
+      else
+	walk_expr (ctx, env, payload, loc);
+
+      crug_ostate st (CRUG_OWNED, NULL_TREE);
+      st.variant_dtors[variant] = dtor;
+      set_owned_from (env, decl, st);
+      if (is_scrutinee)
+	ctx.match_scrutinee_state[decl] = st;
+      return;
+    }
+
+  walk_expr (ctx, env, expr, loc);
+  /* An expression whose variants are not known owns nothing that the pass can
+     destroy; leaving the map empty makes the leak visible later.  */
+  set_owned (env, decl, NULL_TREE);
 }
 
 /* Assign the ownership state that EXPR confers on DECL.  */
@@ -1808,6 +2141,12 @@ static void
 assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
 		  location_t loc)
 {
+  if (owns_payload_enum_type_p (TREE_TYPE (decl)))
+    {
+      assign_owning_enum (ctx, env, decl, expr, loc);
+      return;
+    }
+
   if (expr == NULL_TREE || expr == error_mark_node)
     {
       set_state (env, decl, CRUG_EMPTY);
@@ -1818,7 +2157,7 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
   STRIP_NOPS (r);
 
   if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
-      && crug_is_owning_decl (r))
+      && decl_owns (r))
     {
       crug_state st = state_of (env, r);
       if (st == CRUG_MOVED)
@@ -1838,8 +2177,9 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
     {
       if (kind == CRUG_INTR_MOVE)
 	{
-	  set_owned (env, decl, process_move (ctx, env, CALL_EXPR_ARG (r, 0),
-					      loc));
+	  crug_ostate moved = process_move (ctx, env, CALL_EXPR_ARG (r, 0),
+					    loc);
+	  set_owned_from (env, decl, moved);
 	  return;
 	}
       if (kind == CRUG_INTR_ADOPT)
@@ -1950,7 +2290,7 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
       return root != NULL_TREE ? root : r;
     }
 
-  if (!crug_is_owning_decl (r))
+  if (!decl_owns (r))
     {
       if (want_mut)
 	error_at (loc, "%s operand must be a whole modifiable owned object "
@@ -2098,7 +2438,7 @@ check_use (crug_fn_ctx &ctx, state_map &env, tree decl, location_t loc)
       return;
     }
 
-  if (!crug_is_owning_decl (decl))
+  if (!decl_owns (decl))
     return;
 
   bool shared = false;
@@ -2544,6 +2884,22 @@ crug_strict_check_cast (location_t loc, tree to, tree from, tree operand)
 	    "%<unsafe%> block [crug-SAFE-002]");
 }
 
+/* True for an access to the artificial temporary that a lowered match uses
+   for its scrutinee.  The temporary is moved into the match, so walking the
+   base would report a use of a moved value; the payload transfer is modelled
+   by the binding registration instead.  */
+
+static bool
+match_scrutinee_access_p (tree t)
+{
+  if (t == NULL_TREE || TREE_CODE (t) != COMPONENT_REF)
+    return false;
+  tree base = TREE_OPERAND (t, 0);
+  STRIP_NOPS (base);
+  return (TREE_CODE (base) == VAR_DECL || TREE_CODE (base) == PARM_DECL)
+	 && match_scrutinee_p (base);
+}
+
 static void
 walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 {
@@ -2551,6 +2907,9 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     return;
 
   location_t loc = node_location (t, locus);
+
+  if (match_scrutinee_access_p (t))
+    return;
 
   switch (TREE_CODE (t))
     {
@@ -2640,7 +2999,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    return;
 	  }
 	if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
-	    && crug_is_owning_decl (lhs))
+	    && decl_owns (lhs))
 	  {
 	    bool shared = false;
 	    bool mutborrow = false;
@@ -2664,12 +3023,13 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		error_at (loc, "assignment to an owned value that already owns; "
 			  "call drop() or release() first [crug-DROP-008]", lhs);
 		/* Recovery: the value is not destroyed here, so stop calling
-		   it owned and do not model the assignment.  This keeps one
-		   mistake from producing a second, unrelated diagnostic at
-		   the end of the scope.  */
+		   it owned and do not model the assignment.  The state is
+		   EMPTY rather than MOVED so that neither the end of the scope
+		   nor a later use produces a second, unrelated diagnostic.  */
 		crug_ostate &s = env[lhs];
-		s.state = CRUG_MOVED;
+		s.state = CRUG_EMPTY;
 		s.dtor = NULL_TREE;
+		s.variant_dtors.clear ();
 		walk_expr (ctx, env, rhs, loc);
 		return;
 	      }
@@ -2751,7 +3111,7 @@ collect_labels (tree t, std::vector<tree> &path, std::vector<tree> &decls,
       {
 	tree d = DECL_EXPR_DECL (t);
 	if (d != NULL_TREE && TREE_CODE (d) == VAR_DECL
-	    && crug_is_owning_decl (d))
+	    && decl_owns (d))
 	  decls.push_back (d);
 	return;
       }
@@ -2919,7 +3279,40 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL)
 	  return true;
 
-	if (!crug_is_owning_decl (decl))
+	/* A match arm binds one payload out of the moved scrutinee temporary.
+	   The parser registered the binding; its destructor is the one the
+	   temporary carried for that variant (ADR 0018 D8 R4/R5).  */
+	tree bound_tmp = NULL_TREE;
+	int bound_variant = -1;
+	if (match_binding_reg (decl, &bound_tmp, &bound_variant)
+	    && bound_tmp != NULL_TREE
+	    && owns_payload_enum_type_p (TREE_TYPE (bound_tmp)))
+	  {
+	    crug_ostate st;
+	    std::map<tree, crug_ostate>::const_iterator si
+	      = ctx.match_scrutinee_state.find (bound_tmp);
+	    if (si != ctx.match_scrutinee_state.end ())
+	      st = si->second;
+	    register_owned (ctx, env, decl);
+	    std::map<int, tree>::const_iterator vi
+	      = st.variant_dtors.find (bound_variant);
+	    if (vi != st.variant_dtors.end ())
+	      /* The scrutinee may hold this variant: the binding carries the
+		 destructor the constructor or move recorded for it (possibly
+		 none, when the variant owns nothing).  */
+	      env[decl] = crug_ostate (CRUG_OWNED, vi->second);
+	    else if (st.variant_dtors.empty ())
+	      /* The set of variants the scrutinee may hold is unknown, so the
+		 binding may own a payload whose destructor is unknown.  */
+	      env[decl] = crug_ostate (CRUG_OWNED, NULL_TREE);
+	    else
+	      /* The scrutinee can hold only other variants, so this arm is
+		 unreachable for it and the binding owns nothing.  */
+	      set_state (env, decl, CRUG_EMPTY);
+	    return true;
+	  }
+
+	if (!decl_owns (decl))
 	  {
 	    /* An ordinary variable's initializer is still evaluated: it can
 	       use a moved value, call move(), or take a borrow.  */
@@ -3048,8 +3441,13 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	  return false;
 	if (then_reach && else_reach)
 	  {
-	    merge_into (ctx, env, then_env, loc);
-	    merge_into (ctx, env, else_env, loc);
+	    /* Merge the two branches against each other, not one after the
+	       other into the pre-branch map: merging then_env first would make
+	       a value that both branches assign owned look half-moved when the
+	       else environment is merged in afterwards.  */
+	    state_map merged = then_env;
+	    merge_into (ctx, merged, else_env, loc);
+	    env.swap (merged);
 	  }
 	else if (then_reach)
 	  env = then_env;
@@ -3238,12 +3636,44 @@ drop_call_stmt (tree decl, tree dtor, location_t loc)
   return stmt;
 }
 
+/* The statement that destroys DR: a plain guarded call for an ordinary owned
+   object, or one guarded call per owning variant for an owning payload enum.
+   Only the variant named by the tag can own a payload, so the inactive
+   variants produce no call at all.  */
+
+static tree
+drop_stmt_tree (const crug_drop &dr, location_t loc)
+{
+  if (dr.enum_type == NULL_TREE)
+    return drop_call_stmt (dr.decl, dr.dtor, loc);
+
+  tree chain = build_empty_stmt (loc);
+  for (std::map<int, tree>::const_reverse_iterator i
+	 = dr.variant_dtors.rbegin ();
+       i != dr.variant_dtors.rend (); ++i)
+    {
+      if (i->second == NULL_TREE)
+	continue;
+      tree tag = crug_safe_tag_ref (loc, dr.decl, dr.enum_type);
+      tree payload = crug_safe_payload_ref (loc, dr.decl, dr.enum_type,
+					    i->first);
+      if (tag == NULL_TREE || payload == NULL_TREE)
+	continue;
+      tree body = drop_call_stmt (payload, i->second, loc);
+      tree cond = build2 (EQ_EXPR, boolean_type_node, tag,
+			  build_int_cst (TREE_TYPE (tag), i->first));
+      tree stmt = build3 (COND_EXPR, void_type_node, cond, body, chain);
+      SET_EXPR_LOCATION (stmt, loc);
+      chain = stmt;
+    }
+  return chain;
+}
+
 static void
 append_drops (tree &list, const std::vector<crug_drop> &drops, location_t loc)
 {
   for (size_t i = 0; i < drops.size (); i++)
-    append_to_statement_list (drop_call_stmt (drops[i].decl, drops[i].dtor,
-					      loc), &list);
+    append_to_statement_list (drop_stmt_tree (drops[i], loc), &list);
 }
 
 static tree
@@ -3340,9 +3770,7 @@ rewrite_cb (tree *tp, int *walk_subtrees, void *data)
 	  tree seq = NULL_TREE;
 	  for (size_t i = 0; i < ed->second.size (); i++)
 	    {
-	      tree stmt = drop_call_stmt (ed->second[i].decl,
-					  ed->second[i].dtor,
-					  node_location (*tp));
+	      tree stmt = drop_stmt_tree (ed->second[i], node_location (*tp));
 	      seq = seq == NULL_TREE ? stmt
 		: build2 (COMPOUND_EXPR, void_type_node, seq, stmt);
 	    }
@@ -3399,6 +3827,31 @@ crug_check_function (tree fndecl, tree body)
     return;
   if (!crug_ownership_enabled () && !crug_borrow_enabled ())
     return;
+
+  /* An owning payload enum cannot cross a function boundary by value: the
+     destructor of its payload is part of the ownership state, not of the
+     type or of the C ABI, so a callee could not destroy it.  Keeping the
+     value inside one function makes this limitation explicit instead of
+     leaking silently (ADR 0018 D8 R5, ADR 0004 D1).  */
+  for (tree a = DECL_ARGUMENTS (fndecl); a != NULL_TREE; a = DECL_CHAIN (a))
+    if (TREE_CODE (a) == PARM_DECL
+	&& owns_payload_enum_type_p (TREE_TYPE (a)))
+      error_at (DECL_SOURCE_LOCATION (a), "an owning payload enum cannot be "
+		"passed by value: the destructor of its payload is not part of "
+		"the ABI; keep the value in one function or pass a pointer "
+		"[crug-ADT-018]");
+  if (DECL_RESULT (fndecl) != NULL_TREE)
+    {
+      tree restype = TREE_TYPE (DECL_RESULT (fndecl));
+      if (TREE_CODE (restype) == REFERENCE_TYPE
+	  && TREE_TYPE (restype) != NULL_TREE)
+	restype = TREE_TYPE (restype);
+      if (owns_payload_enum_type_p (restype))
+	error_at (DECL_SOURCE_LOCATION (fndecl), "a function cannot return an "
+		  "owning payload enum by value: the destructor of its payload "
+		  "is not part of the ABI; return a pointer instead "
+		  "[crug-ADT-018]");
+    }
 
   crug_fn_ctx ctx;
   ctx.fndecl = fndecl;
@@ -3462,4 +3915,11 @@ crug_check_function (tree fndecl, tree body)
   /* Any intrinsic left in code that pass A never reached must still
      disappear before the middle end sees it.  */
   walk_tree_without_duplicates (&body, lower_intrinsic_cb, NULL);
+
+  /* The registration maps are keyed by tree nodes and the front end may
+     reuse a node address after this function is done.  */
+  if (crug_match_scrutinee_map != NULL)
+    crug_match_scrutinee_map->clear ();
+  if (crug_match_binding_map != NULL)
+    crug_match_binding_map->clear ();
 }

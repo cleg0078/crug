@@ -116,6 +116,11 @@ extern tree crug_payload_enum_tag_field (tree type);
 extern tree crug_payload_enum_union_field (tree type);
 extern int crug_payload_enum_variant_count (tree type);
 extern bool crug_payload_enum_variant_has_payload (tree type, int variant);
+/* True when the payload type-name of VARIANT was written 'own'.  The 'own'
+   qualifier is not part of the payload type (it is erased from the type like
+   every other Crug qualifier), so this is the only way to know that the
+   payload owns its value.  */
+extern bool crug_payload_enum_variant_owns_p (tree type, int variant);
 extern bool crug_payload_enum_owns_p (tree type);
 extern tree crug_payload_enum_payload_field (tree type, int variant);
 extern const char *crug_payload_enum_variant_name (tree type, int variant);
@@ -125,6 +130,15 @@ extern int crug_payload_enum_variant_by_name (tree type, const char *name);
    NULL_TREE for a unit variant.  */
 extern tree crug_payload_enum_ctor (location_t loc, tree type, int variant,
 				    tree payload);
+
+/* Decompose a payload-enum constructor expression, which is the
+   COMPOUND_LITERAL_EXPR that crug_payload_enum_ctor returns.  Store the
+   payload enum type, the variant index and the payload expression (NULL_TREE
+   for a unit variant) and return true; return false when EXPR is not such a
+   constructor.  The ownership pass needs this because a compound literal
+   hides its initializer behind a DECL_EXPR, which is not an expression.  */
+extern bool crug_payload_ctor_parts (tree expr, tree *type, int *variant,
+				     tree *payload);
 
 /* Record that VARIANT_DECL, the CONST_DECL bound for the variant name, names
    variant VARIANT of the payload enum TYPE.  */
