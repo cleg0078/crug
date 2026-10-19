@@ -511,12 +511,15 @@ crug_go_lower (location_t loc, tree callee, tree args, tree scope)
       /* A task started inside a 'scope' joins that group; the group's wait
 	 is what keeps a borrowed capture sound (ADR 0024 D4).  */
       tree handle = convert (ptr_type_node, scope);
+      tree args[4] = { handle, entry, addr, size };
       spawn = build_call_expr_loc_array (loc, crug_task_spawn_scoped_decl (), 4,
-					 (tree[]){ handle, entry, addr, size });
+					 args);
     }
   else
-    spawn = build_call_expr_loc_array (loc, crug_task_spawn_decl (), 3,
-					(tree[]){ entry, addr, size });
+    {
+      tree args[3] = { entry, addr, size };
+      spawn = build_call_expr_loc_array (loc, crug_task_spawn_decl (), 3, args);
+    }
   TREE_SIDE_EFFECTS (spawn) = 1;
   SET_EXPR_LOCATION (spawn, loc);
   append_to_statement_list (spawn, &stmts);
