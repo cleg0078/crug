@@ -21,13 +21,17 @@ its first comment.
 | `13-payload-enum.c` | a payload `enum` (`Text (char *)`, `Number (int)` and the unit variant `Quit`), construction from each variant and a `match` covering every one | `./gcc/crugc -O2 -fcrug-adt examples/13-payload-enum.c -o build/payload-enum && ./build/payload-enum` |
 | `14-owned-payload.c` | an owned payload (`Text (own char *)`): ownership moves in through `adopt`, each value is moved into `match`, the arm binding releases the text once, and the variants that own nothing release nothing | `./gcc/crugc -O2 -fcrug-adt -fcrug-ownership examples/14-owned-payload.c -o build/owned-payload && ./build/owned-payload` |
 | `15-alias-facts.c` | `-fcrug-alias-facts`: a `mut` parameter is compiled as `restrict` and the caller passes `borrow_mut`; the dump records the fact | `./gcc/crugc -O2 -fcrug-borrow -fcrug-alias-facts examples/15-alias-facts.c -o build/alias-facts && ./build/alias-facts` |
+| `16-goroutines.c` | `go`/`yield`: eight by-value captures plus one indirect `go (fn (99))`, two tasks that take ownership of a heap buffer with `move` and release it themselves, then the runtime stats after shutdown | `make -C libcrug PAL=linux && ./gcc/crugc -O2 -fcrug-goroutines -fcrug-ownership -Ilibcrug/core examples/16-goroutines.c libcrug/build/linux/task.o libcrug/build/linux/pal_linux.o libcrug/build/linux/switch.o libcrug/build/linux/stack.o -pthread -o build/ex-goroutines && ./build/ex-goroutines` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the
 ownership rules in `docs/crug/OWNERSHIP.md` and `docs/crug/DROP.md`, the
 borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, the FFI contracts in `docs/crug/FFI.md`, and the
-safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`, and ownership-aware optimization in `docs/crug/OPTIMIZATION.md`.
+safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`,
+ownership-aware optimization in `docs/crug/OPTIMIZATION.md`, and the `go` and
+`yield` statements in `docs/crug/GOROUTINES.md` with the runtime in
+`docs/crug/TASKS.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.
