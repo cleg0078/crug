@@ -1,0 +1,8 @@
+phase-4 #7 rc=0
+cmd: crugc -fcrug-ownership -fcrug-dump=ownership -c gcc/testsuite/crug.dg/ownership/branch-join.c && grep -q 'join .*: p=OWNED/MOVED -> MAYBE_MOVED' branch-join.crug-ownership
+expected: exit 0 (the dump prints the post-join state for the variable).
+---
+gcc/testsuite/crug.dg/ownership/branch-join.c: In function ‘join’:
+gcc/testsuite/crug.dg/ownership/branch-join.c:15:19: warning: owned value ‘p’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+   15 |   own struct Foo *p = raw_source;
+      |                   ^

@@ -1,0 +1,10 @@
+phase-5 #6 rc=0
+cmd: scripts/check-drop-dump.sh
+expected: exit 0, printed `drop-dump: scope-end return break continue goto 5 kinds` (`-fcrug-dump=drop` records each exit kind).
+---
+PASS scope-end: exit kind scope-end
+PASS early-return: exit kind return
+PASS break-drop: exit kind break
+PASS continue-drop: exit kind continue
+PASS goto-out: exit kind goto
+drop-dump: scope-end return break continue goto 5 kinds

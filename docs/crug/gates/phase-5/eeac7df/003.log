@@ -1,0 +1,5 @@
+phase-5 #3 rc=0
+cmd: scripts/check-drop-asan.sh
+expected: exit 0, printed `drop-asan: 3/3 programs, 0 with reports` (no leak, double free or invalid free at `-O1`).
+---
+drop-asan: 3/3 programs, 0 with reports

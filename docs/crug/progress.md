@@ -77,7 +77,9 @@ conditional initialization, assignment over an owned value and non-owned `drop`
 operands are rejected with stable codes; `setjmp` and never-adopted values warn.
 `docs/crug/DROP.md` is the digest; `make check-DROP` runs 39 expected passes and
 the six `scripts/check-drop-*.sh` checks assert exactly-once counts, sanitizer
-cleanliness, absence of `__crug_` helper calls and the dump.
+cleanliness, absence of `__crug_` helper calls and the dump. The Phase 5 gate
+passes 7/7 at `eeac7df` (logs under `docs/crug/gates/phase-5/eeac7df/`), and the
+Phase 4 gate was re-adjudicated at the same commit with 7/7.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

@@ -1,0 +1,5 @@
+phase-5 #2 rc=0
+cmd: scripts/check-drop-exactly-once.sh
+expected: exit 0, printed `exactly-once: 4/4 programs` (allocation/free counts through an in-test counting allocator: allocated=dropped, adopted=dropped, moved=1/1, released=1/0).
+---
+exactly-once: 4/4 programs

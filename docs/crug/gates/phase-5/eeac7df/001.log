@@ -1,0 +1,5 @@
+phase-5 #1 rc=0
+cmd: scripts/check-drop-suite.sh
+expected: exit 0, printed `drop-suite: <N> tests, 0 failures` (the DejaGnu suite over `crug.dg/drop/`: scope end, early return, branches, loops, `goto` in and out, `switch`, conditional initialization, move-suppresses-drop, adopt, release, and every rejection below).
+---
+drop-suite: 39 tests, 0 failures

@@ -1,0 +1,5 @@
+phase-4 #2 rc=0
+cmd: crugc -O2 -fcrug-ownership -c gcc/testsuite/crug.dg/ownership/move-zero-cost.c -o move-zero-cost.o && test "$(objdump -d move-zero-cost.o | grep -cE 'call|__crug_')" = 0
+expected: exit 0 (move lowers to a register copy, no helper call).
+---
+

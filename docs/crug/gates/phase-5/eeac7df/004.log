@@ -1,0 +1,5 @@
+phase-5 #4 rc=0
+cmd: scripts/check-drop-objdump.sh
+expected: exit 0, printed `drop-objdump: 5 objects, 0 with __crug_ calls` (cleanup lowers to direct destructor/`free` calls, no runtime manager).
+---
+drop-objdump: 5 objects, 0 with __crug_ calls

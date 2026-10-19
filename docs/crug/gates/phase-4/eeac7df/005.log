@@ -1,0 +1,5 @@
+phase-4 #5 rc=0
+cmd: crugc -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/ownership/use-after-move.c 2>&1 | grep -q '\[crug-UAM-001\]'
+expected: exit 0 (the diagnostic carries the stable code, not free text).
+---
+

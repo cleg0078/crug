@@ -1,0 +1,11 @@
+phase-4 #4 rc=1
+cmd: crugc -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/ownership/use-after-move.c
+expected: exit 1.
+---
+gcc/testsuite/crug.dg/ownership/use-after-move.c: In function ‘use_after_move’:
+gcc/testsuite/crug.dg/ownership/use-after-move.c:12:9: error: use of moved value ‘p’ [crug-UAM-001]
+   12 |   *sink = p; /* { dg-error "use of moved value" } */
+      |   ~~~~~~^~~
+gcc/testsuite/crug.dg/ownership/use-after-move.c:11:19: warning: owned value ‘q’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+   11 |   own struct Foo *q = move (p);
+      |                   ^

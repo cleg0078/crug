@@ -1,0 +1,9 @@
+phase-5 #5 rc=0
+cmd: scripts/check-drop-policy.sh
+expected: exit 0, printed `drop-policy: goto=[crug-DROP-002] setjmp=[crug-DROP-003] unadopted=[crug-OWN-007] operand=[crug-DROP-001]` (each rejection is a stable code, not free text).
+---
+PASS goto [crug-DROP-002]
+PASS setjmp [crug-DROP-003]
+PASS unadopted [crug-OWN-007]
+PASS operand [crug-DROP-001]
+drop-policy: goto=[crug-DROP-002] setjmp=[crug-DROP-003] unadopted=[crug-OWN-007] operand=[crug-DROP-001]
