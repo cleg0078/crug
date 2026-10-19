@@ -42,14 +42,15 @@ contracts) reads `.crugffi` sidecars: an annotated library hands out owned
 values with a known destructor, consuming functions require `move`, and
 `-fcrug-ffi-discover` finds a sidecar next to a quoted include. Metadata never
 changes codegen - see [docs/crug/FFI.md](docs/crug/FFI.md) and
-[ADR 0007](docs/crug/adr/0007-ffi-metadata-format.md). Phase 10 increment 1 adds
-the safe core types: `slice<T>` with checked `s[i]` indexing, `option<T>`,
-`result<T,E>`, their value constructors and a `match` statement over both sums.
-They are ordinary C aggregates with frozen layouts, no runtime and no helper
-calls - see [docs/crug/SAFE-TYPES.md](docs/crug/SAFE-TYPES.md) and the frozen
-rows of [docs/crug/ABI.md](docs/crug/ABI.md). The Phase 10 gate is not yet
-awarded: payload enums and owned payloads are increment 2. `libcrug`,
-goroutines, channels and payload enums are not implemented. See
+[ADR 0007](docs/crug/adr/0007-ffi-metadata-format.md). Phase 10 adds the safe
+core types: `slice<T>` with checked `s[i]` indexing, `option<T>`,
+`result<T,E>`, payload enums, their value constructors and a `match` statement
+over all three sum shapes. They are ordinary C aggregates with frozen layouts,
+no runtime and no helper calls - see
+[docs/crug/SAFE-TYPES.md](docs/crug/SAFE-TYPES.md) and the frozen rows of
+[docs/crug/ABI.md](docs/crug/ABI.md). The Phase 10 gate is not yet awarded:
+owned payloads are increment 2b. `libcrug`, goroutines, channels and owned
+payloads are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -97,9 +98,10 @@ procedure and a 31-check acceptance matrix, governed by
   ownership and borrows through ordinary C calls, with no ABI change and no
   runtime metadata (Phase 9).
 - Safe core types: `slice<T>` (a borrowed view with a checked `s[i]`),
-  `option<T>` and `result<T,E>` with `some`/`none`/`ok`/`err` and a
-  `match` statement. Plain C records with frozen layouts, so they cost what the
-  equivalent struct costs (Phase 10 increment 1).
+  `option<T>`, `result<T,E>` and payload `enum`s with
+  `some`/`none`/`ok`/`err`/variant constructors and a `match` statement.
+  Plain C records with frozen layouts, so they cost what the equivalent struct
+  costs (Phase 10).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -145,7 +147,7 @@ that a borrowed function compiles to the same object as its plain-pointer twin,
 that a borrow ends at its last use in the dump, and that six realistic programs
 compile and run, `scripts/check-strict-*.sh` assert that strict mode
 changes no code while rejecting each unanalysed operation. `make check-SAFE_TYPES`
-runs the safe-type suite, `scripts/check-safe-types.sh` tallies it, and
+runs the safe-type suite (55 expected passes), `scripts/check-safe-types.sh` tallies it, and
 `scripts/check-safe-bounds.sh` asserts that an out-of-range `s[i]` traps while
 `-fno-crug-bounds-checks` removes the trap. Runnable programs
 that need no harness live in [examples/](examples/README.md), one per Phase 4-8

@@ -10,9 +10,9 @@ first Crug productions - `own`, `move`, automatic destruction, `adopt`,
 `release` and `drop` - with their analysis, diagnostics and dg suites, from
 Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
 Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
-is no `libcrug` and no goroutine, channel or payload-enum support yet; the
-Phase 10 increment 1 safe types (`slice`, `option`, `result`, `match`, checked
-indexing) exist and are described below. The `kernel-compat`
+is no `libcrug` and no goroutine or channel support yet; the Phase 10 safe
+types (`slice`, `option`, `result`, payload enums, `match`, checked indexing)
+exist, with owned payloads still open, and are described below. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -151,28 +151,33 @@ cases (`make check-FFI`), `docs/crug/FFI.md` is the digest, and the Phase 9 gate
 is the six-check list in `docs/crug/EXIT-GATES.md` (amendment A-10). The Phase 9
 gate passes 6/6 at `e1052f9` (logs under `docs/crug/gates/phase-9/e1052f9/`).
 
-Phase 10 increment 1 adds the safe core types. `slice<T>`, `option<T>` and
-`result<T,E>` are ordinary records built by the C front end (`gcc/c/crug-safe.cc`),
-with `slice (ptr, len)`, `some`/`none`/`ok`/`err` constructors, a `match`
-statement over the two sums and checked `s[i]` indexing (`__builtin_trap` on a
-length violation, `-fno-crug-bounds-checks` to remove it). No runtime, helper or
-new GIMPLE opcode is involved, the constructors lower to plain stores, and the
-layouts (`slice` 16/8; `option<int>` 8/4; `result<int,int>` 8/4) are frozen in
-`docs/crug/ABI.md` section 3 and asserted by
-`gcc/testsuite/crug.dg/safe-types/layout.c`. `make check-SAFE_TYPES` runs 32
-expected passes, `scripts/check-safe-types.sh` requires zero failures and
+Phase 10 adds the safe core types. `slice<T>`, `option<T>`, `result<T,E>` and
+payload `enum`s are ordinary records built by the C front end
+(`gcc/c/crug-safe.cc`), with `slice (ptr, len)`, `some`/`none`/`ok`/`err` and
+variant constructors, a `match` statement over the three sum shapes and checked
+`s[i]` indexing (`__builtin_trap` on a length violation,
+`-fno-crug-bounds-checks` to remove it). A payload enum is a record storage type
+registered under its `enum` tag (tag `unsigned int` at offset 0, payload union
+after it), so a tag reference keeps working while the value keeps a variant tag.
+No runtime, helper or new GIMPLE opcode is involved, the constructors lower to
+plain stores, and the layouts (`slice` 16/8; `option<int>` 8/4;
+`result<int,int>` 8/4; `enum Message { Text (char *), Image (char *), Quit }`
+16/8) are frozen in `docs/crug/ABI.md` section 3 and asserted by
+`gcc/testsuite/crug.dg/safe-types/layout.c` and `payload-enum-layout.c`.
+`make check-SAFE_TYPES` runs 55 expected passes,
+`scripts/check-safe-types.sh` requires zero failures and
 `scripts/check-safe-bounds.sh` asserts the trap and its absence;
-`docs/crug/SAFE-TYPES.md` is the digest. The Phase 10 gate (amendment A-11) is
-**not yet awarded**: increment 2 must add 10D payload enums and owned payloads,
-and the gate carries a `VAGUE` item requiring the `adts-drop` observable that
-only those can produce.
+`docs/crug/SAFE-TYPES.md` is the digest. The Phase 10 gate (amendment A-12) is
+**not yet awarded**: increment 2b must add owned payloads, and the gate carries
+a `VAGUE` item requiring the `adts-drop` observable that only those can
+produce.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
 already hold and freezes a Crug-native layout when the phase that ships it lands:
-Phase 10 increment 1 froze `slice`, `option` and `result`, while the payload
-enum and `chan` rows stay pending until their phases. ADR 0006
+Phase 10 froze `slice`, `option`, `result` (increment 1) and the payload enum
+(increment 2a), while the `chan` row stays pending until Phase 13. ADR 0006
 was ratified on 2026-10-19, so the policy is binding; only the Crug-native layout rows remain pending.
 
 The FFI metadata question is now answered and binding: ADR 0007 (Accepted 2026-10-19) defines the
@@ -237,7 +242,7 @@ superseding ADR and owner ratification.
 | Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
 | Unanalysed operations (deref of a plain view, casts, asm, setjmp) had no policy, so "strict mode" was a word without a definition | ADR 0021 (Accepted 2026-10-19) + docs/crug/STRICT.md: `raw`, `unsafe` and five `crug-SAFE-*` restrictions with `-fcrug-strict`; C-08 resolved |
 | A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
-| The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/`match`/checked indexing in `gcc/c/crug-safe.cc`; 32-pass dg suite, `scripts/check-safe-types.sh` and `scripts/check-safe-bounds.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increment 1 (10D open) |
+| The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/payload enums/`match`/checked indexing in `gcc/c/crug-safe.cc`; 55-pass dg suite, `scripts/check-safe-types.sh` and `scripts/check-safe-bounds.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increments 1 and 2a (owned payloads open) |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -249,21 +254,21 @@ superseding ADR and owner ratification.
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | `.crugffi` v1 deliberately excludes returned borrows, conditional ownership (`sqlite3_open`, `realloc`), refcounted APIs, struct members, macros, inline functions and variadic tails; such calls stay level 1 (`adopt` at the call site) | a later FFI revision (ADR 0007 D9) |
 | -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
-| -  | `slice`, `option` and `result` layouts are frozen (`ABI.md` section 3), but the payload enum and `chan` rows are still pending, and no Crug-native type other than the three frozen rows may cross a C interface | Phase 10 increment 2 (payload enum) and Phases 13-14 (`chan`) |
+| -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phases 13-14 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9 (a plain pointer still has no borrow contract, so `ref`/`mut` parameters remain stricter than `.crugffi`); recorded in docs/crug/BORROW.md section 5 |
-| -  | `chan T` and payload enums still do not parse, and `match` covers only `option`/`result`; an owned payload in a sum type is not tracked, because owning-ness lives in the declaration specifiers and is erased from the type | Phase 10 increment 2 (10D), Phase 13-14 (`chan`) |
+| -  | `chan T` does not parse; an owned payload in a sum type is not tracked, because owning-ness lives in the declaration specifiers and is erased from the type, so a payload has no destructor and `match` does not yet require a moved owned scrutinee (`crug-ADT-015`) | Phase 10 increment 2b, Phase 13-14 (`chan`) |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
 | -  | The upgrade procedure has never been executed against a real new release; the first M- or J-class upgrade is the drill | first GCC release after 16.2 |
 
 ## Next actions, in dependency order
 
-1. **Finish Phase 10** (increment 2): payload enums (10D) with `match` over them
-   and owned payloads, which needs a record storage type registered under the
-   `enum` tag and the owning analysis taught about sum-type storage. Then run
-   `scripts/gate.sh --run phase-10` and archive the seven checks of amendment
-   A-11 plus the `adts-drop` observable that closes the `VAGUE` item.
+1. **Finish Phase 10** (increment 2b): owned payloads, which needs the owning
+   analysis taught about sum-type storage and `match` to require a moved owned
+   scrutinee (`crug-ADT-015`). Then run `scripts/gate.sh --run phase-10` and
+   archive the nine checks of amendment A-12 plus the `adts-drop` observable
+   that closes the `VAGUE` item.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

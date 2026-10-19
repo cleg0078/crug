@@ -52,7 +52,7 @@ an explicit lowering (ADR 0006 D5).
 | `slice<T>` | 10 | 16 bytes, align 8 | `T *ptr` at offset 0, `size_t len` at 8; a borrowed view, no ownership, no destructor | System V AMD64 classification of the equivalent record (two INTEGER eightbytes); not two parameters, no hidden parameter | n/a | Frozen (2026-10-19) |
 | `option<T>` | 10 | tag plus payload with C padding: `option<int>` 8/4, `option<char>` 2/1, `option<long>` 16/8 | `_Bool some` at offset 0; `T value` at the next `_Alignof (T)` boundary | System V AMD64 classification of the equivalent record; no hidden parameter | tag 0 is `none`; the payload field is unspecified and `match` never reads it | Frozen (2026-10-19) |
 | `result<T,E>` | 10 (RFC-0001 section 25.3) | tag plus a union of the two payloads: `result<int,int>` 8/4, `result<char,long>` 16/8 | `_Bool ok` at offset 0; union `u` at the next `_Alignof` boundary, with members `value` (ok) and `error` (err) both at offset 0 of the union | System V AMD64 classification of the equivalent record; no hidden parameter | tag 0 is `err`; only the selected union member is initialized, the other is unspecified | Frozen (2026-10-19) |
-| payload `enum` | 10 | pending | tag plus payload union; tag width and alignment pending | pending | representation must be documented (RFC-0001 section 22) | Pending |
+| payload `enum` | 10 (RFC-0001 section 22) | tag plus payload union with C padding: `enum Message { Text (char *), Image (char *), Quit }` 16/8; a tag-only enum definition is impossible (a payload enum has at least one payload variant) | `unsigned int tag` at offset 0; union `u` at the next `_Alignof` boundary (8 for a pointer or `long` payload), one member per payload variant named after the variant, both at offset 0 of the union; `tag` holds the 0-based declaration index | System V AMD64 classification of the equivalent record; no hidden parameter | tag 0 is the first declared variant; only the selected union member is initialized, the others are unspecified; no niche optimization | Frozen (2026-10-19) |
 | `chan T` | 13-14 | pending | handle representation pending | pending | n/a | Pending |
 
 A pending row is a promise to decide, not a decision. In particular, no code may
@@ -84,11 +84,12 @@ depend on a guessed layout for any of these types.
 - The C ABI version is the baseline GCC's ABI as selected by the target.
   Crug-native types get their own documented ABI version when the first row is
   frozen.
-- Crug-native ABI version **1** covers the three frozen rows of section 3,
-  `slice<T>`, `option<T>` and `result<T,E>` (Phase 10 increment 1). A change to
-  a recorded size, alignment, offset or field name is an ABI change.
-- The payload enum and `chan T` rows are still **pending**, so no code may
-  depend on a guessed layout for them.
+- Crug-native ABI version **1** covers the four frozen rows of section 3,
+  `slice<T>`, `option<T>`, `result<T,E>` (Phase 10 increment 1) and the
+  payload enum (Phase 10 increment 2a). A change to a recorded size, alignment,
+  offset, field name or tag value is an ABI change.
+- The `chan T` row is still **pending**, so no code may depend on a guessed
+  layout for it.
 - `crugc --version` must eventually print compiler, language and Crug
   ABI versions separately (Phase 25 packaging check); until the first frozen row
   the ABI version is reported as `0` (pre-stable).
@@ -101,7 +102,7 @@ depend on a guessed layout for any of these types.
 | C caller to Crug callee and back, including aggregates | `gcc/testsuite/crug.dg/abi/call-both-directions.c` |
 | Function-pointer compatibility after erasure | `gcc/testsuite/crug.dg/abi/qualifier-erasure.c` |
 | Symbol names against `nm` | `gcc/testsuite/crug.dg/abi/symbols.c` |
-| Every frozen size/alignment in this file | `gcc/testsuite/crug.dg/safe-types/layout.c` |
+| Every frozen size/alignment in this file | `gcc/testsuite/crug.dg/safe-types/layout.c` and `gcc/testsuite/crug.dg/safe-types/payload-enum-layout.c` |
 | Metadata changes no binary ABI | `scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi"` |
 
 ## 8. Changelog
@@ -110,3 +111,4 @@ depend on a guessed layout for any of these types.
 |------|--------|
 | 2026-10-19 | File created with ADR 0006. C-ABI-transparent rows recorded; all Crug-native rows pending. |
 | 2026-10-19 | Phase 10 increment 1 froze `slice<T>`, `option<T>` and `result<T,E>` (size, alignment, member offsets, calling representation, inactive variant), asserted by `crug.dg/safe-types/layout.c`. Crug-native ABI version 1. |
+| 2026-10-19 | Phase 10 increment 2a froze the payload `enum` row (record of `unsigned int tag` and a payload union, 0-based declaration index, no niche optimization), asserted by `crug.dg/safe-types/payload-enum-layout.c`. Still Crug-native ABI version 1. |

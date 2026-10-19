@@ -168,9 +168,11 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-ADT-010` | `-Wcrug-match-form` | error | error | match arm must be 'pattern => expression' or 'pattern => { ... }' | ADR 0018 D8 |
 | `crug-ADT-011` | `-Wcrug-match-non-exhaustive` | error | error | match on '%s' is not exhaustive; add the missing variant or '_' | ADR 0018 D8 |
 | `crug-ADT-012` | `-Wcrug-match-unreachable` | warning | error | match arm '%s' is unreachable | ADR 0018 D8 |
-| `crug-ADT-013` | `-Wcrug-match-form` | error | error | match requires a payload enum, option or result value | ADR 0018 D8 |
-| `crug-ADT-014` | `-Wcrug-match-form` | error | error | match may not be used as an expression | ADR 0018 D8 |
+| `crug-ADT-013` | `-Wcrug-match-form` | error | error | match requires an option, result or payload enum value | ADR 0018 D8 |
+| `crug-ADT-014` | `-Wcrug-match-form` | error | error | match may not be used as an expression; assign inside the arms | ADR 0018 D8 |
 | `crug-ADT-015` | `-Wcrug-match-form` | error | error | an owned scrutinee must be moved into match: write match (move(x)) | ADR 0018 D8 |
+| `crug-ADT-016` | - | error | error | a payload enum cannot have a fixed underlying type | ADR 0018 D8, Phase 10 |
+| `crug-ADT-017` | - | error | error | redefinition of 'enum %s' as a payload enum; define the payload enum before any reference to its tag | ADR 0018 D8, Phase 10 |
 
 ### 4.7 Types and declarators (`TYPE`)
 
@@ -326,21 +328,26 @@ caught by the script.
 
 ## 9. Status
 
-103 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
-DROP 8, CONC 9, ADT 12, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+105 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+DROP 8, CONC 9, ADT 14, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
 
-Phase 10 added five codes and they are implemented at the increment-1 commit:
-ADT-005 and ADT-006 (constructor context), TYPE-012 (slice first argument
-shape), TYPE-013 (type-argument arity) and TYPE-014 (unclosed type-argument
-list).
+Phase 10 added six codes: ADT-005 and ADT-006 (constructor context), TYPE-012
+(slice first argument shape), TYPE-013 (type-argument arity) and TYPE-014
+(unclosed type-argument list) at increment 1, and ADT-016 (a payload enum with
+a fixed underlying type) and ADT-017 (a payload enum completing a forward
+`enum` reference) at increment 2.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
 suite that the owning gate runs. Implemented today (Phases 4 to 9 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
-FFI-011, plus Phase 10's ADT-004, ADT-005, ADT-006, ADT-011, ADT-013,
-TYPE-012, TYPE-013 and TYPE-014. Everything else is planned; the KERNEL area is still reserved only,
+FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
+ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-016, ADT-017, TYPE-012,
+TYPE-013 and TYPE-014. ADT-014 (match used as an expression) and ADT-015 (an
+owned scrutinee) are still planned: the first is reachable only after the
+expression form of `match` gets its own recovery path, the second waits for
+owned payloads. Everything else is planned; the KERNEL area is still reserved only,
 because its owning ADRs are unwritten.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at

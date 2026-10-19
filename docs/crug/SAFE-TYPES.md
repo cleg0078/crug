@@ -1,10 +1,12 @@
-# Safe core types: `slice`, `option` and `result`
+# Safe core types: `slice`, `option`, `result` and payload enums
 
-Status: **Phase 10 increment 1 implemented: `slice<T>`, `option<T>`,
-`result<T,E>`, the value constructors, `match` over `option`/`result` and
-checked slice indexing** (2026-10-19). Increment 2 adds payload enums (10D) and
-owned payloads; section 8 lists what is still open, and the Phase 10 gate in
-`EXIT-GATES.md` (amendment A-11) names the checks that only close with it.
+Status: **Phase 10 increment 1 implemented** (2026-10-19): `slice<T>`,
+`option<T>`, `result<T,E>`, the value constructors, `match` over both sums
+and checked slice indexing. **Increment 2a implemented** (2026-10-19,
+payload enums / 10D): `enum` with payload variants, construction and `match`
+over them. Increment 2b adds owned payloads; section 9 lists what is still
+open, and the Phase 10 gate in `EXIT-GATES.md` (amendment A-11) names the
+checks that only close with it.
 
 The normative surface is ADR 0018 D7 and D8; the layouts are frozen in
 `ABI.md` section 3. This page is the digest: it records what parses, what
@@ -21,6 +23,10 @@ lowers, and what a phase must not assume.
 | Option value | `some (x)`, `none` | `-fcrug-result` |
 | Result value | `ok (x)`, `err (e)` | `-fcrug-result` |
 | Match statement | `match (expr) { pattern => body, ... }` | `-fcrug-adt` after closure |
+| Payload enum type | `enum Message { Text (char *), Quit };` | `-fcrug-adt` |
+| Payload variant value | `Text (s)` | `-fcrug-adt` |
+| Unit variant value | `Quit` (the bare enumerator) | `-fcrug-adt` |
+| Enum tag reference | `enum Message` in type position | `-fcrug-adt` |
 | Checked indexing | `s[i]` on a `slice<T>` value | `-fcrug-bounds-checks` (default on) |
 
 Nothing here needs a runtime, a helper function or a new GIMPLE code. The types
@@ -43,12 +49,14 @@ program may write `s.len`, and `match` reads the tag field.
 | `option<long>` | 16 | 8 | tag at 0, value at 8 |
 | `result<int,int>` | 8 | 4 | `_Bool ok` at 0, union `u` at 4 |
 | `result<char,long>` | 16 | 8 | tag at 0, union at 8 (aligned to `long`) |
+| `enum Message { Text (char *), Image (char *), Quit }` | 16 | 8 | `unsigned int tag` at 0, union `u` at 8 |
 
 The internal names are frozen too: `option` has fields `some` and `value`;
 `result` has fields `ok` and `u`, where `u` is a union with members
-`value` (the ok payload) and `error` (the err payload). Only the selected
-union member is initialized by a constructor; reading the inactive member is
-unspecified, exactly as in C.
+`value` (the ok payload) and `error` (the err payload); a payload enum has
+fields `tag` and `u`, and the union members carry the variant names
+(`u.Text`, `u.Image`). Only the selected union member is initialized by a
+constructor; reading the inactive member is unspecified, exactly as in C.
 
 A generic type with a comma cannot be written as a macro argument: the
 preprocessor splits at the comma before the parser sees the type. Typedef the
@@ -97,7 +105,51 @@ and takes no argument.
 The tag is a `_Bool`: `0` is the first variant (`none`, `err`) and `1`
 is the second (`some`, `ok`), in declaration and match order.
 
-## 5. Match
+## 5. Payload enums
+
+With `-fcrug-adt` an `enum` definition is a payload enum when at least one
+enumerator carries a payload in parentheses (ADR 0018 D8):
+
+```c
+enum Message
+{
+  Text (char *),
+  Image (char *),
+  Quit,
+};
+
+enum Message m = Text ("hi");
+m = Quit;
+```
+
+- The payload is exactly one type-name. Empty parentheses are `crug-ADT-001`;
+  a second type-name after a comma is `crug-ADT-002`; a payload variant used
+  without parentheses is `crug-ADT-003`; a unit variant called with
+  parentheses is `crug-ADT-004`.
+- An enum where no enumerator has a payload stays an ordinary C enum even with
+  the flag on (`payload-enum-off.c`), so the flag never changes existing C:
+  `enum Color { RED, GREEN };` is still an `ENUMERAL_TYPE` with the C layout.
+- A unit variant is constructed by the bare enumerator, a payload variant by
+  `Name (value)`. Variant names are ordinary identifiers, so a user function
+  or variable with the same name is a C redefinition, and a declared name wins
+  over the variant constructor.
+- The tag is written `enum Message`, as in C, and follows the tag rules: the
+  definition binds the tag in the current scope. A forward `enum M;` followed
+  by a payload enum definition is `crug-ADT-017`, because the tag denotes a
+  record type and cannot complete an `ENUMERAL_TYPE`; define the payload enum
+  before any reference to its tag. An anonymous payload enum is allowed.
+- `enum Message : int { ... };` is `crug-ADT-016`: the tag field is part of
+  the representation, so a payload enum cannot choose a fixed underlying type.
+- Representation: a record of a tag and a union, as in section 2. The tag value
+  is the declaration index, 0-based, so the first variant has tag 0. Only the
+  tag and the selected union member are initialized; there is no niche
+  optimisation and no packing of the tag into padding.
+- A payload may be any type-name, including a pointer or an ordinary record.
+  An owned payload (`own char *`) is **not** tracked yet (section 9); with a
+  pointer payload the pointer is copied, so the program must agree on who
+  frees it.
+
+## 6. Match
 
 ```c
 match (lookup (3))
@@ -117,18 +169,23 @@ match (lookup (3))
 - An arm is `pattern => expression;` or `pattern => { ... }`, separated by
   an optional comma; a payload binding is a plain name in parentheses, and its
   type is the payload type of that variant.
-- `none` takes no payload: `none (v)` is `crug-ADT-004`.
+- A pattern is a variant of the scrutinee type: `some`/`none` for an
+  `option`, `ok`/`err` for a `result`, and the enumerator names for a payload
+  enum, in any order. A unit variant takes no payload: `none (v)` and
+  `Quit (v)` are `crug-ADT-004`.
 - `_` is a wildcard arm and must be last; a missing variant without `_` is
   `crug-ADT-011` naming the first missing variant; a duplicate arm is
   `crug-ADT-012`; an unknown pattern is `crug-ADT-010`.
 - `match` is a statement, not an expression, and the scrutinee must be an
-  `option` or `result` value (`crug-ADT-013`). Payload enums extend this
-  when 10D lands.
+  `option`, `result` or payload enum value (`crug-ADT-013`); exhaustiveness
+  covers every variant, unit variants included. The expression form is not
+  accepted yet: `crug-ADT-014` is registered but the recovery path that emits
+  it is still to be written, so `x = match (...)` is a plain parse error today.
 - Lowering is a chain of void `COND_EXPR`s testing the tag, with the payload
   binding assigned from the selected field inside its own scope; there is no
   jump table and no helper.
 
-## 6. Checked indexing
+## 7. Checked indexing
 
 With `-fcrug-bounds-checks` (the default), `s[i]` lowers so that an
 out-of-range index traps at the point of the access:
@@ -152,7 +209,7 @@ The trap is `__builtin_trap`, so a violating program dies with `SIGILL`
 (exit status 132 on the shell) rather than returning a wrong value.
 `scripts/check-safe-bounds.sh` asserts both the trap and its absence.
 
-## 7. Gating and identity
+## 8. Gating and identity
 
 - Every production needs its flag: with no `-fcrug-*` option the words are
   ordinary identifiers and a generic type is a plain-C syntax error
@@ -163,36 +220,45 @@ The trap is `__builtin_trap`, so a violating program dies with `SIGILL`
 - `-fcrug-slices`, `-fcrug-result` and `-fcrug-bounds-checks` are described
   in `FLAGS.md`.
 
-## 8. What is not implemented yet
+## 9. What is not implemented yet
 
-- **Payload enums (10D).** `enum` with payload variants, and `match` over
-  one, are not parsed yet. The registry rows `crug-ADT-001`..`-003` and the
-  `adt` half of the Phase 10 gate stay open until increment 2.
-- **Owned payloads.** `own int` inside an `option` or `result` payload is
-  not tracked: owning-ness lives in the declaration specifiers and is erased
-  from the type, so a sum type with an owned payload would need the owning
-  analysis to learn about sum-type storage. Until then, a payload is an
-  ordinary value and an owned object must not be stored in one.
+- **Owned payloads (increment 2b).** `own char *` inside an `option`,
+  `result` or payload-enum payload is not tracked: owning-ness lives in the
+  declaration specifiers and is erased from the type, and no destructor is
+  attached to the union member. Until then a payload is an ordinary value, so
+  an owned object must not be stored in one. `crug-ADT-015` (an owned
+  scrutinee must be moved into `match`) and the conditional drop of the active
+  variant both wait for it.
+- No expression form of `match` (`crug-ADT-014` is registered; the parser has
+  no recovery path for it yet), and patterns cover variants only - no integer,
+  string or range patterns, no multi-payload patterns, no qualified variants.
 - No `?` operator, no niche optimisation, no generic user types, no
   traits (post-1.0 per MASTER_SPEC section 32), no mutable-slice distinction
   (`mut slice<T>` is not defined yet), no pattern matching on integers or
   strings.
-- No ABI stability beyond `ABI.md` section 3 and section 6: the three frozen
+- No ABI stability beyond `ABI.md` section 3 and section 6: the four frozen
   rows are version 1, and changing any recorded size, alignment or field order
   is an ABI change.
 
-## 9. Tests
+## 10. Tests
 
 | Check | What it proves |
 | --- | --- |
-| `make check-SAFE_TYPES` | the 16 fixtures under `gcc/testsuite/crug.dg/safe-types/` (plus the three under `bounds/` that the script drives): 32 expected passes, 0 failures |
-| `scripts/check-safe-types.sh` | runs `make check-SAFE_TYPES` and tallies PASS against FAIL/XPASS/UNRESOLVED/ERROR from `gcc.sum`; prints `safe-types: 32 tests, 0 failures` |
+| `make check-SAFE_TYPES` | the 28 fixtures under `gcc/testsuite/crug.dg/safe-types/` (plus the three under `bounds/` that the script drives): 55 expected passes, 0 failures |
+| `scripts/check-safe-types.sh` | runs `make check-SAFE_TYPES` and tallies PASS against FAIL/XPASS/UNRESOLVED/ERROR from `gcc.sum`; prints `safe-types: 55 tests, 0 failures` |
 | `scripts/check-safe-bounds.sh` | in-range indexing exits 0, an out-of-range index traps with `SIGILL`, the checked object contains at least one `ud2` and the unchecked one none, and a plain C array is never trapped |
 | `gcc/testsuite/crug.dg/safe-types/layout.c` | every size, alignment and offset in `ABI.md` section 3 as `_Static_assert`s |
 | `make check-C_COMPAT` | plain C and the 30-program corpus are unaffected |
 
 Run cases are `slice-run.c`, `option-run.c`, `result-run.c`,
-`bounds-off.c` and `shadowing.c`; rejection cases are `slice-non-pointer.c`,
-`slice-arity.c`, `result-arity.c`, `generic-unclosed.c`,
-`ctor-needs-context.c`, `ctor-wrong-type.c`, `none-payload.c`,
-`match-non-exhaustive.c`, `match-not-sum.c` and `flags-off.c`.
+`payload-enum-run.c`, `payload-enum-tag.c`, `bounds-off.c` and
+`shadowing.c`; rejection cases are `slice-non-pointer.c`, `slice-arity.c`,
+`result-arity.c`, `generic-unclosed.c`, `ctor-needs-context.c`,
+`ctor-wrong-type.c`, `none-payload.c`, `match-non-exhaustive.c`,
+`match-not-sum.c`, `payload-enum-empty-payload.c`,
+`payload-enum-two-types.c`, `payload-enum-needs-payload.c`,
+`payload-enum-unit-payload.c`, `payload-enum-exhaustive.c`,
+`payload-enum-fixed-underlying.c`, `payload-enum-forward.c`,
+`payload-enum-not-sum.c`, `payload-enum-off.c` and `flags-off.c`. The two
+compile cases `layout.c` and `payload-enum-layout.c` assert the frozen
+layouts.

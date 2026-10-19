@@ -25,7 +25,7 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-borrow` | `ref`, `mut`; `borrow`, `borrow_mut` | `-fcrug-ownership` |
 | `-fcrug-slices` | `slice<T>`, `slice (ptr, len)`, checked `s[i]` | - |
 | `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
-| `-fcrug-adt` | payload enums (pending, 10D); `match` over `option`/`result` | - |
+| `-fcrug-adt` | payload enums and `match` over `option`, `result` and payload enums | - |
 | `-fcrug-goroutines` | `go`, `scope` | - |
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
@@ -40,7 +40,7 @@ decisions rather than driver-wide switches, and are handled in
 (`FFI.md`) and `-fcrug-bounds-checks` / `-fno-crug-bounds-checks`
 (`C Var(flag_crug_bounds_checks) Init(1)`), which selects whether `s[i]` on a
 `slice<T>` emits the length comparison and the `__builtin_trap` of
-`SAFE-TYPES.md` section 6. It changes no accepted syntax and no other lowering.
+`SAFE-TYPES.md` section 7. It changes no accepted syntax and no other lowering.
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
 `Common Joined RejectNegative` with a comma-separated list of kinds -
@@ -146,9 +146,11 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 - Only the `ownership`, `drop` and `borrow` dumps exist (`-fcrug-dump=` comma
   list); no goroutine or channel dump.
 - `slice<T>`, `option<T>`, `result<T,E>`, their value constructors, `match`
-  over the two sums and checked slice indexing exist (`SAFE-TYPES.md`). Payload
-  enums (10D) and owned payloads are open, so `-fcrug-adt` alone still gates no
-  production of its own beyond the closure.
+  over all three sum shapes, payload enums and checked slice indexing exist
+  (`SAFE-TYPES.md`). Payload enums are gated by `-fcrug-adt` exactly as
+  described there: an enum with no parenthesised payload stays an ordinary C
+  enum, so the flag still cannot change existing C. Owned payloads are open
+  (Phase 10 increment 2b), so `own` inside a payload is not tracked yet.
 - Six `-Wcrug-*` options are declared and default on
   (`-Wcrug-unadopted-own`, `-Wcrug-intrinsic-operand`, `-Wcrug-adopt-signature`,
   `-Wcrug-jump-into-scope`, `-Wcrug-setjmp-drops`, `-Wcrug-drop-unreachable`);
