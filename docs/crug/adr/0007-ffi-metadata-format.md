@@ -274,3 +274,32 @@ The parser lands with these fixtures; each is a test, not documentation:
 6. Should the compiler warn when a discovered sidecar annotates a function the translation unit never calls (dead metadata), or is silence the right default?
 7. Should system metadata be signed and verified (D8), and if so, by what key distribution?
 8. Should `nullable` on a `returns owned` binding produce a compile-time obligation (a null check before first use) instead of only a documented contract? That would need a nullness analysis and is a candidate for the strict-mode default.
+## Amendments
+
+### A-1 (2026-10-19): the option spelling for discovery
+
+D5's line "`-fcrug-ffi` without a value is accepted as a deprecated spelling only
+if `-fcrug-ffi=<path>` is also present" cannot be implemented as written. The
+option is declared as a joined option (`-fcrug-ffi=<path>`); a bare `-fcrug-ffi`
+is rejected by the option parser before the front end sees it, with
+"missing argument to '-fcrug-ffi='". Phase 9 therefore implements discovery
+with a second option:
+
+- `-fcrug-ffi=<path>` names one explicit sidecar (repeatable, command-line
+  order); it does **not** turn discovery on.
+- `-fcrug-ffi-discover` turns the layer on without naming a file, so D5's
+  adjacency and system-directory steps run. It implies `-fcrug-ownership` and
+  defines `__CRUG_FFI_VERSION__` exactly as `-fcrug-ffi=<path>` does.
+- `-fcrug-strict` disables discovery (D5 unchanged), so a strict build names
+  every contract explicitly.
+
+D5 step 2 also needs one implementation note. libcpp's include callback receives
+the directive name ("include"), not a directory, so the directory used for
+adjacency is that of the file that contains the `#include` line, taken from the
+line map. A header reached through `-I` therefore finds its adjacent sidecar
+only when the sidecar sits next to the including file; otherwise the sidecar
+must be named explicitly. `docs/crug/FFI.md` records this as a documented
+limitation.
+
+The flag closure note at the end of D5 is satisfied by both options
+(`-fcrug-ffi=` and `-fcrug-ffi-discover` imply `-fcrug-ownership`).

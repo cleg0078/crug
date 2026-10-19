@@ -37,7 +37,12 @@ returned or stored - see [docs/crug/BORROW.md](docs/crug/BORROW.md) and ADRs
 `raw` pointers and `unsafe` blocks: `-fcrug-strict` rejects unanalysed
 operations outside an `unsafe` block, with stable `crug-SAFE-*` codes, and
 never changes generated code - see [docs/crug/STRICT.md](docs/crug/STRICT.md)
-and [ADR 0021](docs/crug/adr/0021-strict-mode-policy.md). `libcrug`,
+and [ADR 0021](docs/crug/adr/0021-strict-mode-policy.md). Phase 9 (C FFI
+contracts) reads `.crugffi` sidecars: an annotated library hands out owned
+values with a known destructor, consuming functions require `move`, and
+`-fcrug-ffi-discover` finds a sidecar next to a quoted include. Metadata never
+changes codegen - see [docs/crug/FFI.md](docs/crug/FFI.md) and
+[ADR 0007](docs/crug/adr/0007-ffi-metadata-format.md). `libcrug`,
 goroutines, channels, `slice` and `match` are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -74,6 +79,9 @@ in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
   `ref`/`mut` parameters as the only borrow points at a call (ADR 0019).
 - `raw` pointers and `unsafe` blocks with strict mode: an unanalysed operation
   is an error unless the programmer asks for it explicitly (Phase 8).
+- C FFI contracts: a library described by a `.crugffi` sidecar transfers
+  ownership and borrows through ordinary C calls, with no ABI change and no
+  runtime metadata (Phase 9).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -110,13 +118,14 @@ writes `out/` (ignored); see [docs/crug/KERNEL-COMPATIBILITY.md](docs/crug/KERNE
 feature macros, and `make check-GNU_C_COMPAT` recompiles the GNU C and kernel
 corpora with the full flag set; both are described in
 [docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP`,
-`make check-DROP`, `make check-BORROW` and `make check-STRICT_UNSAFE` run the
+`make check-DROP`, `make check-BORROW`, `make check-STRICT_UNSAFE` and
+`make check-FFI` run the
 ownership, destruction, borrow and strict dg suites;
 `scripts/check-drop-*.sh` assert exactly-once destruction, sanitizer
 cleanliness and the absence of helper calls, `scripts/check-borrow-*.sh` assert
 that a borrowed function compiles to the same object as its plain-pointer twin,
 that a borrow ends at its last use in the dump, and that six realistic programs
-compile and run, and `scripts/check-strict-*.sh` assert that strict mode
+compile and run, `scripts/check-strict-*.sh` assert that strict mode
 changes no code while rejecting each unanalysed operation. Runnable programs
 that need no harness live in [examples/](examples/README.md), one per Phase 4-8
 feature.

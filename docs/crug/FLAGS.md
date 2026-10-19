@@ -26,6 +26,8 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-goroutines` | `go`, `scope` | - |
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
+| `-fcrug-ffi=<file>` | reads one `.crugffi` sidecar; repeatable, merged in command-line order (`FFI.md`) | `-fcrug-ownership` |
+| `-fcrug-ffi-discover` | turns the FFI layer on without naming a file, so sidecars next to quoted includes (and in `CRUG_FFI_PATH`) are discovered | `-fcrug-ownership` |
 | `-fcrug-modern` | everything above | all eight flags |
 | `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` until Phase 19 |
 
@@ -79,6 +81,7 @@ Defined in `c_cpp_builtins` only when `crug_features` is non-zero:
 | `__CRUG_GOROUTINES__` | `-fcrug-goroutines` |
 | `__CRUG_CHANNELS__` | `-fcrug-channels` |
 | `__CRUG_STRICT__` | `-fcrug-strict` |
+| `__CRUG_FFI_VERSION__` | `100` when `-fcrug-ffi=` or `-fcrug-ffi-discover` is given (v1.0) |
 | `__CRUG_KERNEL__` | `-fcrug-kernel` |
 
 Every value is `1`. The macros are *defined*, never `0`, so `#ifdef` and
@@ -119,7 +122,9 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 ## 5. What is not implemented yet
 
 - `own`, `move`, `adopt`, `release`, `drop` and automatic destruction exist
-  (`OWNERSHIP.md`, `DROP.md`); ownership transfer at call sites does not.
+  (`OWNERSHIP.md`, `DROP.md`). Ownership transfer at a call site exists
+  for a callee with a `.crugffi` contract (`FFI.md`); an unannotated callee still
+  cannot take ownership of an argument.
 - The borrow rules of Phases 6 and 7 exist (`BORROW.md`): whole-object
   borrows, the conflict matrix, last-use lifetimes, `ref`/`mut` parameters as
   live borrows, and the depth-zero interprocedural policy (ADR 0019). No member
@@ -151,6 +156,8 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `scripts/check-drop-dump.sh` | the `drop` dump records every exit kind (`DROP.md` section 6) |
 | `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on, including last-use lifetimes and the call policy: 88 expected passes under `gcc/testsuite/crug.dg/borrow/` |
 | `make check-STRICT_UNSAFE` | strict mode, `raw` and `unsafe`: 21 expected passes under `gcc/testsuite/crug.dg/strict/` |
+| `make check-FFI` | `.crugffi` contract fixtures: 19 cases, 0 failures, under `gcc/testsuite/crug.dg/ffi/phase9/` |
+| `scripts/check-ffi-*.sh` | the metadata reads the same twice (conflict determinism), four real libraries keep their hashes while their handles are closed exactly once, and objects are byte-identical with and without a sidecar |
 | `scripts/check-strict-*.sh` | the codegen identity (objects byte-identical with and without `-fcrug-strict`), the hybrid-vs-strict answer for one raw dereference, and the eight strict codes observed |
 | `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
 | `scripts/check-borrow-dump.sh` | the `borrow` dump records shared and mutable borrows and their ends (`BORROW.md` section 4) |
@@ -163,7 +170,9 @@ phase-6 gate runs the five `scripts/check-borrow-*.sh` scripts, one compile-fail
 exit status and `scripts/check-diagnostics.sh`; the phase-7 gate runs the eight
 borrow scripts, the two compatibility suites and `scripts/check-diagnostics.sh`;
 the phase-8 gate runs the four `scripts/check-strict-*.sh` scripts, the two
-compatibility suites and `scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
+compatibility suites and `scripts/check-diagnostics.sh`; the phase-9 gate runs
+`make check-FFI` and the four `scripts/check-ffi-*.sh` scripts plus
+`scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

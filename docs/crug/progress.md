@@ -131,6 +131,23 @@ runs 21 expected passes, and the Phase 8 gate passes 7/7 at `e3d8662` (logs
 under `docs/crug/gates/phase-8/e3d8662/`; the definition is the seven-check list
 in `docs/crug/EXIT-GATES.md`, amendment A-9).
 
+Phase 9 adds the production C FFI layer (ADR 0007). `.crugffi` sidecars are
+parsed by `gcc/c-family/crug-ffi.cc` and consumed by the ownership pass:
+`-fcrug-ffi=<file>` names a contract explicitly (repeatable, merged in
+command-line order), `-fcrug-ffi-discover` finds one next to a quoted include,
+and both imply `-fcrug-ownership` and define `__CRUG_FFI_VERSION__` as 100. A
+`returns owned` function hands the caller an owned value with the contract's
+destructor, `consumes` requires `move` (`crug-FFI-007`), `out_owned` fills an
+owned variable (`-008`), borrows are checked against the live borrow set, and a
+callback argument must be a function (`-009`). Splitting a printf-like format
+argument is deliberately absent: a variadic tail is not annotated. Metadata
+never changes generated code: `scripts/check-ffi-codegen.sh` compares objects
+with and without a sidecar and `scripts/check-ffi-integration.sh` hashes
+`libc.so.6`, `libsqlite3.so.0`, `libcurl.so.4` and `libssl.so.3` before and
+after building four programs that open and close a real handle. The suite is 19
+cases (`make check-FFI`), `docs/crug/FFI.md` is the digest, and the Phase 9 gate
+is the six-check list in `docs/crug/EXIT-GATES.md` (amendment A-10).
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -145,8 +162,8 @@ thread affinity for C functions, and nothing about layout. It cannot change
 codegen, is never loaded at run time, rejects conflicts deterministically, and
 under `-fcrug-strict` must be named explicitly rather than discovered. A reference
 fixture, `gcc/testsuite/crug.dg/ffi/libc.crugffi`, implements the small libc
-catalog of MASTER_SPEC section 16.5 minus `realloc`. The parser and the rest of
-the corpus are Phase 9 work; nothing consumes the format yet.
+catalog of MASTER_SPEC section 16.5 minus `realloc`. Phase 9 implemented the parser, the discovery option and the call-site
+consumption described in the paragraph above.
 
 ## Resolved in this revision
 
@@ -163,7 +180,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | The decision set was unratified, so nothing could be cited as settled | ten ADRs carry Status Accepted (six on 2026-10-18; ADRs 0006 and 0007 on 2026-10-19; ADRs 0019 and 0020 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
-| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (79 codes; 43 implemented through Phases 4 to 7) + scripts/check-diagnostics.sh |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (98 codes; 62 implemented through Phases 4 to 9) + scripts/check-diagnostics.sh |
 | The kernel baseline had no CI protection, so Phase 2 could not close and Phase 4 could not start | `.github/workflows/kernel-compat.yml` green on `78c759b`; branch protection on `main` requires `kernel-compat`; phase-2 and phase-3 gates 4/4 archived under docs/crug/gates/phase-{2,3}/78c759b/ |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
@@ -180,6 +197,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | No C ABI policy existed, so qualifier erasure, Crug-native type layouts and boundary moves were unsettled | docs/crug/adr/0006-c-abi-policy.md (two ABI classes, erasure, boundary moves, targets, versioning, test obligations) |
 | No single place recorded ABI facts, while the Phase 10 gate already required one | docs/crug/ABI.md: C-ABI-transparent guarantees recorded, Crug-native rows pending, registry rules and layout-assertion obligation |
 | The C FFI sidecar was illustrative only, so Level 2 ownership had no decidable format | docs/crug/adr/0007-ffi-metadata-format.md (v1 grammar, clause semantics, discovery, versioning, trust model) + reference fixture gcc/testsuite/crug.dg/ffi/libc.crugffi |
+| C FFI contracts were a document, not a compiler feature | `gcc/c-family/crug-ffi.cc` (v1 parser, discovery callback, conflict detection), consumption in `gcc/c/crug-ownership.cc`, `-fcrug-ffi=` and `-fcrug-ffi-discover`; 19-case suite, four library integrations, five `scripts/check-ffi-*.sh`; docs/crug/FFI.md; phase-9 gate |
 | The Phase 9 gate invoked the sidecar flag in a form the format does not define | docs/crug/EXIT-GATES.md phase 9 checks 4-5 now use `-fcrug-ffi=<path>` (amendment A-3) |
 | No feature flag existed, so no later phase could be gated on one and no build could say which Crug features it wanted | ten `-fcrug-*` options in `gcc/common.opt` with closure in `gcc/c-family/crug-common.cc`; `docs/crug/FLAGS.md`; `scripts/check-crug-flags.sh` (149 work items), `scripts/check-gnu-c-compat.sh` (50 files), `scripts/diff-obj.sh`; fixtures in `gcc/testsuite/crug.dg/flags/` |
 | Predefined feature macros contradicted the flags-off identity guarantee | ADR 0018 D9 R6 amendment A-1 and spec/000-PRECEDENCE.md C-12: `__CRUG__` and the feature macros exist only when a `-fcrug-*` option is active |
@@ -196,24 +214,25 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
 | -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
-| -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
+| -  | `.crugffi` v1 deliberately excludes returned borrows, conditional ownership (`sqlite3_open`, `realloc`), refcounted APIs, struct members, macros, inline functions and variadic tails; such calls stay level 1 (`adopt` at the call site) | a later FFI revision (ADR 0007 D9) |
+| -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
-| -  | Ownership transfer at call sites is unchecked: a caller may pass a value it still owns to an owning parameter, and an owning return value is not tracked by the caller | a later phase; recorded in docs/crug/DROP.md section 8 |
-| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows) plus a call-site direction Phase 9 can decide together with the `.crugffi` contracts; recorded in docs/crug/BORROW.md section 5 |
+| -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
+| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9 (a plain pointer still has no borrow contract, so `ref`/`mut` parameters remain stricter than `.crugffi`); recorded in docs/crug/BORROW.md section 5 |
 | -  | `slice<T>`, `chan T`, payload enums and `match` still do not parse | Phases 10 and 13-14 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 9** (FFI contracts): write the `.crugffi` parser, consume the
-   format in the front end, and decide the remaining call-site direction (a plain
-   pointer passed where a `ref`/`mut` parameter is expected, and an owned value
-   crossing a boundary with a recorded contract instead of `release`).
+1. **Start Phase 10** (safe core types): `slice<T>`, `option<T>`, `result<T,E>`,
+   payload enums and `match`, with the layouts this phase freezes recorded in
+   `docs/crug/ABI.md` and active-variant destruction for ADTs.
 2. **Ratify ADR 0021 and ADR 0019/0020** as the owner: the strict policy and the
    two borrow policies are implemented and tested but still carry Status Proposed.
 3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
    `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
+   lowering.
    lowering.
 
 ## Working rules

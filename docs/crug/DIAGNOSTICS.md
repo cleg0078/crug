@@ -58,7 +58,7 @@ crug-<AREA>-<NNN>
 | `TYPE` | declarator formation, qualifiers, generic types | 001-099 | ADR 0018 D2, D7 |
 | `GRAMMAR` | parsing, keyword and intrinsic shadowing, macros | 001-099 | ADR 0002, ADR 0018 D9 |
 | `SAFE` | strict mode: raw dereference, pointer casts, unsafe blocks, asm, non-local exits | 001-099 | ADR 0021 |
-| `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (format v1 defined; codes allocated with the parser) |
+| `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (implemented; FFI-001 to FFI-011 allocated) |
 | `KERNEL` | freestanding and kernel-mode restrictions | 001-099 | ADR 0016, ADR 0017 (unwritten) |
 
 Reserved areas have no allocated codes yet. ADR 0007 now exists, so `FFI` codes may
@@ -209,6 +209,30 @@ Note: these five are strict-only diagnostics; in hybrid mode the construct is
 accepted (with the DROP-003 warning for setjmp). Their codes are stable, so a
 driver can tell a strict rejection from any other error.
 
+### 4.10 C FFI contracts (`FFI`)
+
+Codes in this area are emitted while reading `.crugffi` metadata and while
+checking a call against a contract (ADR 0007). A sidecar error names the
+metadata file and line; a boundary error names the call site and carries the
+sidecar location in a note.
+
+| Code | Option | Hybrid | Strict | Message | Origin |
+| --- | --- | --- | --- | --- | --- |
+| `crug-FFI-001` | - | error | error | malformed sidecar: missing `crugffi <major>.<minor>;` header, unreadable file, missing `;`, unexpected character, or an unknown declaration keyword | ADR 0007 D2, D6 |
+| `crug-FFI-002` | - | error | error | `type void` is not a valid declaration | ADR 0007 D2 |
+| `crug-FFI-003` | - | error | error | unknown or repeated clause, or a malformed `argN`/`ret` operand | ADR 0007 D2, D3 |
+| `crug-FFI-004` | - | error | error | conflicting declarations: two sidecars disagree about the same function or type, or one operand carries conflicting clauses | ADR 0007 D4 |
+| `crug-FFI-005` | - | error | error | argument index out of range for the declared prototype | ADR 0007 D3 |
+| `crug-FFI-006` | - | error | error | the declaration does not fit the metadata: function not declared in the translation unit, not external, no prototype, argument not a pointer, `out_owned` needs pointer-to-pointer, `callback` needs a function pointer, return type mismatch, or no destructor can be determined | ADR 0007 D3, D5 |
+| `crug-FFI-007` | - | error | error | a `consumes` argument is not moved: pass `move` of an owned value, a fresh allocation, or null | ADR 0007 D3 |
+| `crug-FFI-008` | - | error | error | an `out_owned` argument is not the address of an owned variable, or that variable already owns a value | ADR 0007 D3 |
+| `crug-FFI-009` | - | error | error | a `callback` argument is neither a function nor a null pointer | ADR 0007 D3 |
+| `crug-FFI-010` | - | error | error | the metadata file exceeds 1 MiB or declares more than 10,000 entries | ADR 0007 D7 |
+| `crug-FFI-011` | - | error | error | a destructor named by `drop` cannot be resolved: not an external function, not one pointer argument, or the wrong pointee type | ADR 0007 D3 |
+
+All eleven are errors in both modes: they describe metadata that cannot be
+honoured, not a style choice. Phase 9 implements every code in this table.
+
 ## 5. Option map
 
 Several codes share one option; the code identifies the condition, the option
@@ -297,17 +321,16 @@ caught by the script.
 
 ## 9. Status
 
-87 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
-DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6, SAFE 5.
+98 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6, SAFE 5, FFI 11.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4, 5, 6 and 7 of the
-roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+suite that the owning gate runs. Implemented today (Phases 4 to 9 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
-TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005. Everything else is
-planned; the FFI and KERNEL areas are still reserved only (SAFE arrived with Phase 8). FFI has a defined format (ADR 0007) but no allocated
-codes yet; KERNEL's owning ADRs are still unwritten. Both have reserved ranges.
+TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
+FFI-011. Everything else is planned; the KERNEL area is still reserved only,
+because its owning ADRs are unwritten.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
 the same commit.
