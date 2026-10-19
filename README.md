@@ -104,7 +104,8 @@ is a handoff, and a `select` arm is `case recv (ch)`, `case v = recv (ch)`,
 of an owning element requires `move` (the receiver destroys it), a destructor
 cannot cross a channel, and a `select` arm cannot bind a receive from an
 owning-element channel - see [docs/crug/CHANNELS.md](docs/crug/CHANNELS.md)
-and [ADR 0025](docs/crug/adr/0025-channels-and-select.md). See
+and [ADR 0025](docs/crug/adr/0025-channels-and-select.md). The Phase 16 gate
+passes 7/7 at `601e0cc` (logs under `docs/crug/gates/phase-16/601e0cc/`). See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

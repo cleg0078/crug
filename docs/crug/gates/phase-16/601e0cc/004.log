@@ -1,0 +1,8 @@
+phase-16 #4 rc=1
+cmd: crugc -fcrug-channels -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/channels/select-own-recv.c
+expected: exit 1 with `[crug-CONC-017]`: a `select` arm cannot bind a receive from a channel with an owning element, because the arm may not run and the value would be lost.
+---
+gcc/testsuite/crug.dg/channels/select-own-recv.c: In function ‘main’:
+gcc/testsuite/crug.dg/channels/select-own-recv.c:29:5: error: a ‘select’ arm cannot receive from a channel with an owning element; use ‘recv’ directly [crug-CONC-017]
+   29 |     case v = recv (a):          /* { dg-error "crug-CONC-017" } */
+      |     ^~~~

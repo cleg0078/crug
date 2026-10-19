@@ -1,0 +1,39 @@
+phase-16 #1 rc=0
+cmd: make check-CHANNELS
+expected: exit 0, printing `channels: 40 compiler test(s), 7 channel program(s), 0 failure(s)`. The seven programs cover a buffered round trip (`channels-roundtrip: values=4 sum=10 closed=0`), a handoff over capacity 0, a `select` over two receive arms, a send arm, an owned transfer (`channels-owned: text=hi releases=1`, exactly one release), `close` (`channels-close: a=5 b=6 tail=0`) and fan-in (`channels-fanin: producers=5 total=20`).
+---
+make -C libcrug PAL=linux
+make[1]: Entering directory '/home/cleg/MyDev/crug/libcrug'
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: ok
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[linux]: 12 cases, 0 failed, 0 skipped
+guard-fault: SIGSEGV on the guarded page as claimed
+make[1]: Leaving directory '/home/cleg/MyDev/crug/libcrug'
+make check-CHANNELS_DG
+make[1]: Entering directory '/home/cleg/MyDev/crug'
+bootstrap-dejagnu: DejaGnu version	1.6.3
+bootstrap-dejagnu: expect version 5.45.4
+bootstrap-dejagnu: wrote tools/dejagnu.env (sourced by make check-c)
+Running target unix
+Running /home/cleg/MyDev/crug/gcc/testsuite/crug.dg/channels/channels.exp ...
+# of expected passes		40
+make[1]: Leaving directory '/home/cleg/MyDev/crug'
+scripts/check-channels.sh
+channels-close: a=5 b=6 tail=0
+channels-fanin: producers=5 total=20
+channels-owned: text=hi releases=1
+channels-rendezvous: handoffs=3 total=6
+channels-roundtrip: values=4 sum=10 closed=0
+channels-select-send: sent=1 got=111
+channels-select: a=33 b=63 defaults=0
+channels: 40 compiler test(s), 7 channel program(s), 0 failure(s)

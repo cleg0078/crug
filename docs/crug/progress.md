@@ -341,7 +341,8 @@ prints `channels: 40 compiler test(s), 7 channel program(s), 0 failure(s)`; the
 seven programs cover a buffered round trip, a handoff, receive and send arms, an
 owned transfer (`channels-owned: text=hi releases=1`), `close` and fan-in.
 `chan.h` extends runtime ABI version 1 additively. The Phase 16 gate (amendment
-A-19) runs seven runnable checks over these artefacts.
+A-19) passes 7/7 at `601e0cc` (logs under
+`docs/crug/gates/phase-16/601e0cc/`), so M16 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -449,8 +450,8 @@ superseding ADR and owner ratification.
 ## Next actions, in dependency order
 
 1. **Push Phase 16 and open Phase 17** (Send/Sync-like static concurrency
-   safety): the Phase 16 gate adjudicates channels and `select` (amendment A-19),
-   so the next narrow question is which values may cross a worker or channel
+   safety): the Phase 16 gate passes 7/7 at `601e0cc` (amendment A-19), so M16
+   is awarded and the next narrow question is which values may cross a worker or channel
    boundary at all - non-sendable values, non-sync shared borrows and
    thread-affine FFI handles. `chan T` and `select` now exist; Phase 17 adds the
    static rules that keep them from becoming a data-race generator.

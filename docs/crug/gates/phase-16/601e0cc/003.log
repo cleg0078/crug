@@ -1,0 +1,11 @@
+phase-16 #3 rc=1
+cmd: crugc -fcrug-channels -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/channels/send-owned.c
+expected: exit 1 with `[crug-CONC-003]`: a send transfers ownership, so an owning element must be wrapped in `move ()` and the receiver destroys it exactly once.
+---
+gcc/testsuite/crug.dg/channels/send-owned.c: In function ‘give’:
+gcc/testsuite/crug.dg/channels/send-owned.c:28:3: error: send transfers ownership; wrap the argument in ‘move ()’ [crug-CONC-003]
+   28 |   send (out, p);                /* { dg-error "crug-CONC-003" } */
+      |   ^~~~
+gcc/testsuite/crug.dg/channels/send-owned.c:26:37: warning: owned value ‘p’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+   26 | give (chan own char *out, own char *p)  /* { dg-warning "crug-OWN-007" } */
+      |                           ~~~~~~~~~~^

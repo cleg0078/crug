@@ -1,0 +1,5 @@
+phase-16 #5 rc=0
+cmd: scripts/lint-no-os-apis.sh libcrug/core
+expected: exit 0: a blocked send or receive yields inside a task and calls `crug_pal_sleep_ns` on the main thread, never an operating-system primitive.
+---
+lint-no-os-apis: 6 file(s) under libcrug/core, 0 operating-system primitive references

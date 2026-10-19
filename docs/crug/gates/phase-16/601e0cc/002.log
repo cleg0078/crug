@@ -1,0 +1,5 @@
+phase-16 #2 rc=0
+cmd: crugc -fcrug-channels -fcrug-ownership -fsyntax-only gcc/testsuite/crug.dg/channels/chan-layout.c
+expected: exit 0: `chan T` is one pointer whatever the element type is, including `chan style`/ `chan own char *`.
+---
+
