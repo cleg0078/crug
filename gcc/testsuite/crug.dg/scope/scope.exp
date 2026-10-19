@@ -1,0 +1,25 @@
+#   Copyright (C) 2026 CLEG0078
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3, or (at your option)
+# any later version.
+#
+# GCC testsuite for the Crug 'scope' statement: the task group that waits for
+# every child of its block.  Every test carries its own dg-options, so
+# DEFAULT_CFLAGS stays empty.  The runtime behaviour is exercised by
+# libcrug/tests/scope and scripts/check-scope.sh.
+
+load_lib gcc-dg.exp
+
+global DEFAULT_CFLAGS
+if ![info exists DEFAULT_CFLAGS] then {
+    set DEFAULT_CFLAGS ""
+}
+
+dg-init
+
+dg-runtest [lsort [glob -nocomplain $srcdir/$subdir/*.\[cSi\]]] \
+	"" $DEFAULT_CFLAGS
+
+dg-finish
