@@ -33,8 +33,12 @@ makes a borrow end at its last use and fixes the interprocedural policy at depth
 zero: a borrow may cross a call only as a `ref`/`mut` argument and may not be
 returned or stored - see [docs/crug/BORROW.md](docs/crug/BORROW.md) and ADRs
 [0019](docs/crug/adr/0019-interprocedural-borrow-policy.md) and
-[0020](docs/crug/adr/0020-last-use-liveness.md). `libcrug`, goroutines, channels,
-`slice`/`match`, `raw`/`unsafe` and strict mode are not implemented. See
+[0020](docs/crug/adr/0020-last-use-liveness.md). Phase 8 (strict mode) adds
+`raw` pointers and `unsafe` blocks: `-fcrug-strict` rejects unanalysed
+operations outside an `unsafe` block, with stable `crug-SAFE-*` codes, and
+never changes generated code - see [docs/crug/STRICT.md](docs/crug/STRICT.md)
+and [ADR 0021](docs/crug/adr/0021-strict-mode-policy.md). `libcrug`,
+goroutines, channels, `slice` and `match` are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -66,8 +70,10 @@ in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 - `own`, `ref`, `mut`, `raw` qualifiers with move-only ownership and
   deterministic destruction, without changing C layout or calling conventions.
 - Borrow checking (N shared or one exclusive) enforced at compile time until the
-  borrow's last use (Phases 6-7), with borrows that escape a call rejected
-  (Phase 8 owns the remaining call-site direction).
+  borrow's last use (Phases 6-7), with borrows that escape a call rejected and
+  `ref`/`mut` parameters as the only borrow points at a call (ADR 0019).
+- `raw` pointers and `unsafe` blocks with strict mode: an unanalysed operation
+  is an error unless the programmer asks for it explicitly (Phase 8).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -104,13 +110,16 @@ writes `out/` (ignored); see [docs/crug/KERNEL-COMPATIBILITY.md](docs/crug/KERNE
 feature macros, and `make check-GNU_C_COMPAT` recompiles the GNU C and kernel
 corpora with the full flag set; both are described in
 [docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP`,
-`make check-DROP` and `make check-BORROW` run the ownership, destruction and
-borrow dg suites; `scripts/check-drop-*.sh` assert exactly-once destruction,
-sanitizer cleanliness and the absence of helper calls, and
-`scripts/check-borrow-*.sh` assert that a borrowed function compiles to the same
-object as its plain-pointer twin, that a borrow ends at its last use in the dump,
-and that six realistic programs compile and run. Runnable programs that need no
-harness live in [examples/](examples/README.md), one per Phase 4-7 feature.
+`make check-DROP`, `make check-BORROW` and `make check-STRICT_UNSAFE` run the
+ownership, destruction, borrow and strict dg suites;
+`scripts/check-drop-*.sh` assert exactly-once destruction, sanitizer
+cleanliness and the absence of helper calls, `scripts/check-borrow-*.sh` assert
+that a borrowed function compiles to the same object as its plain-pointer twin,
+that a borrow ends at its last use in the dump, and that six realistic programs
+compile and run, and `scripts/check-strict-*.sh` assert that strict mode
+changes no code while rejecting each unanalysed operation. Runnable programs
+that need no harness live in [examples/](examples/README.md), one per Phase 4-8
+feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

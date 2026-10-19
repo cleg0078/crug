@@ -115,6 +115,21 @@ fixtures, six programs under `real-c/` are compiled and run, and
 `docs/crug/BORROW.md` is the digest, and the Phase 7 gate passes 7/7 at
 `f6fbde4` (logs under `docs/crug/gates/phase-7/f6fbde4/`).
 
+Phase 8 adds the escape hatches and the strict policy (ADR 0021). `raw` is a
+pointer with no ownership and the plain pointer's representation; `unsafe { ... }`
+is a scope that suppresses exactly the unanalysed operations and nothing else.
+`-fcrug-strict` rejects, outside an `unsafe` block, a `raw` dereference
+(`crug-SAFE-001`), an integer-pointer conversion (`-002`), an owned value cast to
+an unmanaged pointer (`-003`), an `asm` statement (`-004`) and the
+`setjmp`/`longjmp` family (`-005`); at a call it requires `move` for an `own`
+parameter (`crug-OWN-011`) and `release` or an `unsafe` block for a callee with
+no ownership contract (`crug-OWN-012`), and a discarded `adopt` is an error in
+both modes (`crug-OWN-013`). Strict mode changes no object byte:
+`scripts/check-strict-codegen.sh` compares four programs compiled with and
+without the flag. `docs/crug/STRICT.md` is the digest and `make check-STRICT_UNSAFE`
+runs 21 expected passes; the Phase 8 gate is the seven-check list in
+`docs/crug/EXIT-GATES.md` (amendment A-9).
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -170,6 +185,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | Ownership had no implementation, so the state machine and the zero-metadata claim were untested | `own`/`move` front-end (gcc/c/crug-ownership.cc), 17-pass dg suite, `-fcrug-dump=ownership`; docs/crug/OWNERSHIP.md; phase-4 gate 7/7 |
 | Destruction was undefined, so every owning object leaked and the O1 claim was untestable | drop lowering in `gcc/c/crug-ownership.cc`, `adopt`/`release`/`drop` intrinsics, 39-pass dg suite, six `scripts/check-drop-*.sh` checks, `-fcrug-dump=drop`; docs/crug/DROP.md; ADR 0005 A-1..A-7; phase-5 gate |
 | Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
+| Unanalysed operations (deref of a plain view, casts, asm, setjmp) had no policy, so "strict mode" was a word without a definition | ADR 0021 (Accepted 2026-10-19) + docs/crug/STRICT.md: `raw`, `unsafe` and five `crug-SAFE-*` restrictions with `-fcrug-strict`; C-08 resolved |
 | A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
 
 ## Still open
@@ -177,23 +193,24 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | ID | Item | Blocked on |
 |----|------|------------|
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
-| C-08 | "Strict mode" used but never defined | defined operationally by ADR 0018 D1/D10; needs a consolidated paragraph in docs/crug/STRICT.md |
 | -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
 | -  | Ownership transfer at call sites is unchecked: a caller may pass a value it still owns to an owning parameter, and an owning return value is not tracked by the caller | a later phase; recorded in docs/crug/DROP.md section 8 |
-| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected | Phases 8 (call sites and plain-pointer direction) and 12 (place-level borrows and interior mutability); recorded in docs/crug/BORROW.md section 5 |
+| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows) plus a call-site direction Phase 9 can decide together with the `.crugffi` contracts; recorded in docs/crug/BORROW.md section 5 |
 | -  | `slice<T>`, `chan T`, payload enums and `match` still do not parse | Phases 10 and 13-14 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 8** (strict mode, `raw` and `unsafe`): the three escape hatches
-   that the safety story rests on, plus the call-site direction Phase 7 left open
-   (a plain pointer passed where a `ref`/`mut` parameter is expected).
-   `docs/crug/BORROW.md` section 5 lists what Phase 6 and 7 defer.
-2. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
+1. **Start Phase 9** (FFI contracts): write the `.crugffi` parser, consume the
+   format in the front end, and decide the remaining call-site direction (a plain
+   pointer passed where a `ref`/`mut` parameter is expected, and an owned value
+   crossing a boundary with a recorded contract instead of `release`).
+2. **Ratify ADR 0021 and ADR 0019/0020** as the owner: the strict policy and the
+   two borrow policies are implemented and tested but still carry Status Proposed.
+3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
    `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
    lowering.

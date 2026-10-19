@@ -13,7 +13,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 reg="$root/docs/crug/DIAGNOSTICS.md"
-areas='UAM|OWN|BORROW|DROP|CONC|ADT|TYPE|GRAMMAR|FFI|KERNEL'
+areas='UAM|OWN|BORROW|DROP|CONC|ADT|TYPE|GRAMMAR|SAFE|FFI|KERNEL'
 
 [ -f "$reg" ] || { echo "check-diagnostics: missing $reg" >&2; exit 1; }
 

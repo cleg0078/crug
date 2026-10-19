@@ -7,10 +7,11 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-All ten written ADRs are Accepted and are cited by number throughout `spec/`
-and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18, ADRs
-0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on 2026-10-19 as the
-Phase 7 planning decisions.
+Ten of the eleven written ADRs are Accepted and are cited by number throughout
+`spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on 2026-10-18,
+ADRs 0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on 2026-10-19 as the
+Phase 7 planning decisions. ADR 0021 (Phase 8) is Proposed: it is implemented and
+tested but awaits owner ratification.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -24,6 +25,7 @@ Phase 7 planning decisions.
 | 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Accepted (2026-10-19) |
 | 0019 | 0019-interprocedural-borrow-policy.md | summary depth zero, borrows cross calls only as `ref`/`mut` arguments, no returned or stored borrows | Accepted (2026-10-19) |
 | 0020 | 0020-last-use-liveness.md | a borrow ends at its last use; joins union, loops are conservative, `goto` abandons liveness | Accepted (2026-10-19) |
+| 0021 | 0021-strict-mode-policy.md | strict mode is a checking mode, `raw`, `unsafe`, the five `crug-SAFE-*` restrictions and the two boundary call rules | Proposed (2026-10-19) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in

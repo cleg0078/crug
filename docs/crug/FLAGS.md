@@ -1,12 +1,14 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phases 4, 5 and 6 use it** (2026-10-19). The
-option set, its closure and the feature macros exist. `-fcrug-ownership` gates
-the `own`, `move` and drop productions of Phases 4 and 5 (`OWNERSHIP.md`,
-`DROP.md`), and `-fcrug-borrow` gates `ref`, `mut`, `borrow` and `borrow_mut`
-(`BORROW.md`); the productions the other flags name do not exist yet. This page
-is the digest - the normative text is ADR 0018 D1 and D9, RFC-0001 sections 10
-and 13, and the gates are `EXIT-GATES.md` phases 3, 4, 5 and 6.
+Status: **Phase 3 implemented; Phases 4, 5, 6, 7 and 8 use it** (2026-10-19).
+The option set, its closure and the feature macros exist. `-fcrug-ownership`
+gates the `own`, `move` and drop productions of Phases 4 and 5
+(`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`, `borrow` and
+`borrow_mut` (`BORROW.md`), and `-fcrug-strict` adds the unchecked-operation
+policy with `raw` and `unsafe` (`STRICT.md`); the productions the other flags
+name do not exist yet. This page is the digest - the normative text is ADR 0018
+D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
+`EXIT-GATES.md` phases 3, 4, 5, 6, 7 and 8.
 
 ## 1. The option set
 
@@ -23,7 +25,7 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-adt` | payload enums, `match` | - |
 | `-fcrug-goroutines` | `go`, `scope` | - |
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
-| `-fcrug-strict` | no production; promotes every `-Wcrug-*` warning to an error | `-fcrug-ownership`, `-fcrug-borrow` |
+| `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-modern` | everything above | all eight flags |
 | `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` until Phase 19 |
 
@@ -118,10 +120,12 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 
 - `own`, `move`, `adopt`, `release`, `drop` and automatic destruction exist
   (`OWNERSHIP.md`, `DROP.md`); ownership transfer at call sites does not.
-- The lexical borrow rules of Phase 6 exist (`BORROW.md`): whole-object
-  borrows, the conflict matrix, lexical lifetime, `ref`/`mut` parameters as
-  live borrows. No call-site checking (Phase 8), no member or array-element
-  borrows, no mutable reborrow, no NLL (Phase 7), no struct fields.
+- The borrow rules of Phases 6 and 7 exist (`BORROW.md`): whole-object
+  borrows, the conflict matrix, last-use lifetimes, `ref`/`mut` parameters as
+  live borrows, and the depth-zero interprocedural policy (ADR 0019). No member
+  or array-element borrows, no mutable reborrow (Phase 12), no struct fields.
+- Strict mode, `raw` and `unsafe` exist (`STRICT.md`); there is no
+  provenance or UB sanitizer, and `unsafe` code is not analysed.
 - No goroutine, scope or channel lowering (Phase 14-16).
 - Only the `ownership`, `drop` and `borrow` dumps exist (`-fcrug-dump=` comma
   list); no goroutine or channel dump.
@@ -146,6 +150,8 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `make check-DROP` | destruction and its rejections: 39 expected passes under `gcc/testsuite/crug.dg/drop/` |
 | `scripts/check-drop-dump.sh` | the `drop` dump records every exit kind (`DROP.md` section 6) |
 | `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on, including last-use lifetimes and the call policy: 88 expected passes under `gcc/testsuite/crug.dg/borrow/` |
+| `make check-STRICT_UNSAFE` | strict mode, `raw` and `unsafe`: 21 expected passes under `gcc/testsuite/crug.dg/strict/` |
+| `scripts/check-strict-*.sh` | the codegen identity (objects byte-identical with and without `-fcrug-strict`), the hybrid-vs-strict answer for one raw dereference, and the eight strict codes observed |
 | `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
 | `scripts/check-borrow-dump.sh` | the `borrow` dump records shared and mutable borrows and their ends (`BORROW.md` section 4) |
 | `scripts/check-borrow-nll.sh` / `check-borrow-escape.sh` / `check-borrow-real-c.sh` | a borrow ends at last use in the dump, an escaping borrow is rejected with its origin noted, and six realistic programs compile and run |
@@ -156,7 +162,8 @@ six `scripts/check-drop-*.sh` and `scripts/check-diagnostics.sh` checks, and the
 phase-6 gate runs the five `scripts/check-borrow-*.sh` scripts, one compile-fail
 exit status and `scripts/check-diagnostics.sh`; the phase-7 gate runs the eight
 borrow scripts, the two compatibility suites and `scripts/check-diagnostics.sh`;
-see `EXIT-GATES.md`.
+the phase-8 gate runs the four `scripts/check-strict-*.sh` scripts, the two
+compatibility suites and `scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

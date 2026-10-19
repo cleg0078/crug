@@ -57,6 +57,7 @@ crug-<AREA>-<NNN>
 | `ADT` | payload enums and match | 001-099 | ADR 0018 D8 |
 | `TYPE` | declarator formation, qualifiers, generic types | 001-099 | ADR 0018 D2, D7 |
 | `GRAMMAR` | parsing, keyword and intrinsic shadowing, macros | 001-099 | ADR 0002, ADR 0018 D9 |
+| `SAFE` | strict mode: raw dereference, pointer casts, unsafe blocks, asm, non-local exits | 001-099 | ADR 0021 |
 | `FFI` | `.crugffi` metadata and boundary checks | 001-099 | ADR 0007 (format v1 defined; codes allocated with the parser) |
 | `KERNEL` | freestanding and kernel-mode restrictions | 001-099 | ADR 0016, ADR 0017 (unwritten) |
 
@@ -98,6 +99,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-OWN-008` | `-Wcrug-ffi-ownership` | warning | error | owned value crosses an FFI boundary without adopt() or release() metadata | ADR 0003 D3 |
 | `crug-OWN-009` | - | error | error | own member in union requires an active-variant contract | ADR 0004 D6 |
 | `crug-OWN-010` | - | error | error | conflicting destructors for owned value '%s' on different paths | ADR 0005 A-6 |
+| `crug-OWN-011` | - | error | error | an owned value passed to an 'own' parameter must be moved explicitly: write move (x) | ADR 0021 D6 |
+| `crug-OWN-012` | - | error | error | an owned value passed to a callee without an ownership contract; release (x) first, or use an unsafe block | ADR 0021 D6 |
+| `crug-OWN-013` | - | error | error | the result of adopt() is discarded; initialize an owned declaration with it | ADR 0004 D10 |
 
 ### 4.3 Borrowing (`BORROW`)
 
@@ -191,6 +195,20 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-GRAMMAR-005` | `-Wcrug-word-macro` | warning | warning | macro definition redefines the Crug word '%s' | ADR 0018 D9 |
 | `crug-GRAMMAR-006` | - | error | error | 'scope', 'unsafe', 'match' and 'select' require a compound statement | ADR 0018 D5, D6, D8 |
 
+### 4.9 Strict mode, raw and unsafe (`SAFE`)
+
+| Code | Option | Default | Strict | Canonical message | Origin |
+|------|--------|---------|--------|-------------------|--------|
+| `crug-SAFE-001` | - | error | error | dereference of 'raw' pointer '%s' outside an 'unsafe' block | ADR 0021 D2 |
+| `crug-SAFE-002` | - | error | error | conversion between an integer and a pointer outside an 'unsafe' block | ADR 0021 D3 |
+| `crug-SAFE-003` | - | error | error | an owned value cannot be converted to an unmanaged pointer; release (x) first, or use an unsafe block | ADR 0021 D4 |
+| `crug-SAFE-004` | - | error | error | an 'asm' statement outside an 'unsafe' block can change memory that Crug tracks | ADR 0021 D5 |
+| `crug-SAFE-005` | - | error | error | 'setjmp' bypasses automatic destruction; call it inside an 'unsafe' block under '-fcrug-strict' | ADR 0021 D6 |
+
+Note: these five are strict-only diagnostics; in hybrid mode the construct is
+accepted (with the DROP-003 warning for setjmp). Their codes are stable, so a
+driver can tell a strict rejection from any other error.
+
 ## 5. Option map
 
 Several codes share one option; the code identifies the condition, the option
@@ -279,16 +297,16 @@ caught by the script.
 
 ## 9. Status
 
-79 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 20,
-DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6.
+87 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6, SAFE 5.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
 suite that the owning gate runs. Implemented today (Phases 4, 5, 6 and 7 of the
 roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
-OWN-007, OWN-009, OWN-010, BORROW-001 to BORROW-020, DROP-001, DROP-002,
-DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002, TYPE-004, TYPE-005,
-TYPE-006, TYPE-007. Everything else is
-planned; the FFI and KERNEL areas are still reserved only. FFI has a defined format (ADR 0007) but no allocated
+OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
+DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
+TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005. Everything else is
+planned; the FFI and KERNEL areas are still reserved only (SAFE arrived with Phase 8). FFI has a defined format (ADR 0007) but no allocated
 codes yet; KERNEL's owning ADRs are still unwritten. Both have reserved ranges.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
