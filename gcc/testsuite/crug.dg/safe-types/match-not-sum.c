@@ -21,7 +21,7 @@
 int
 f (int x)
 {
-  match (x) /* { dg-error "needs an option or result value" } */
+  match (x) /* { dg-error "needs an option, result or payload enum" } */
     {
     some (v) => { return v; }
     none => { return 0; }
