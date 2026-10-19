@@ -6467,13 +6467,23 @@ push_parm_decl (const struct c_parm *parm, tree *expr)
       && parm->specs != NULL)
     {
       if (parm->specs->crug_qual == CRUG_QUAL_OWN)
-	crug_mark_owning_decl (decl, parm->loc);
+	{
+	  crug_mark_owning_decl (decl, parm->loc);
+	  /* ADR 0010: ownership proves no second tracked owner, so the
+	     parameter is given to the optimizer as 'restrict'.  */
+	  crug_apply_alias_fact (decl, false);
+	}
       else if (parm->specs->crug_qual == CRUG_QUAL_RAW)
 	crug_mark_raw_decl (decl, parm->loc);
       else if (parm->specs->crug_qual == CRUG_QUAL_REF
 	       || parm->specs->crug_qual == CRUG_QUAL_MUT)
-	crug_mark_borrow_decl (decl, parm->specs->crug_qual == CRUG_QUAL_MUT,
-			       parm->loc);
+	{
+	  bool is_mut = parm->specs->crug_qual == CRUG_QUAL_MUT;
+	  crug_mark_borrow_decl (decl, is_mut, parm->loc);
+	  /* ADR 0010: a 'mut' parameter is an exclusive borrow.  */
+	  if (is_mut)
+	    crug_apply_alias_fact (decl, true);
+	}
     }
 
   decl = pushdecl (decl);

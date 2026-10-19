@@ -68,6 +68,12 @@ extern void crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc);
    whether the borrow is exclusive.  */
 extern bool crug_is_borrow_decl (tree decl, bool *is_mut);
 
+/* Record the alias fact of a 'mut' (IS_MUT true) or 'own' pointer parameter:
+   the parameter type gains C 'restrict', which tells the middle end that the
+   caller proved exclusive access (ADR 0010).  A no-op when -fcrug-alias-facts
+   is off, and for anything that is not a pointer parameter.  */
+extern void crug_apply_alias_fact (tree decl, bool is_mut);
+
 /* The intrinsics that the C parser recognises in call position.  They are
    identifiers, never keywords, and every call is removed by the ownership
    pass, so no intrinsic reaches the middle end or the object file.  */

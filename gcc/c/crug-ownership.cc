@@ -709,6 +709,36 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
   crug_borrow_uids[DECL_UID (decl)] = is_mut;
 }
 
+/* Alias facts recorded for the optimizer: DECL_UID -> 0 for 'mut', 1 for
+   'own'.  The map is what the alias dump and its audit read, so a restrict
+   qualifier the user wrote is never mistaken for a fact the compiler
+   derived (ADR 0010 D3).  */
+
+static std::map<unsigned int, int> crug_alias_fact_uids;
+
+void
+crug_apply_alias_fact (tree decl, bool is_mut)
+{
+  if (!crug_alias_facts_enabled ()
+      || decl == NULL_TREE || decl == error_mark_node
+      || TREE_CODE (decl) != PARM_DECL)
+    return;
+
+  tree type = TREE_TYPE (decl);
+  if (type == NULL_TREE || type == error_mark_node
+      || TREE_CODE (type) != POINTER_TYPE
+      || TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
+    return;
+
+  tree qualified
+    = build_qualified_type (type, TYPE_QUALS (type) | TYPE_QUAL_RESTRICT);
+  if (qualified == type)
+    return;
+
+  TREE_TYPE (decl) = qualified;
+  crug_alias_fact_uids[DECL_UID (decl)] = is_mut ? 0 : 1;
+}
+
 bool
 crug_is_borrow_decl (tree decl, bool *is_mut)
 {
@@ -740,7 +770,8 @@ static struct crug_dump_slot crug_dump_slots[] =
 {
   { "ownership", ".crug-ownership", "crug ownership dump v1", NULL, false },
   { "drop", ".crug-drop", "crug drop dump v1", NULL, false },
-  { "borrow", ".crug-borrow", "crug borrow dump v1", NULL, false }
+  { "borrow", ".crug-borrow", "crug borrow dump v1", NULL, false },
+  { "alias", ".crug-alias", "crug alias dump v1", NULL, false }
 };
 
 static bool
@@ -864,6 +895,42 @@ dump_join (location_t loc, tree decl, crug_state a, crug_state b,
 	   where.line,
 	   IDENTIFIER_POINTER (DECL_NAME (decl)),
 	   state_name (a), state_name (b), state_name (result));
+}
+
+/* The alias facts this function proved: one line per 'mut' or 'own' pointer
+   parameter that was given to the middle end as 'restrict' (ADR 0010).  The
+   dump is the audit trail: a restrict qualifier that is not in here is one
+   the user wrote, and a line here must correspond to a mut/own parameter.  */
+
+static void
+dump_alias_facts (tree fndecl)
+{
+  if (!dump_kind_enabled ("alias"))
+    return;
+
+  FILE *file = get_dump_file ("alias");
+  if (file == NULL)
+    return;
+
+  const char *fname = (fndecl != NULL_TREE && DECL_NAME (fndecl) != NULL_TREE)
+    ? IDENTIFIER_POINTER (DECL_NAME (fndecl)) : "<anonymous>";
+
+  for (tree a = DECL_ARGUMENTS (fndecl); a != NULL_TREE; a = DECL_CHAIN (a))
+    {
+      if (TREE_CODE (a) != PARM_DECL || DECL_NAME (a) == NULL_TREE)
+	continue;
+      std::map<unsigned int, int>::const_iterator it
+	= crug_alias_fact_uids.find (DECL_UID (a));
+      if (it == crug_alias_fact_uids.end ())
+	continue;
+      tree type = TREE_TYPE (a);
+      if (type == NULL_TREE || TREE_CODE (type) != POINTER_TYPE
+	  || (TYPE_QUALS (type) & TYPE_QUAL_RESTRICT) == 0)
+	continue;
+      fprintf (file, "alias %s: parameter %s restrict (%s)\n",
+	       fname, IDENTIFIER_POINTER (DECL_NAME (a)),
+	       it->second == 0 ? "mut" : "own");
+    }
 }
 
 static void
@@ -2684,8 +2751,86 @@ check_ffi_call (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
    assumed to keep the referent alive.  A call whose callee is not a known
    FUNCTION_DECL fails closed.  */
 
+/* True and sets *IS_MUT when E is a borrow whose exclusivity is known:
+   a borrow binding or a borrow()/borrow_mut() call.  False for a plain
+   pointer, which carries no proof of exclusive access.  */
+
+static bool
+borrow_value_mut_p (tree e, bool *is_mut)
+{
+  if (!is_borrow_value (e))
+    return false;
+
+  tree r = e;
+  STRIP_NOPS (r);
+  if (TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+    return crug_is_borrow_decl (r, is_mut);
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (r) == CALL_EXPR && is_intrinsic_call (r, &kind))
+    {
+      if (kind == CRUG_INTR_BORROW_MUT)
+	{
+	  *is_mut = true;
+	  return true;
+	}
+      if (kind == CRUG_INTR_BORROW)
+	{
+	  *is_mut = false;
+	  return true;
+	}
+    }
+  return false;
+}
+
+/* The lender object a borrow-valued expression views, following a reborrow
+   binding to its root, and whether that view is mutable.  Returns NULL_TREE
+   when the expression is not a borrow or its lender is unknown.  */
+
+static tree
+borrow_arg_lender (crug_fn_ctx &ctx, tree e, bool *is_mut)
+{
+  if (e == NULL_TREE || e == error_mark_node)
+    return NULL_TREE;
+
+  e = STRIP_NOPS (e);
+  if (TREE_CODE (e) == VAR_DECL || TREE_CODE (e) == PARM_DECL)
+    {
+      bool mut = false;
+      if (!crug_is_borrow_decl (e, &mut))
+	return NULL_TREE;
+      tree lender = resolve_lender (ctx, e);
+      if (is_mut != NULL)
+	*is_mut = mut;
+      return lender != NULL_TREE ? lender : e;
+    }
+
+  if (TREE_CODE (e) == CALL_EXPR)
+    {
+      enum crug_intrinsic kind;
+      if (is_intrinsic_call (e, &kind)
+	  && (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT))
+	{
+	  if (is_mut != NULL)
+	    *is_mut = kind == CRUG_INTR_BORROW_MUT;
+	  tree lender = STRIP_NOPS (CALL_EXPR_ARG (e, 0));
+	  if ((TREE_CODE (lender) == VAR_DECL
+	       || TREE_CODE (lender) == PARM_DECL)
+	      && crug_is_borrow_decl (lender, NULL))
+	    {
+	      tree root = resolve_lender (ctx, lender);
+	      if (root != NULL_TREE)
+		lender = root;
+	    }
+	  return lender;
+	}
+    }
+
+  return NULL_TREE;
+}
+
 static void
-check_borrow_call_args (tree call, location_t loc)
+check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 {
   tree fn = CALL_EXPR_FN (call);
   tree fndecl = NULL_TREE;
@@ -2753,6 +2898,91 @@ check_borrow_call_args (tree call, location_t loc)
 	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
 		  "parameter; the called function has no borrow contract "
 		  "[crug-BORROW-020]");
+    }
+
+  /* ADR 0010: the callee treats a mut parameter as 'restrict', so the call
+     must not create any other view of the same lender.  Two borrows of one
+     object, or a borrow plus the lender itself, would give the callee two
+     pointers it must assume do not alias.  This is checked only with
+     -fcrug-alias-facts: without it the historical leniency stays.  */
+  if (crug_alias_facts_enabled ())
+    {
+      int nargs = call_expr_nargs (call);
+      for (int i = 0; i < nargs; i++)
+	{
+	  bool mut_i = false;
+	  tree lender = borrow_arg_lender (ctx, CALL_EXPR_ARG (call, i), &mut_i);
+	  if (lender == NULL_TREE)
+	    continue;
+
+	  for (int j = i + 1; j < nargs; j++)
+	    {
+	      bool mut_j = false;
+	      tree other = borrow_arg_lender (ctx, CALL_EXPR_ARG (call, j),
+					      &mut_j);
+	      if (other == NULL_TREE || other != lender || (!mut_i && !mut_j))
+		continue;
+	      if (mut_i && mut_j)
+		error_at (loc, "cannot mutably borrow %qD more than once in one "
+			  "call; a mutable borrow must be exclusive "
+			  "[crug-BORROW-003]", lender);
+	      else
+		error_at (loc, "cannot borrow %qD mutably and again in one "
+			  "call; a mutable borrow must be exclusive "
+			  "[crug-BORROW-002]", lender);
+	    }
+
+	  /* The lender itself (or a pointer derived from it) as another
+	     argument is the same aliasing hazard.  */
+	  if (!mut_i)
+	    continue;
+	  for (int j = 0; j < nargs; j++)
+	    {
+	      if (j == i)
+		continue;
+	      tree other = expr_base_decl (CALL_EXPR_ARG (call, j));
+	      if (other != lender)
+		continue;
+	      tree otype = TREE_TYPE (CALL_EXPR_ARG (call, j));
+	      if (otype == NULL_TREE
+		  || (TREE_CODE (otype) != POINTER_TYPE
+		      && TREE_CODE (otype) != ARRAY_TYPE))
+		continue;
+	      error_at (loc, "the lender %qD is also passed to this call; a "
+			"%<mut%> parameter must be the only view of its object "
+			"[crug-BORROW-023]", lender);
+	    }
+	}
+    }
+
+  /* ADR 0010: with -fcrug-alias-facts a 'mut' parameter is compiled as
+     'restrict', so the caller must hand it a proven exclusive borrow.  A
+     plain pointer proves nothing and is rejected; a shared borrow may not
+     become an exclusive one.  Without the flag the historical leniency
+     stays (docs/crug/BORROW.md section 2.4).  */
+  if (!crug_alias_facts_enabled () || fndecl == NULL_TREE)
+    return;
+
+  for (int i = 0; i < call_expr_nargs (call); i++)
+    {
+      tree parm = DECL_ARGUMENTS (fndecl);
+      for (int n = 0; parm != NULL_TREE && n < i; n++)
+	parm = DECL_CHAIN (parm);
+
+      bool parm_mut = false;
+      if (parm == NULL_TREE || TREE_CODE (parm) != PARM_DECL
+	  || !crug_is_borrow_decl (parm, &parm_mut) || !parm_mut)
+	continue;
+
+      tree arg = CALL_EXPR_ARG (call, i);
+      bool arg_mut = false;
+      if (!borrow_value_mut_p (arg, &arg_mut))
+	error_at (loc, "passing a plain pointer to a %<mut%> parameter proves "
+		  "no exclusive access; pass borrow_mut (...) or a mutable "
+		  "borrow [crug-BORROW-021]");
+      else if (!arg_mut)
+	error_at (loc, "a shared borrow cannot be passed to a %<mut%> "
+		  "parameter [crug-BORROW-022]");
     }
 }
 
@@ -2950,7 +3180,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	else if (is_longjmp_call (t))
 	  check_setjmp (ctx, env, loc, false);
 	check_ffi_call (ctx, env, t, loc);
-	check_borrow_call_args (t, loc);
+	check_borrow_call_args (ctx, t, loc);
 	check_strict_call_args (ctx, t, loc);
 	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);
 	for (int i = 0; i < call_expr_nargs (t); i++)
@@ -3891,6 +4121,10 @@ crug_check_function (tree fndecl, tree body)
       ctx.decl_depth[a] = 0;
       ctx.borrows[a] = b;
     }
+
+  /* ADR 0010: the alias facts the function's parameters proved, as the
+     restrict qualifiers the middle end reads.  */
+  dump_alias_facts (fndecl);
 
   /* Phase 7: the last use of every borrow is computed before the checking
      walk, so the conflict checks can ask which borrows are live at a

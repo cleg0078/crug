@@ -1341,6 +1341,14 @@ Common Var(crug_flag_borrow)
 Recognise the Crug borrowing words: the 'ref' and 'mut' qualifiers and the
 'borrow' and 'borrow_mut' intrinsics.  Implies -fcrug-ownership.
 
+fcrug-alias-facts
+Common Var(crug_flag_alias_facts)
+Give the optimizer the exclusivity that a 'mut' or 'own' pointer parameter
+proves, as if the parameter had been declared C 'restrict'.  Implies
+-fcrug-ownership and -fcrug-borrow.  The fact is caller-side: a call through
+a 'mut' parameter promises that no other pointer accesses the referent for
+the duration of the call (ADR 0023).
+
 fcrug-goroutines
 Common Var(crug_flag_goroutines)
 Recognise 'go' and 'scope'.

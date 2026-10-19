@@ -27,6 +27,8 @@ crug_apply_option_closure (void)
     features |= CRUG_FEAT_OWNERSHIP;
   if (crug_flag_borrow)
     features |= CRUG_FEAT_BORROW;
+  if (crug_flag_alias_facts)
+    features |= CRUG_FEAT_ALIAS_FACTS;
   if (crug_flag_slices)
     features |= CRUG_FEAT_SLICES;
   if (crug_flag_result)
@@ -52,8 +54,12 @@ crug_apply_option_closure (void)
 
   /* Dependencies.  Implying a feature never turns it off, and never
      produces an error, because each option is documented as usable alone.  */
-  if (features & CRUG_FEAT_BORROW)
+  if (features & (CRUG_FEAT_BORROW | CRUG_FEAT_ALIAS_FACTS))
     features |= CRUG_FEAT_OWNERSHIP;
+  /* An alias fact is the exclusivity of a borrow, so it needs the borrow
+     checker that proves it (ADR 0010 D2).  */
+  if (features & CRUG_FEAT_ALIAS_FACTS)
+    features |= CRUG_FEAT_BORROW;
   if (features & CRUG_FEAT_CHANNELS)
     features |= CRUG_FEAT_GOROUTINES;
   if (features & CRUG_FEAT_RESULT)
@@ -86,7 +92,8 @@ crug_apply_option_closure (void)
 	  size_t n = strcspn (p, ",");
 	  if (!((n == 9 && memcmp (p, "ownership", 9) == 0)
 		|| (n == 4 && memcmp (p, "drop", 4) == 0)
-		|| (n == 6 && memcmp (p, "borrow", 6) == 0)))
+		|| (n == 6 && memcmp (p, "borrow", 6) == 0)
+		|| (n == 5 && memcmp (p, "alias", 5) == 0)))
 	    error ("unrecognized argument to %<-fcrug-dump=%>: %qs",
 		   crug_dump_kind);
 	  p += n;
@@ -96,4 +103,15 @@ crug_apply_option_closure (void)
     }
 
   crug_features = features;
+}
+
+/* True when the exclusivity of a 'mut' or 'own' pointer parameter is handed
+   to the optimizer as a restrict fact (ADR 0010).  Reads the closed feature
+   set, so -fcrug-modern does not enable it: a code-generation fact is opt-in
+   and never arrives from a mode flag.  */
+
+bool
+crug_alias_facts_enabled (void)
+{
+  return (crug_features & CRUG_FEAT_ALIAS_FACTS) != 0;
 }

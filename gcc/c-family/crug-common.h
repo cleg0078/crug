@@ -24,6 +24,7 @@
 #define CRUG_FEAT_CHANNELS	(1u << 6)
 #define CRUG_FEAT_STRICT	(1u << 7)
 #define CRUG_FEAT_KERNEL	(1u << 8)
+#define CRUG_FEAT_ALIAS_FACTS	(1u << 9)
 
 /* What -fcrug-modern enables.  Kernel is deliberately not part of it: a
    kernel build must not gain goroutines or channels by accident.  */
@@ -46,6 +47,12 @@ crug_feature_enabled (unsigned mask)
 {
   return (crug_features & mask) == mask;
 }
+
+/* True when -fcrug-alias-facts (or a flag that implies it) is active: the
+   exclusivity of a 'mut' or 'own' pointer parameter is handed to the
+   optimizer as a restrict fact (ADR 0010).  */
+
+extern bool crug_alias_facts_enabled (void);
 
 /* Close the accepted option set over the ADR 0018 D1 dependencies and
    report contradictory combinations.  Called once from

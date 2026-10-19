@@ -942,6 +942,8 @@ c_cpp_builtins (cpp_reader *pfile)
 	cpp_define (pfile, "__CRUG_OWNERSHIP__=1");
       if (crug_features & CRUG_FEAT_BORROW)
 	cpp_define (pfile, "__CRUG_BORROW__=1");
+      if (crug_features & CRUG_FEAT_ALIAS_FACTS)
+	cpp_define (pfile, "__CRUG_ALIAS_FACTS__=1");
       if (crug_features & CRUG_FEAT_SLICES)
 	cpp_define (pfile, "__CRUG_SLICES__=1");
       if (crug_features & CRUG_FEAT_RESULT)
