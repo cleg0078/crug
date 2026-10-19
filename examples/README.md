@@ -13,6 +13,7 @@ its first comment.
 | `05-borrow.c` | `ref`/`mut`: a shared borrow read by a callee, then a mutable borrow alone | `./gcc/crugc -O2 -fcrug-borrow examples/05-borrow.c -o build/borrow && ./build/borrow` |
 | `06-borrow-conflict.c` | a program the compiler rejects (`[crug-BORROW-002]`: mutable while shared) | `./gcc/crugc -O2 -fcrug-borrow -fsyntax-only examples/06-borrow-conflict.c` |
 | `07-nll.c` | last-use lifetimes: shared then mutable borrow of the same object in one block, then a move | `./gcc/crugc -O2 -fcrug-borrow examples/07-nll.c -o build/nll && ./build/nll` |
+| `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the
