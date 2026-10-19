@@ -64,6 +64,7 @@
 #include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
 #include "crug-safe.h"
+#include "crug-tasks.h"
 
 #include <map>
 #include <set>
@@ -116,8 +117,15 @@ struct crug_drop
   tree dtor;
   tree enum_type;
   std::map<int, tree> variant_dtors;
+  /* A scope wait: the group handle to leave.  It is emitted before the
+     frame's own destructions, so a task that borrowed those objects can
+     still read them while the scope waits (ADR 0024 D3).  */
+  tree scope_handle;
 
-  crug_drop () : decl (NULL_TREE), dtor (NULL_TREE), enum_type (NULL_TREE) {}
+  crug_drop ()
+    : decl (NULL_TREE), dtor (NULL_TREE), enum_type (NULL_TREE),
+      scope_handle (NULL_TREE)
+  {}
 };
 
 enum crug_exit_kind
@@ -145,6 +153,11 @@ struct crug_frame
   tree bind;
   std::vector<tree> decls;
   std::vector<tree> borrows;
+  /* The group handle when this frame is the body of a 'scope' statement:
+     leaving the frame waits for the group first.  */
+  tree scope_handle;
+
+  crug_frame () : bind (NULL_TREE), scope_handle (NULL_TREE) {}
 };
 
 /* A loop or switch: where break and continue land, and the states that
@@ -261,6 +274,30 @@ static std::set<unsigned int> crug_raw_uids;
    and stands down inside them.  Nothing is attached to the tree, so the
    mark cannot reach the middle end or the object file.  */
 static std::set<tree> crug_unsafe_blocks;
+
+/* The compound statements of 'scope' blocks and the group handle each one
+   created.  A scope statement is lowered to a block whose first statement
+   assigns the group handle, so the block itself is what the analysis sees.  */
+static std::map<tree, tree> crug_scope_blocks;
+
+/* The function each scope block belongs to, so that analysing a nested
+   function does not drop the enclosing function's registrations.  */
+static std::map<tree, tree> crug_scope_owners;
+
+/* One borrow handed to a task of a scope: the lender, where the capture is,
+   and whether it is mutable.  */
+struct crug_scoped_borrow
+{
+  tree lender;
+  location_t loc;
+  bool is_mut;
+};
+
+/* The borrows captured by scoped tasks, keyed by the group handle.  Children
+   of one scope run at the same time, so the ordinary borrow rules apply
+   between their captures, and every lender has to outlive the scope block
+   (crug-CONC-016, checked when that block is analysed).  */
+static std::map<tree, std::vector<crug_scoped_borrow> > crug_scoped_lenders;
 
 /* The artificial function declarations used by the intrinsics.  They exist
    only inside the front end: every call is removed by this pass.  */
@@ -765,8 +802,53 @@ crug_is_borrow_decl (tree decl, bool *is_mut)
    Returns false after reporting a diagnostic; the caller then emits no code,
    so the program does not also get a cascade from the lowered frame.  */
 
+/* The object a pointer expression designates, for the scoped-borrow rule.  */
+static tree expr_base_decl (tree e);
+
+/* Record the block of a 'scope' statement and its group handle.  The parser
+   calls this once the block has been parsed, before the analysis runs.  */
+
+void
+crug_register_scope_block (tree bind, tree handle)
+{
+  if (bind == NULL_TREE || handle == NULL_TREE)
+    return;
+  crug_scope_blocks[bind] = handle;
+  crug_scope_owners[bind] = current_function_decl;
+}
+
+/* Record that a scoped task borrows LENDER; the capture's location is where
+   the diagnostic goes when the lender does not outlive the scope.  */
+
+void
+crug_register_scoped_lender (tree scope, tree lender, location_t loc,
+			     bool is_mut)
+{
+  if (scope == NULL_TREE || lender == NULL_TREE)
+    return;
+  std::vector<crug_scoped_borrow> &captures = crug_scoped_lenders[scope];
+  for (size_t i = 0; i < captures.size (); i++)
+    if (captures[i].lender == lender && (is_mut || captures[i].is_mut))
+      {
+	if (is_mut && captures[i].is_mut)
+	  error_at (loc, "cannot mutably borrow %qD for two tasks of one "
+		    "scope; a mutable borrow must be exclusive "
+		    "[crug-BORROW-003]", lender);
+	else
+	  error_at (loc, "cannot borrow %qD mutably and again in one scope; "
+		    "a mutable borrow must be exclusive [crug-BORROW-002]",
+		    lender);
+	return;
+      }
+  crug_scoped_borrow b;
+  b.lender = lender;
+  b.loc = loc;
+  b.is_mut = is_mut;
+  captures.push_back (b);
+}
+
 bool
-crug_check_go_capture (location_t loc, tree arg, tree parm)
+crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 {
   if (arg == NULL_TREE || arg == error_mark_node)
     return true;
@@ -776,9 +858,22 @@ crug_check_go_capture (location_t loc, tree arg, tree parm)
     {
       if (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT)
 	{
-	  error_at (loc, "a borrow cannot be captured by a concurrent task; "
-		    "capture an owned value with %<move (...)%> [crug-CONC-012]");
-	  return false;
+	  if (scope == NULL_TREE)
+	    {
+	      error_at (loc, "a borrow cannot be captured by a concurrent task; "
+			"capture an owned value with %<move (...)%> [crug-CONC-012]");
+	      return false;
+	    }
+	  /* A scoped task may borrow: the scope waits for every child before
+	     the block ends, so the lent object still exists while the task can
+	     read it.  The lender has to outlive the scope block itself, which
+	     is checked when that block is analysed (crug-CONC-016).  */
+	  tree lender = NULL_TREE;
+	  if (call_expr_nargs (arg) >= 1)
+	    lender = expr_base_decl (CALL_EXPR_ARG (arg, 0));
+	  crug_register_scoped_lender (scope, lender, loc,
+				       kind == CRUG_INTR_BORROW_MUT);
+	  return true;
 	}
       if (kind == CRUG_INTR_MOVE)
 	{
@@ -1015,6 +1110,13 @@ dump_drops (enum crug_exit_kind kind, location_t loc,
   for (size_t i = 0; i < drops.size (); i++)
     {
       const crug_drop &dr = drops[i];
+      if (dr.scope_handle != NULL_TREE)
+	{
+	  fprintf (file, "drop %s:%d: %s scope wait\n",
+		   where.file != NULL ? lbasename (where.file) : "<unknown>",
+		   where.line, exit_kind_name (kind));
+	  continue;
+	}
       if (dr.enum_type != NULL_TREE)
 	{
 	  /* An owning payload enum is destroyed per variant, so name the
@@ -1528,6 +1630,10 @@ push_frame (crug_fn_ctx &ctx, tree bind)
 {
   crug_frame f;
   f.bind = bind;
+  f.scope_handle = NULL_TREE;
+  std::map<tree, tree>::const_iterator s = crug_scope_blocks.find (bind);
+  if (s != crug_scope_blocks.end ())
+    f.scope_handle = s->second;
   ctx.frames.push_back (f);
 }
 
@@ -1552,7 +1658,44 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
 	}
       ctx.decl_depth.erase (f.borrows[i]);
     }
+  /* The block is done; a later block never reuses this handle.  */
+  if (f.scope_handle != NULL_TREE)
+    {
+      crug_scope_blocks.erase (f.bind);
+      crug_scope_owners.erase (f.bind);
+    }
   ctx.frames.pop_back ();
+}
+
+/* Every lender a scoped task borrowed has to outlive the scope block.  A
+   lender declared in a block that ends before the scope dies while a child
+   may still read it, so that capture is rejected (ADR 0024 D4).  DEPTH is
+   the frame index of the scope block itself.  */
+
+static void
+check_scoped_lenders (crug_fn_ctx &ctx, tree bind, size_t depth)
+{
+  std::map<tree, tree>::const_iterator s = crug_scope_blocks.find (bind);
+  if (s == crug_scope_blocks.end ())
+    return;
+  std::map<tree, std::vector<crug_scoped_borrow> >::iterator it
+    = crug_scoped_lenders.find (s->second);
+  if (it == crug_scoped_lenders.end ())
+    return;
+  for (size_t i = 0; i < it->second.size (); i++)
+    {
+      tree lender = it->second[i].lender;
+      location_t loc = it->second[i].loc;
+      std::map<tree, size_t>::const_iterator d = ctx.decl_depth.find (lender);
+      /* A global, a static or a parameter lives past the scope.  */
+      if (d == ctx.decl_depth.end ())
+	continue;
+      if (d->second > depth && ctx.warned.insert (lender).second)
+	error_at (loc, "a scoped task borrows %qD from a block that ends before "
+		  "the scope; declare it in the scope body [crug-CONC-016]",
+		  lender);
+    }
+  crug_scoped_lenders.erase (it);
 }
 
 static void
@@ -1778,6 +1921,15 @@ collect_drops (crug_fn_ctx &ctx, state_map &env, size_t keep_depth,
   for (size_t i = ctx.frames.size (); i > keep_depth; --i)
     {
       crug_frame &f = ctx.frames[i - 1];
+      /* Waiting for the group comes before destroying the objects of the
+	 block: a child may still use an object it borrowed (ADR 0024 D3).  */
+      if (f.scope_handle != NULL_TREE)
+	{
+	  crug_drop wait;
+	  wait.decl = f.scope_handle;
+	  wait.scope_handle = f.scope_handle;
+	  out.push_back (wait);
+	}
       for (size_t j = f.decls.size (); j > 0; --j)
 	{
 	  tree d = f.decls[j - 1];
@@ -3270,6 +3422,16 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    assign_borrow (ctx, env, lhs, rhs, loc, lhs_mut);
 	    return;
 	  }
+	/* The hidden frame of a 'go' statement is a transport object, not an
+	   ordinary memory location: an owned value is moved into it and a
+	   scoped borrow is captured as the pointer the task receives
+	   (ADR 0024 D4).  */
+	if (crug_go_frame_ref_p (lhs))
+	  {
+	    walk_expr (ctx, env, lhs, loc);
+	    walk_expr (ctx, env, rhs, loc);
+	    return;
+	  }
 	/* A borrow stored into an object has no automatic lifetime, so the
 	   pass cannot bound it: reject the store (ADR 0019 section 2).  */
 	if (is_borrow_value (rhs)
@@ -3530,6 +3692,11 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	      ctx.scope_drops[t] = drops;
 	    dump_drops (CRUG_EXIT_SCOPE_END, loc, drops);
 	  }
+	/* The captures of this block's scoped tasks can be checked once the
+	   block's declarations are gone: a lender declared in an inner block
+	   is no longer in decl_depth at the outer scope.  */
+	if (reach)
+	  check_scoped_lenders (ctx, t, depth);
 	pop_frame (ctx, env);
 	if (unsafe_block)
 	  ctx.unsafe_depth--;
@@ -3685,6 +3852,16 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 
 	if (common < info.path.size ())
 	  {
+	    /* A 'scope' block cannot be entered by a goto: the group would
+	       never be created, so its children would run with no waiter and
+	       the block's own destructions would have nothing to wait for.  A
+	       goto out of a scope is fine, the scope block is then a common
+	       prefix of the two paths and is not crossed (ADR 0024 D5).  */
+	    for (size_t i = common; i < info.path.size (); i++)
+	      if (crug_scope_blocks.find (info.path[i]) != crug_scope_blocks.end ()
+		  && ctx.warned.insert (info.path[i]).second)
+		error_at (loc, "goto jumps into a %<scope%> block [crug-CONC-015]");
+
 	    /* The label lives in a block that this goto does not enter.  Any
 	       owning object declared textually before the label in that block
 	       is entered without being initialized.  */
@@ -3941,6 +4118,9 @@ drop_call_stmt (tree decl, tree dtor, location_t loc)
 static tree
 drop_stmt_tree (const crug_drop &dr, location_t loc)
 {
+  if (dr.scope_handle != NULL_TREE)
+    return crug_scope_leave_call (loc, dr.scope_handle);
+
   if (dr.enum_type == NULL_TREE)
     return drop_call_stmt (dr.decl, dr.dtor, loc);
 
@@ -4118,11 +4298,14 @@ lower_intrinsic_cb (tree *tp, int *walk_subtrees, void *data)
 }
 
 void
-crug_check_function (tree fndecl, tree body)
+crug_check_function (tree fndecl, tree body, bool has_scope)
 {
   if (fndecl == NULL_TREE || body == NULL_TREE)
     return;
-  if (!crug_ownership_enabled () && !crug_borrow_enabled ())
+  /* A function with a 'scope' statement is analysed even when only
+     -fcrug-goroutines is on: the scope's wait has to be placed at every exit
+     and a borrow captured by a scoped task has to be checked (Phase 15).  */
+  if (!crug_ownership_enabled () && !crug_borrow_enabled () && !has_scope)
     return;
 
   /* An owning payload enum cannot cross a function boundary by value: the
@@ -4223,4 +4406,25 @@ crug_check_function (tree fndecl, tree body)
     crug_match_scrutinee_map->clear ();
   if (crug_match_binding_map != NULL)
     crug_match_binding_map->clear ();
+  /* This function's blocks have been popped.  A block that was never walked
+     (error recovery) is dropped here, and so are its captures.  Blocks of an
+     enclosing function stay registered: the front end analyses a nested
+     function while the enclosing one is still being parsed.  */
+  for (std::map<tree, tree>::iterator it = crug_scope_owners.begin ();
+       it != crug_scope_owners.end (); )
+    if (it->second == fndecl)
+      {
+	std::map<tree, tree>::iterator b = crug_scope_blocks.find (it->first);
+	if (b != crug_scope_blocks.end ())
+	  {
+	    crug_scoped_lenders.erase (b->second);
+	    crug_scope_blocks.erase (b);
+	  }
+	crug_scope_owners.erase (it++);
+      }
+    else
+      ++it;
+  /* The hidden frames of this function's 'go' statements are no longer
+     needed: their addresses may be reused by the next function.  */
+  crug_go_frames_forget (fndecl);
 }

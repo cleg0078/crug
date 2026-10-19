@@ -30,9 +30,39 @@
 /* Lower one 'go' statement.  CALLEE is the callee expression: a FUNCTION_DECL
    for 'go f (a);', or an expression of function pointer type for
    'go ((*fp) (a));'.  ARGS is a TREE_LIST of the argument expressions in
-   source order, or NULL_TREE when the task takes no argument.  Returns the
-   statement to add, or NULL_TREE after reporting a diagnostic.  */
-extern tree crug_go_lower (location_t loc, tree callee, tree args);
+   source order, or NULL_TREE when the task takes no argument.  SCOPE is the
+   group handle of the enclosing 'scope' statement, or NULL_TREE outside one:
+   a scoped task joins that group, which is what makes a borrowed capture
+   sound (ADR 0024 D4).  Returns the statement to add, or NULL_TREE after
+   reporting a diagnostic.  */
+extern tree crug_go_lower (location_t loc, tree callee, tree args, tree scope);
+
+/* The runtime calls of a 'scope' statement: enter creates the group and
+   leave waits for every task in it (ADR 0024 D3).  */
+extern tree crug_scope_enter_call (location_t loc);
+extern tree crug_scope_leave_call (location_t loc, tree handle);
+
+/* The 'scope' handles of the statements being parsed, innermost last.  The
+   parser pushes a handle before the body and pops it after, so a 'go'
+   statement lowers into the nearest enclosing scope (or none).  */
+extern void crug_scope_push (tree handle);
+extern void crug_scope_pop (void);
+extern tree crug_scope_current (void);
+
+/* True when T is (a member of) the hidden frame variable of a 'go'
+   statement.  The frame is a transport object, not an ordinary memory
+   location: an owned value is moved into it, and a scoped borrow is
+   captured as the pointer the task receives (ADR 0024 D4).  */
+extern bool crug_go_frame_ref_p (tree t);
+
+/* Forget the frames of FNDECL once its analysis is done.  */
+extern void crug_go_frames_forget (tree fndecl);
+
+/* Remember that FNDECL contains a 'scope' statement, and query it: such a
+   function needs the ownership pass even when only -fcrug-goroutines is on,
+   because the analysis is what places the waits.  */
+extern void crug_note_scope_function (tree fndecl);
+extern bool crug_function_has_scope (tree fndecl);
 
 /* The runtime call that a 'yield ();' statement lowers to.  */
 extern tree crug_yield_call (location_t loc);

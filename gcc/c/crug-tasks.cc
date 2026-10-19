@@ -47,6 +47,8 @@
 #include "crug-ownership.h"
 #include "crug-tasks.h"
 
+#include <map>
+#include <set>
 #include <vector>
 
 /* The runtime entry points.  They are declared here, with the signature the
@@ -101,6 +103,151 @@ crug_yield_call (location_t loc)
 			      build_function_type_list (void_type_node,
 							NULL_TREE));
   return build_call_expr_loc (loc, decl, 0);
+}
+
+/* void crug_task_spawn_scoped (void *group, void (*entry) (void *),
+                                 const void *frame, size_t n) */
+
+static tree
+crug_task_spawn_scoped_decl (void)
+{
+  static tree decl;
+
+  if (decl == NULL_TREE)
+    {
+      tree entry = build_pointer_type (build_function_type_list (void_type_node,
+								ptr_type_node,
+								NULL_TREE));
+      decl = crug_runtime_decl ("crug_task_spawn_scoped",
+				build_function_type_list (void_type_node, ptr_type_node,
+							  entry, ptr_type_node,
+							  size_type_node,
+							  NULL_TREE));
+    }
+  return decl;
+}
+
+/* void *crug_scope_enter (void) */
+
+tree
+crug_scope_enter_call (location_t loc)
+{
+  static tree decl;
+
+  if (decl == NULL_TREE)
+    decl = crug_runtime_decl ("crug_scope_enter",
+			      build_function_type_list (ptr_type_node, NULL_TREE));
+  return build_call_expr_loc (loc, decl, 0);
+}
+
+/* void crug_scope_leave (void *group) */
+
+tree
+crug_scope_leave_call (location_t loc, tree handle)
+{
+  static tree decl;
+
+  if (decl == NULL_TREE)
+    decl = crug_runtime_decl ("crug_scope_leave",
+			      build_function_type_list (void_type_node,
+							ptr_type_node,
+							NULL_TREE));
+  handle = convert (ptr_type_node, handle);
+  return build_call_expr_loc_array (loc, decl, 1, &handle);
+}
+
+/* The hidden frame variables of the 'go' statements being parsed, with the
+   function they belong to.  */
+
+static std::map<tree, tree> &
+crug_go_frames (void)
+{
+  static std::map<tree, tree> frames;
+  return frames;
+}
+
+bool
+crug_go_frame_ref_p (tree t)
+{
+  STRIP_NOPS (t);
+  if (t == NULL_TREE)
+    return false;
+  if (TREE_CODE (t) == COMPONENT_REF)
+    t = TREE_OPERAND (t, 0);
+  STRIP_NOPS (t);
+  return t != NULL_TREE && TREE_CODE (t) == VAR_DECL
+	 && crug_go_frames ().find (t) != crug_go_frames ().end ();
+}
+
+void
+crug_go_frames_forget (tree fndecl)
+{
+  std::map<tree, tree> &frames = crug_go_frames ();
+  for (std::map<tree, tree>::iterator it = frames.begin ();
+       it != frames.end (); )
+    if (it->second == fndecl)
+      frames.erase (it++);
+    else
+      ++it;
+}
+
+/* The scope handles of the statements being parsed, innermost last, and the
+   functions that contain at least one 'scope' statement.  */
+
+static std::vector<tree> &
+crug_scope_stack (void)
+{
+  static std::vector<tree> stack;
+  return stack;
+}
+
+void
+crug_scope_push (tree handle)
+{
+  crug_scope_stack ().push_back (handle);
+}
+
+void
+crug_scope_pop (void)
+{
+  if (!crug_scope_stack ().empty ())
+    crug_scope_stack ().pop_back ();
+}
+
+tree
+crug_scope_current (void)
+{
+  std::vector<tree> &stack = crug_scope_stack ();
+  if (stack.empty ())
+    return NULL_TREE;
+  /* A handle of an enclosing function cannot be joined by a task defined
+     inside a nested function: that function may run at any time.  */
+  tree handle = stack.back ();
+  if (DECL_CONTEXT (handle) != current_function_decl)
+    return NULL_TREE;
+  return handle;
+}
+
+static std::set<tree> &
+crug_scope_functions (void)
+{
+  static std::set<tree> fns;
+  return fns;
+}
+
+void
+crug_note_scope_function (tree fndecl)
+{
+  if (fndecl != NULL_TREE)
+    crug_scope_functions ().insert (fndecl);
+}
+
+bool
+crug_function_has_scope (tree fndecl)
+{
+  return fndecl != NULL_TREE
+	 && crug_scope_functions ().find (fndecl)
+	    != crug_scope_functions ().end ();
 }
 
 /* Build the generated function that runs one task.  It takes the frame back
@@ -212,7 +359,7 @@ crug_build_thunk (location_t loc, tree frame_type, tree fndecl,
 /* Lower 'go CALLEE (ARGS);'.  See crug-tasks.h for the contract.  */
 
 tree
-crug_go_lower (location_t loc, tree callee, tree args)
+crug_go_lower (location_t loc, tree callee, tree args, tree scope)
 {
   tree fndecl = NULL_TREE;
   tree fntype;
@@ -289,7 +436,7 @@ crug_go_lower (location_t loc, tree callee, tree args)
     for (size_t i = 0; i < values.size (); i++)
       {
 	tree pdecl = i < parms.size () ? parms[i] : NULL_TREE;
-	if (!crug_check_go_capture (loc, values[i], pdecl))
+	if (!crug_check_go_capture (loc, values[i], pdecl, scope))
 	  return NULL_TREE;
       }
   }
@@ -338,6 +485,7 @@ crug_go_lower (location_t loc, tree callee, tree args)
   DECL_IGNORED_P (frame_var) = 1;
   DECL_CONTEXT (frame_var) = current_function_decl;
   DECL_SOURCE_LOCATION (frame_var) = loc;
+  crug_go_frames ()[frame_var] = current_function_decl;
 
   tree stmts = alloc_stmt_list ();
   for (size_t i = 0; i < field_values.size (); i++)
@@ -357,8 +505,18 @@ crug_go_lower (location_t loc, tree callee, tree args)
 		       build1 (ADDR_EXPR, build_pointer_type (frame_type),
 			       frame_var));
   tree size = fold_convert (size_type_node, TYPE_SIZE_UNIT (frame_type));
-  tree spawn = build_call_expr_loc_array (loc, crug_task_spawn_decl (), 3,
-					  (tree[]){ entry, addr, size });
+  tree spawn;
+  if (scope != NULL_TREE)
+    {
+      /* A task started inside a 'scope' joins that group; the group's wait
+	 is what keeps a borrowed capture sound (ADR 0024 D4).  */
+      tree handle = convert (ptr_type_node, scope);
+      spawn = build_call_expr_loc_array (loc, crug_task_spawn_scoped_decl (), 4,
+					 (tree[]){ handle, entry, addr, size });
+    }
+  else
+    spawn = build_call_expr_loc_array (loc, crug_task_spawn_decl (), 3,
+					(tree[]){ entry, addr, size });
   TREE_SIDE_EFFECTS (spawn) = 1;
   SET_EXPR_LOCATION (spawn, loc);
   append_to_statement_list (spawn, &stmts);

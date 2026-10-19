@@ -685,6 +685,7 @@ static struct c_expr crug_parse_constructor (c_parser *, int, location_t);
 static tree crug_parse_match (c_parser *);
 static tree crug_parse_go_statement (c_parser *);
 static tree crug_parse_yield_statement (c_parser *);
+static tree crug_parse_scope_statement (c_parser *);
 static bool crug_task_statement_start_p (c_parser *);
 static bool crug_generic_start_p (c_parser *, unsigned int);
 static int crug_ctor_word (tree);
@@ -3532,10 +3533,14 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
       else
 	fnbody = c_parser_compound_statement (parser, &endloc);
       tree fndecl = current_function_decl;
+      /* A function with a 'scope' statement is analysed even when only
+	 -fcrug-goroutines is on: the pass is what places the wait for the
+	 group at every exit (Phase 15).  */
       if (fnbody != NULL_TREE
 	  && specs->declspec_il == cdil_none
-	  && (crug_ownership_enabled () || crug_borrow_enabled ()))
-	crug_check_function (fndecl, fnbody);
+	  && (crug_ownership_enabled () || crug_borrow_enabled ()
+	      || crug_function_has_scope (fndecl)))
+	crug_check_function (fndecl, fnbody, crug_function_has_scope (fndecl));
       if (nested && specs->declspec_il == cdil_none)
 	{
 	  tree decl = current_function_decl;
@@ -9079,6 +9084,8 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
 	    tree stmt;
 	    if (strcmp (IDENTIFIER_POINTER (id), "go") == 0)
 	      stmt = crug_parse_go_statement (parser);
+	    else if (strcmp (IDENTIFIER_POINTER (id), "scope") == 0)
+	      stmt = crug_parse_scope_statement (parser);
 	    else
 	      stmt = crug_parse_yield_statement (parser);
 	    if (stmt != NULL_TREE && stmt != error_mark_node)
@@ -32460,6 +32467,10 @@ crug_task_statement_start_p (c_parser *parser)
   if (strcmp (word, "yield") == 0)
     return n2->type == CPP_OPEN_PAREN;
 
+  /* 'scope { ... }': a structured-concurrency block (Phase 15).  */
+  if (strcmp (word, "scope") == 0)
+    return n2->type == CPP_OPEN_BRACE;
+
   if (strcmp (word, "go") != 0)
     return false;
 
@@ -32554,7 +32565,7 @@ crug_parse_go_statement (c_parser *parser)
   if (raw != NULL)
     release_tree_vector (raw);
 
-  return crug_go_lower (loc, callee, args);
+  return crug_go_lower (loc, callee, args, crug_scope_current ());
 }
 
 /* Parse 'yield ();' and return the runtime call it lowers to.  A task gives
@@ -32571,6 +32582,73 @@ crug_parse_yield_statement (c_parser *parser)
   c_parser_require (parser, CPP_CLOSE_PAREN, "expected %<)%>");
   c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
   return crug_yield_call (loc);
+}
+
+/* Parse 'scope { ... }' and return the lowered block.  The group handle is a
+   hidden variable of the block, its creation is the first statement, and the
+   analysis places the wait at every exit (ADR 0024 D3).  A task started in
+   the block joins the group, so a borrowed capture is sound: the wait comes
+   before the block's own destructions (ADR 0024 D4).  */
+
+static tree
+crug_parse_scope_statement (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  tree handle;
+  tree body;
+  tree stmts;
+
+  c_parser_consume_token (parser);	/* 'scope'  */
+
+  if (!c_parser_next_token_is (parser, CPP_OPEN_BRACE))
+    {
+      c_parser_error (parser, "expected %<{%>");
+      return NULL_TREE;
+    }
+
+  handle = build_decl (loc, VAR_DECL, NULL_TREE, ptr_type_node);
+  TREE_USED (handle) = 1;
+  DECL_ARTIFICIAL (handle) = 1;
+  DECL_IGNORED_P (handle) = 1;
+  DECL_CONTEXT (handle) = current_function_decl;
+  DECL_SOURCE_LOCATION (handle) = loc;
+
+  crug_scope_push (handle);
+  body = c_parser_compound_statement (parser, NULL);
+  crug_scope_pop ();
+
+  if (body == NULL_TREE || body == error_mark_node)
+    return NULL_TREE;
+
+  /* __scope = crug_scope_enter ();  */
+  tree enter = build_modify_expr (loc, handle, NULL_TREE, NOP_EXPR, loc,
+				  crug_scope_enter_call (loc), NULL_TREE);
+  SET_EXPR_LOCATION (enter, loc);
+
+  stmts = alloc_stmt_list ();
+  append_to_statement_list (enter, &stmts);
+
+  if (TREE_CODE (body) == BIND_EXPR)
+    {
+      append_to_statement_list (BIND_EXPR_BODY (body), &stmts);
+      BIND_EXPR_BODY (body) = stmts;
+      /* The handle is a variable of the block, so the block is built as a
+	 BIND_EXPR even when it declares nothing, and the analysis has a frame
+	 for it (crug_scope_blocks is keyed by that BIND_EXPR).  */
+      DECL_CHAIN (handle) = BIND_EXPR_VARS (body);
+      BIND_EXPR_VARS (body) = handle;
+      SET_EXPR_LOCATION (body, loc);
+    }
+  else
+    {
+      append_to_statement_list (body, &stmts);
+      body = build3 (BIND_EXPR, void_type_node, handle, stmts, NULL_TREE);
+      SET_EXPR_LOCATION (body, loc);
+    }
+
+  crug_register_scope_block (body, handle);
+  crug_note_scope_function (current_function_decl);
+  return body;
 }
 
 /* Parse 'match (e) { arm ... }' and return the lowered block.  The word

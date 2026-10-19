@@ -112,12 +112,28 @@ extern void crug_register_match_binding (tree binding, tree tmp, int variant);
    the task, a borrow cannot escape into it, and a custom destructor cannot
    cross the boundary (ADR 0018 D4, MASTER_SPEC section 27.2).  PARM is the
    callee parameter of that argument, or NULL_TREE for an indirect call.
+   SCOPE is the 'scope' handle the statement is captured into, or NULL_TREE
+   outside a scope: a scoped capture may lend a borrow, because the scope
+   waits for the child before the lent object can die (ADR 0024 D3).
    Returns false after reporting a diagnostic.  */
-extern bool crug_check_go_capture (location_t loc, tree arg, tree parm);
+extern bool crug_check_go_capture (location_t loc, tree arg, tree parm,
+				   tree scope);
+
+/* Record the block of a 'scope' statement and its group handle, so the
+   analysis can wait for the group on every path out of the block.  */
+extern void crug_register_scope_block (tree bind, tree handle);
+
+/* Record that a scoped task borrows LENDER.  The borrow is accepted only
+   when the lender outlives the scope block, which is checked when the block
+   is analysed (crug-CONC-016).  */
+extern void crug_register_scoped_lender (tree scope, tree lender,
+					 location_t loc);
 
 /* Check BODY, the GENERIC body of FNDECL, for ownership errors, insert the
    destruction of every owned object on every exit edge, and remove the
-   intrinsic calls.  */
-extern void crug_check_function (tree fndecl, tree body);
+   intrinsic calls.  HAS_SCOPE is true when the body contains a 'scope'
+   statement, which needs the pass even without -fcrug-ownership.  */
+extern void crug_check_function (tree fndecl, tree body, bool has_scope);
+
 
 #endif /* GCC_C_CRUG_OWNERSHIP_H */
