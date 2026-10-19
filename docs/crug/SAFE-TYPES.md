@@ -1,12 +1,12 @@
 # Safe core types: `slice`, `option`, `result` and payload enums
 
-Status: **Phase 10 increment 1 implemented** (2026-10-19): `slice<T>`,
-`option<T>`, `result<T,E>`, the value constructors, `match` over both sums
-and checked slice indexing. **Increment 2a implemented** (2026-10-19,
-payload enums / 10D): `enum` with payload variants, construction and `match`
-over them. Increment 2b adds owned payloads; section 9 lists what is still
-open, and the Phase 10 gate in `EXIT-GATES.md` (amendment A-11) names the
-checks that only close with it.
+Status: **Phase 10 implemented** (2026-10-19), in three increments:
+increment 1 (`slice<T>`, `option<T>`, `result<T,E>`, the value constructors,
+`match` over both sums, checked slice indexing); increment 2a (payload enums
+/ 10D, `match` over them); increment 2b (owned payloads, conditional drop of
+the active variant, ownership transfer into a `match` binding). Section 10
+lists what is still open; the Phase 10 gate in `EXIT-GATES.md` (amendments
+A-11, A-12, A-13) names the checks that close it.
 
 The normative surface is ADR 0018 D7 and D8; the layouts are frozen in
 `ABI.md` section 3. This page is the digest: it records what parses, what
@@ -27,6 +27,8 @@ lowers, and what a phase must not assume.
 | Payload variant value | `Text (s)` | `-fcrug-adt` |
 | Unit variant value | `Quit` (the bare enumerator) | `-fcrug-adt` |
 | Enum tag reference | `enum Message` in type position | `-fcrug-adt` |
+| Owned payload enum | `enum Msg { Text (own char *), Quit };` | `-fcrug-adt -fcrug-ownership` |
+| Owned payload transfer | `Text (adopt (p, free))`, `match (move (m)) { Text (v) => ... }` | `-fcrug-adt -fcrug-ownership` |
 | Checked indexing | `s[i]` on a `slice<T>` value | `-fcrug-bounds-checks` (default on) |
 
 Nothing here needs a runtime, a helper function or a new GIMPLE code. The types
@@ -57,6 +59,11 @@ The internal names are frozen too: `option` has fields `some` and `value`;
 fields `tag` and `u`, and the union members carry the variant names
 (`u.Text`, `u.Image`). Only the selected union member is initialized by a
 constructor; reading the inactive member is unspecified, exactly as in C.
+
+An `own` payload changes no layout: the qualifier is analysis metadata and is
+erased from the type, so `enum Plain { Text (char *) }` and
+`enum Owned { Text (own char *) }` are the same record (`payload-enum-own-abi.c`
+asserts it; `ABI.md` section 3 records it).
 
 A generic type with a comma cannot be written as a macro argument: the
 preprocessor splits at the comma before the parser sees the type. Typedef the
@@ -145,11 +152,50 @@ m = Quit;
   tag and the selected union member are initialized; there is no niche
   optimisation and no packing of the tag into padding.
 - A payload may be any type-name, including a pointer or an ordinary record.
-  An owned payload (`own char *`) is **not** tracked yet (section 9); with a
-  pointer payload the pointer is copied, so the program must agree on who
-  frees it.
+  With a plain pointer payload the pointer is copied, so the program must
+  agree on who frees it; an owned payload (`own char *`) is tracked by the
+  ownership pass - see section 6.
 
-## 6. Match
+## 6. Owned payloads
+
+With `-fcrug-adt -fcrug-ownership` a payload may be an owned pointer
+(`own char *`). Ownership is *type-derived*: `own` lives in the declaration
+specifiers and is erased from the type, so a payload enum with at least one
+owning payload is itself an owning type, and a variable of that type owns the
+payload of its active variant.
+
+- Construction transfers ownership: `Text (adopt (p, release))`,
+  `Text (move (q))`, `Text (malloc (n))`, or another fresh allocation whose
+  destructor is known. A plain borrowed pointer is `crug-ADT-019`: neither the
+  constructor nor the analysis would know who frees it.
+- A variable of an owning payload enum is destroyed at scope end, on `return`,
+  `break`, `continue`, `goto` out of the scope and at a `switch` edge, like
+  an `own` pointer (ADR 0004 D4). The drop is
+  `if (tag == V) { if (u.Text) release (u.Text); }` for each owning variant
+  that can be active - an inactive variant never reaches the call, and a
+  variant that owns nothing has no drop at all (`adts-drop.c`, and the tag
+  guard is visible in the generated code at `-O0`).
+- Copying is `crug-UAM-003` and reading a moved value is `crug-UAM-001`:
+  `enum Msg n = m;` is rejected, write `enum Msg n = move (m);`.
+- `match` over an owning payload enum requires `match (move (x))`
+  (`crug-ADT-015`). The payload is transferred to the arm binding, which owns
+  it in the arm body and destroys it at the end of the arm unless it is moved
+  out (directly or through a local). An arm for an owning variant must bind the
+  payload (`crug-ADT-020`), and a `_` arm may only cover variants that own
+  nothing; name the owning variants explicitly so each payload has a binding.
+- The value cannot cross a function boundary by value: passing or returning it
+  is `crug-ADT-018`, because the payload destructor is not part of the ABI.
+  Keep the value in one function, pass a pointer, or move the payload out
+  before the call.
+- Boundary: ownership is tracked for local variables and `match` bindings. An
+  owning payload enum inside an aggregate (a struct field, a union member, an
+  array element) is not tracked yet, the same limitation an `own` field has
+  since the Phase 4/5 MVP; keep such values in locals.
+- `scripts/check-owned-payloads.sh` runs this contract end to end: one drop
+  for the active variant, none for an inactive one, a tag guard before the
+  destructor call, and the six unsafe forms rejected with their codes.
+
+## 7. Match
 
 ```c
 match (lookup (3))
@@ -184,8 +230,10 @@ match (lookup (3))
 - Lowering is a chain of void `COND_EXPR`s testing the tag, with the payload
   binding assigned from the selected field inside its own scope; there is no
   jump table and no helper.
+- An owning payload enum must be moved into `match` (`crug-ADT-015`); the
+  payload then belongs to the arm binding - see section 6.
 
-## 7. Checked indexing
+## 8. Checked indexing
 
 With `-fcrug-bounds-checks` (the default), `s[i]` lowers so that an
 out-of-range index traps at the point of the access:
@@ -209,7 +257,7 @@ The trap is `__builtin_trap`, so a violating program dies with `SIGILL`
 (exit status 132 on the shell) rather than returning a wrong value.
 `scripts/check-safe-bounds.sh` asserts both the trap and its absence.
 
-## 8. Gating and identity
+## 9. Gating and identity
 
 - Every production needs its flag: with no `-fcrug-*` option the words are
   ordinary identifiers and a generic type is a plain-C syntax error
@@ -217,21 +265,22 @@ The trap is `__builtin_trap`, so a violating program dies with `SIGILL`
   (`shadowing.c`).
 - `-fcrug-result` implies `-fcrug-adt` through the Phase 3 closure, so
   `match` is available with `-fcrug-result` alone.
-- `-fcrug-slices`, `-fcrug-result` and `-fcrug-bounds-checks` are described
-  in `FLAGS.md`.
+- `-fcrug-slices`, `-fcrug-result`, `-fcrug-ownership` and
+  `-fcrug-bounds-checks` are described in `FLAGS.md`. An owned payload needs
+  `-fcrug-ownership` as well as `-fcrug-adt`: without it `own` is an unknown
+  type name inside the payload parentheses.
 
-## 9. What is not implemented yet
+## 10. What is not implemented yet
 
-- **Owned payloads (increment 2b).** `own char *` inside an `option`,
-  `result` or payload-enum payload is not tracked: owning-ness lives in the
-  declaration specifiers and is erased from the type, and no destructor is
-  attached to the union member. Until then a payload is an ordinary value, so
-  an owned object must not be stored in one. `crug-ADT-015` (an owned
-  scrutinee must be moved into `match`) and the conditional drop of the active
-  variant both wait for it.
 - No expression form of `match` (`crug-ADT-014` is registered; the parser has
   no recovery path for it yet), and patterns cover variants only - no integer,
   string or range patterns, no multi-payload patterns, no qualified variants.
+- Payload ownership is per value, not per field: an owning payload enum inside
+  a struct, union or array is not tracked (section 6, boundary).
+- Owned payloads in `option<T>` and `result<T,E>` are not tracked either:
+  increment 2b implements them for payload enums only. Storing an `own`
+  pointer in an `option` payload copies the pointer, so the program must agree
+  on who frees it.
 - No `?` operator, no niche optimisation, no generic user types, no
   traits (post-1.0 per MASTER_SPEC section 32), no mutable-slice distinction
   (`mut slice<T>` is not defined yet), no pattern matching on integers or
@@ -240,25 +289,31 @@ The trap is `__builtin_trap`, so a violating program dies with `SIGILL`
   rows are version 1, and changing any recorded size, alignment or field order
   is an ABI change.
 
-## 10. Tests
+## 11. Tests
 
 | Check | What it proves |
 | --- | --- |
-| `make check-SAFE_TYPES` | the 28 fixtures under `gcc/testsuite/crug.dg/safe-types/` (plus the three under `bounds/` that the script drives): 55 expected passes, 0 failures |
-| `scripts/check-safe-types.sh` | runs `make check-SAFE_TYPES` and tallies PASS against FAIL/XPASS/UNRESOLVED/ERROR from `gcc.sum`; prints `safe-types: 55 tests, 0 failures` |
+| `make check-SAFE_TYPES` | the 39 fixtures under `gcc/testsuite/crug.dg/safe-types/` (plus the three under `bounds/` that the script drives): 77 expected passes, 0 failures |
+| `scripts/check-safe-types.sh` | runs `make check-SAFE_TYPES` and tallies PASS against FAIL/XPASS/UNRESOLVED/ERROR from `gcc.sum`; prints `safe-types: 77 tests, 0 failures` |
+| `scripts/check-owned-payloads.sh` | the owning payload contract of section 6: one drop for the active variant, none for an inactive one, a tag guard in the generated code, and the six unsafe forms rejected with `crug-ADT-018`, `crug-ADT-019`, `crug-ADT-020` and `crug-UAM-003` |
 | `scripts/check-safe-bounds.sh` | in-range indexing exits 0, an out-of-range index traps with `SIGILL`, the checked object contains at least one `ud2` and the unchecked one none, and a plain C array is never trapped |
 | `gcc/testsuite/crug.dg/safe-types/layout.c` | every size, alignment and offset in `ABI.md` section 3 as `_Static_assert`s |
 | `make check-C_COMPAT` | plain C and the 30-program corpus are unaffected |
 
 Run cases are `slice-run.c`, `option-run.c`, `result-run.c`,
-`payload-enum-run.c`, `payload-enum-tag.c`, `bounds-off.c` and
-`shadowing.c`; rejection cases are `slice-non-pointer.c`, `slice-arity.c`,
-`result-arity.c`, `generic-unclosed.c`, `ctor-needs-context.c`,
-`ctor-wrong-type.c`, `none-payload.c`, `match-non-exhaustive.c`,
-`match-not-sum.c`, `payload-enum-empty-payload.c`,
-`payload-enum-two-types.c`, `payload-enum-needs-payload.c`,
-`payload-enum-unit-payload.c`, `payload-enum-exhaustive.c`,
-`payload-enum-fixed-underlying.c`, `payload-enum-forward.c`,
-`payload-enum-not-sum.c`, `payload-enum-off.c` and `flags-off.c`. The two
-compile cases `layout.c` and `payload-enum-layout.c` assert the frozen
+`payload-enum-run.c`, `payload-enum-tag.c`, `payload-enum-own-run.c`,
+`payload-enum-own-match.c`, `payload-enum-own-move.c`, `adts-drop.c`,
+`bounds-off.c` and `shadowing.c`; rejection cases are
+`slice-non-pointer.c`, `slice-arity.c`, `result-arity.c`,
+`generic-unclosed.c`, `ctor-needs-context.c`, `ctor-wrong-type.c`,
+`none-payload.c`, `match-non-exhaustive.c`, `match-not-sum.c`,
+`payload-enum-empty-payload.c`, `payload-enum-two-types.c`,
+`payload-enum-needs-payload.c`, `payload-enum-unit-payload.c`,
+`payload-enum-exhaustive.c`, `payload-enum-fixed-underlying.c`,
+`payload-enum-forward.c`, `payload-enum-not-sum.c`,
+`payload-enum-off.c`, `payload-enum-own-bare.c`,
+`payload-enum-own-copy.c`, `payload-enum-own-scrutinee.c`,
+`payload-enum-own-unbound.c`, `payload-enum-own-wildcard.c`,
+`payload-enum-own-param.c` and `flags-off.c`. The compile cases `layout.c`,
+`payload-enum-layout.c` and `payload-enum-own-abi.c` assert the frozen
 layouts.

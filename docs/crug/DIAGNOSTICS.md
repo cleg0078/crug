@@ -173,6 +173,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-ADT-015` | `-Wcrug-match-form` | error | error | an owned scrutinee must be moved into match: write match (move(x)) | ADR 0018 D8 |
 | `crug-ADT-016` | - | error | error | a payload enum cannot have a fixed underlying type | ADR 0018 D8, Phase 10 |
 | `crug-ADT-017` | - | error | error | redefinition of 'enum %s' as a payload enum; define the payload enum before any reference to its tag | ADR 0018 D8, Phase 10 |
+| `crug-ADT-018` | - | error | error | an owning payload enum cannot be passed by value: the destructor of its payload is not part of the ABI; keep the value in one function or pass a pointer | ADR 0018 D8, ADR 0004 D4, Phase 10 |
+| `crug-ADT-019` | - | error | error | the payload of owned variant '%s' must be moved in, adopted, or a fresh allocation; write move (...), adopt (...) or an allocation call | ADR 0018 D8, ADR 0004 D4, Phase 10 |
+| `crug-ADT-020` | `-Wcrug-match-form` | error | error | an arm covering owned variant '%s' must bind its payload; a '_' arm cannot cover an owned variant that was not named | ADR 0018 D8 R4, Phase 10 |
 
 ### 4.7 Types and declarators (`TYPE`)
 
@@ -262,7 +265,7 @@ must be updated in the same commit as the registry rows.
 | `-Wcrug-channel-shape` | CONC-001, CONC-002 |
 | `-Wcrug-select-form` | CONC-004, CONC-005, CONC-006, CONC-007 |
 | `-Wcrug-adt-form` | ADT-001, ADT-002 |
-| `-Wcrug-match-form` | ADT-010, ADT-013, ADT-014, ADT-015 |
+| `-Wcrug-match-form` | ADT-010, ADT-013, ADT-014, ADT-015, ADT-020 |
 | `-Wcrug-match-non-exhaustive` | ADT-011 |
 | `-Wcrug-match-unreachable` | ADT-012 |
 | `-Wcrug-qualifier-placement` | TYPE-001, TYPE-005, TYPE-006 |
@@ -328,26 +331,29 @@ caught by the script.
 
 ## 9. Status
 
-105 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
-DROP 8, CONC 9, ADT 14, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+108 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+DROP 8, CONC 9, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
 
-Phase 10 added six codes: ADT-005 and ADT-006 (constructor context), TYPE-012
+Phase 10 added nine codes: ADT-005 and ADT-006 (constructor context), TYPE-012
 (slice first argument shape), TYPE-013 (type-argument arity) and TYPE-014
-(unclosed type-argument list) at increment 1, and ADT-016 (a payload enum with
+(unclosed type-argument list) at increment 1; ADT-016 (a payload enum with
 a fixed underlying type) and ADT-017 (a payload enum completing a forward
-`enum` reference) at increment 2.
+`enum` reference) at increment 2a; and ADT-018 (an owning payload enum across
+a function boundary), ADT-019 (an owning payload that is not moved in or
+adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
+at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 9 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+suite that the owning gate runs. Implemented today (Phases 4 to 10 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
-ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-016, ADT-017, TYPE-012,
-TYPE-013 and TYPE-014. ADT-014 (match used as an expression) and ADT-015 (an
-owned scrutinee) are still planned: the first is reachable only after the
-expression form of `match` gets its own recovery path, the second waits for
-owned payloads. Everything else is planned; the KERNEL area is still reserved only,
+ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-015, ADT-016, ADT-017,
+ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013 and TYPE-014. ADT-014 (match
+used as an expression) is still planned: it is reachable only after the
+expression form of `match` gets its own recovery path. Everything else is
+planned; the KERNEL area is still reserved only,
 because its owning ADRs are unwritten.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at

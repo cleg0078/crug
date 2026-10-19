@@ -40,7 +40,7 @@ decisions rather than driver-wide switches, and are handled in
 (`FFI.md`) and `-fcrug-bounds-checks` / `-fno-crug-bounds-checks`
 (`C Var(flag_crug_bounds_checks) Init(1)`), which selects whether `s[i]` on a
 `slice<T>` emits the length comparison and the `__builtin_trap` of
-`SAFE-TYPES.md` section 7. It changes no accepted syntax and no other lowering.
+`SAFE-TYPES.md` section 8. It changes no accepted syntax and no other lowering.
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
 `Common Joined RejectNegative` with a comma-separated list of kinds -
@@ -149,8 +149,12 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
   over all three sum shapes, payload enums and checked slice indexing exist
   (`SAFE-TYPES.md`). Payload enums are gated by `-fcrug-adt` exactly as
   described there: an enum with no parenthesised payload stays an ordinary C
-  enum, so the flag still cannot change existing C. Owned payloads are open
-  (Phase 10 increment 2b), so `own` inside a payload is not tracked yet.
+  enum, so the flag still cannot change existing C. An owned payload
+  (`own` inside the payload parentheses) additionally needs
+  `-fcrug-ownership`; the payload is then transferred by `adopt`, `move` or a
+  fresh allocation, dropped only when its variant is active, and moved into
+  `match` (`SAFE-TYPES.md` section 6). `option` and `result` payloads are not
+  tracked yet.
 - Six `-Wcrug-*` options are declared and default on
   (`-Wcrug-unadopted-own`, `-Wcrug-intrinsic-operand`, `-Wcrug-adopt-signature`,
   `-Wcrug-jump-into-scope`, `-Wcrug-setjmp-drops`, `-Wcrug-drop-unreachable`);
@@ -174,7 +178,8 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on, including last-use lifetimes and the call policy: 88 expected passes under `gcc/testsuite/crug.dg/borrow/` |
 | `make check-STRICT_UNSAFE` | strict mode, `raw` and `unsafe`: 21 expected passes under `gcc/testsuite/crug.dg/strict/` |
 | `make check-FFI` | `.crugffi` contract fixtures: 19 cases, 0 failures, under `gcc/testsuite/crug.dg/ffi/phase9/` |
-| `make check-SAFE_TYPES` / `scripts/check-safe-types.sh` | `slice`, `option`, `result`, `match` and the frozen layouts: 32 expected passes under `gcc/testsuite/crug.dg/safe-types/` |
+| `make check-SAFE_TYPES` / `scripts/check-safe-types.sh` | `slice`, `option`, `result`, `match`, payload enums and the frozen layouts: 77 expected passes under `gcc/testsuite/crug.dg/safe-types/` |
+| `scripts/check-owned-payloads.sh` | an owning payload enum drops the active variant once and an inactive one never, the generated code guards with the tag, and the six unsafe forms are rejected (`SAFE-TYPES.md` section 6) |
 | `scripts/check-safe-bounds.sh` | in-range indexing runs, an out-of-range index traps with `SIGILL`, and `-fno-crug-bounds-checks` removes the trap |
 | `scripts/check-ffi-*.sh` | the metadata reads the same twice (conflict determinism), four real libraries keep their hashes while their handles are closed exactly once, and objects are byte-identical with and without a sidecar |
 | `scripts/check-strict-*.sh` | the codegen identity (objects byte-identical with and without `-fcrug-strict`), the hybrid-vs-strict answer for one raw dereference, and the eight strict codes observed |
@@ -192,8 +197,9 @@ the phase-8 gate runs the four `scripts/check-strict-*.sh` scripts, the two
 compatibility suites and `scripts/check-diagnostics.sh`; the phase-9 gate runs
 `make check-FFI` and the four `scripts/check-ffi-*.sh` scripts plus
 `scripts/check-diagnostics.sh`; the phase-10 gate runs `make check-SAFE_TYPES`,
-`scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh`, the layout
-compile and the two compatibility suites; see `EXIT-GATES.md`.
+`scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh`,
+`scripts/check-owned-payloads.sh`, the layout compiles and the two
+compatibility suites; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

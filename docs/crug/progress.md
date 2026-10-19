@@ -11,8 +11,8 @@ first Crug productions - `own`, `move`, automatic destruction, `adopt`,
 Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
 Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
 is no `libcrug` and no goroutine or channel support yet; the Phase 10 safe
-types (`slice`, `option`, `result`, payload enums, `match`, checked indexing)
-exist, with owned payloads still open, and are described below. The `kernel-compat`
+types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
+checked indexing) exist and are described below. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -164,13 +164,22 @@ plain stores, and the layouts (`slice` 16/8; `option<int>` 8/4;
 `result<int,int>` 8/4; `enum Message { Text (char *), Image (char *), Quit }`
 16/8) are frozen in `docs/crug/ABI.md` section 3 and asserted by
 `gcc/testsuite/crug.dg/safe-types/layout.c` and `payload-enum-layout.c`.
-`make check-SAFE_TYPES` runs 55 expected passes,
+`make check-SAFE_TYPES` runs 77 expected passes,
 `scripts/check-safe-types.sh` requires zero failures and
-`scripts/check-safe-bounds.sh` asserts the trap and its absence;
-`docs/crug/SAFE-TYPES.md` is the digest. The Phase 10 gate (amendment A-12) is
-**not yet awarded**: increment 2b must add owned payloads, and the gate carries
-a `VAGUE` item requiring the `adts-drop` observable that only those can
-produce.
+`scripts/check-safe-bounds.sh` asserts the trap and its absence.
+
+An owned payload (increment 2b) is tracked by the ownership analysis, with
+ownership derived from the type because `own` is erased from the declaration:
+`Text (adopt (p, release))`, `Text (move (q))` and fresh allocations transfer
+the destructor into the value, the drop at every exit is
+`if (tag == V) { if (u.Text) release (u.Text); }` so an inactive variant never
+reaches the call (asserted by `scripts/check-owned-payloads.sh` and the
+`-O0` assembly it inspects), copying is `crug-UAM-003`, an owned scrutinee must
+be moved into `match` (`crug-ADT-015`), an arm covering an owning variant must
+bind the payload (`crug-ADT-020`), and the value may not cross a function
+boundary by value (`crug-ADT-018`). `docs/crug/SAFE-TYPES.md` is the digest.
+The Phase 10 gate (amendment A-13) has no prose left and is adjudicable in full;
+its archived run is the remaining step.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -257,18 +266,16 @@ superseding ADR and owner ratification.
 | -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phases 13-14 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9 (a plain pointer still has no borrow contract, so `ref`/`mut` parameters remain stricter than `.crugffi`); recorded in docs/crug/BORROW.md section 5 |
-| -  | `chan T` does not parse; an owned payload in a sum type is not tracked, because owning-ness lives in the declaration specifiers and is erased from the type, so a payload has no destructor and `match` does not yet require a moved owned scrutinee (`crug-ADT-015`) | Phase 10 increment 2b, Phase 13-14 (`chan`) |
+| -  | `chan T` does not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 13-14 (`chan`); a later ownership increment for aggregates |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
 | -  | The upgrade procedure has never been executed against a real new release; the first M- or J-class upgrade is the drill | first GCC release after 16.2 |
 
 ## Next actions, in dependency order
 
-1. **Finish Phase 10** (increment 2b): owned payloads, which needs the owning
-   analysis taught about sum-type storage and `match` to require a moved owned
-   scrutinee (`crug-ADT-015`). Then run `scripts/gate.sh --run phase-10` and
-   archive the nine checks of amendment A-12 plus the `adts-drop` observable
-   that closes the `VAGUE` item.
+1. **Close Phase 10**: run `scripts/gate.sh --run phase-10` and archive the
+   ten checks of amendment A-13 (the `adts-drop` observable is
+   `scripts/check-owned-payloads.sh`), then commit and push.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

@@ -48,9 +48,11 @@ core types: `slice<T>` with checked `s[i]` indexing, `option<T>`,
 over all three sum shapes. They are ordinary C aggregates with frozen layouts,
 no runtime and no helper calls - see
 [docs/crug/SAFE-TYPES.md](docs/crug/SAFE-TYPES.md) and the frozen rows of
-[docs/crug/ABI.md](docs/crug/ABI.md). The Phase 10 gate is not yet awarded:
-owned payloads are increment 2b. `libcrug`, goroutines, channels and owned
-payloads are not implemented. See
+[docs/crug/ABI.md](docs/crug/ABI.md). A payload may be owned
+(`own char *`): it is transferred into the constructor, dropped only when its
+variant is active, and moved into `match` (`crug-ADT-015`/`-018`/`-019`/`-020`).
+The Phase 10 gate is adjudicable and awaits its archived run. `libcrug`,
+goroutines and channels are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -147,9 +149,11 @@ that a borrowed function compiles to the same object as its plain-pointer twin,
 that a borrow ends at its last use in the dump, and that six realistic programs
 compile and run, `scripts/check-strict-*.sh` assert that strict mode
 changes no code while rejecting each unanalysed operation. `make check-SAFE_TYPES`
-runs the safe-type suite (55 expected passes), `scripts/check-safe-types.sh` tallies it, and
+runs the safe-type suite (77 expected passes), `scripts/check-safe-types.sh` tallies it,
 `scripts/check-safe-bounds.sh` asserts that an out-of-range `s[i]` traps while
-`-fno-crug-bounds-checks` removes the trap. Runnable programs
+`-fno-crug-bounds-checks` removes the trap, and `scripts/check-owned-payloads.sh`
+asserts that an owning payload enum destroys the active variant exactly once and
+never an inactive one. Runnable programs
 that need no harness live in [examples/](examples/README.md), one per Phase 4-8
 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
