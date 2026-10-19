@@ -120,17 +120,18 @@ For a variable owned on one branch and moved on the other:
 `join branch-join.c:16: p=OWNED/MOVED -> MAYBE_MOVED`
 
 The phase-4 gate compiles `branch-join.c` with the dump on and greps that line.
-`-fcrug-dump=` takes a comma-separated list; the other kind, `drop`, writes
-`<stem>.crug-drop` and is described in [DROP.md](DROP.md) section 6. An unknown
-kind is rejected (`unrecognized argument to -fcrug-dump=`), and the option
-changes no object code.
+`-fcrug-dump=` takes a comma-separated list; the other kinds are `drop`, which
+writes `<stem>.crug-drop` and is described in [DROP.md](DROP.md) section 6, and
+`borrow`, which writes `<stem>.crug-borrow` and is described in
+[BORROW.md](BORROW.md) section 4. An unknown kind is rejected (`unrecognized
+argument to -fcrug-dump=`), and the option changes no object code.
 
 ## 5. What is deliberately absent
 
 | Missing | Phase |
 | --- | --- |
 | ownership transfer at call sites: a callee does not check what a caller does with its owning parameters, and an owning return value is not tracked by the caller | later |
-| borrow checking (`ref`, `mut`) and reborrowing | 6 |
+| borrow checking beyond the lexical subset of [BORROW.md](BORROW.md): call sites, members, array elements, mutable reborrow, NLL | 6 (lexical subset), 7 (NLL), 8 (call sites) |
 | partial moves (`move (s.field)`); rejected with `crug-UAM-006` | post-MVP, ADR 0004 D4 |
 | termination on `exit`, `abort` or a signal (no destructor runs, documented in DROP.md section 5) | intentional |
 | `setjmp`/`longjmp` destructor elision (warned with `crug-DROP-003`, not repaired) | post-MVP |

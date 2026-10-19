@@ -134,12 +134,15 @@ P25→M23 (closes)                 P26→M24
 
 ## Phase 6 — Lexical Borrow Checker (`ref` / `mut`)
 **Closes:** M6 — Borrow checker MVP.
-**Prerequisite:** Phase 5 gate archived at the same commit — roadmap §10 blocking gate: no borrowing phase is production-grade until drop correctness is stable.
+**Prerequisite:** Phase 5 gate archived at the same commit — roadmap §10 blocking gate: no borrowing phase is production-grade until drop correctness is stable. `-fcrug-borrow` is accepted by the flag table at the same commit, and `docs/crug/BORROW.md` records the accepted subset.
 **Exit gate:**
-- `CHECK: make check-BORROW` => exit 0, with compile-fail cases for mut+ref, mut+mut, move-while-borrowed, drop-while-borrowed, and pass cases for multiple shared borrows and one mutable borrow.
-- `CHECK: objdump -d gcc/testsuite/crug.dg/borrow/borrow-cost.o | grep -cE 'atomic|__sync|lock'` => 0 extra operations versus the same function written with plain pointers (no refcount).
-- `CHECK: nm gcc/testsuite/crug.dg/borrow/borrow-cost.o | grep -cE 'pthread_mutex|__crug_lock'` => 0 (no hidden lock behind `mut`).
-- `CHECK: crugc -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/borrow/mut-plus-ref.c` => exit 1 with a stable diagnostic code.
+- `CHECK: scripts/check-borrow-suite.sh` => exit 0, printed `borrow-suite: 62 tests, 0 failures`
+- `CHECK: scripts/check-borrow-cost.sh` => exit 0, printed `borrow-cost: 2 functions, 0 calls, identical objects`
+- `CHECK: scripts/check-borrow-abi.sh` => exit 0, printed `borrow-abi: 4 assertions, 0 differences`
+- `CHECK: crugc -O2 -fcrug-borrow -fsyntax-only gcc/testsuite/crug.dg/borrow/mut-plus-ref.c` => exit 1
+- `CHECK: scripts/check-borrow-policy.sh` => exit 0, printed `borrow-policy: BORROW-002 BORROW-003 BORROW-004 BORROW-005 BORROW-007 BORROW-008`
+- `CHECK: scripts/check-borrow-dump.sh` => exit 0, printed `borrow-dump: 2 shared, 1 mutable, 3 ends`
+- `CHECK: scripts/check-diagnostics.sh` => exit 0, printed `check-diagnostics: 76 registered code(s); 76 referenced code(s); all references registered.`
 **Non-goals:** no NLL/last-use (P7), no interprocedural lifetimes, no Send/Sync (P17), no runtime borrow tracking, no changes to plain-C pointer rules.
 **Risk of skipping:** a borrow checker built before drop is exact will accept programs whose cleanup paths the IR cannot prove, producing UAF that reviewers trust because "borrow checked".
 
@@ -471,5 +474,6 @@ is an open gate by section 2.5; this list is the subset known to be exploitable.
 | A-4 | 2026-10-19 | Phase 3 checks 1-4 rewritten as four runnable commands; the acceptance arm moved into `scripts/check-crug-flags.sh` and the GNU C arm into `scripts/check-gnu-c-compat.sh`. | Check 1 compiled a file named `t.c` that the gate never creates, and mixed acceptance with the unknown-option rejection; check 3 said "under every flag combination" as prose and used an inline program that the floor cannot reproduce from a clean checkout; check 4 named a Make target that did not exist. The scripts now assert the same facts, including the macro closure and the kernel conflicts, and print one countable line each. |
 | A-5 | 2026-10-19 | Phase 4 check 1 greps the object for `__crug_` instead of the word `own`; check 2 compiles `move-zero-cost.c` before disassembling it; check 4 is split into exit-status and diagnostic-code checks; check 6 spells the dump flag `-fcrug-dump=ownership` and greps the emitted file. | Check 1 counted the `takes_own`/`returns_own` symbol names in the test, which is 1, not 0, while the property it wants is the absence of generated `__crug_` metadata. Check 2 disassembled an object no earlier check produced. Check 4's observable (exit 1 *and* a code in stderr) could not be evaluated by `scripts/gate.sh`, which adjudicates one exit status. Check 6 named an option that does not exist; the accepted spelling is `-fcrug-dump=<kind>`. |
 | A-6 | 2026-10-19 | Phase 5 checks 1-5 replaced by six scripts (`check-drop-suite.sh`, `check-drop-exactly-once.sh`, `check-drop-asan.sh`, `check-drop-objdump.sh`, `check-drop-policy.sh`, `check-drop-dump.sh`); `scripts/check-diagnostics.sh` added as check 7; the prerequisite now names `DROP.md`, ADR 0005 A-1..A-7 and the destructor decision. | The old checks named a Make target that did not exist (`check-DROP-asan`), a directory that is not a command (`gcc/testsuite/crug.dg/drop/exactly-once`), an `objdump` over object files no check produced (`drop/*.o`), and one `-fsyntax-only` run where the gate needs exit status *and* a diagnostic code. Prints of the form `allocs=1 frees=1` were prose about a program the floor could not reproduce. Each item is now a script that prints one countable line and exits nonzero on the property it asserts. |
+| A-7 | 2026-10-19 | Phase 6 checks replaced by five scripts (`check-borrow-suite.sh`, `check-borrow-cost.sh`, `check-borrow-abi.sh`, `check-borrow-policy.sh`, `check-borrow-dump.sh`) plus one compile-fail exit status and `scripts/check-diagnostics.sh`; the prerequisite now names `BORROW.md`. | The old check 1 named the suite by a Make target whose observable (a list of accepted and rejected *shapes*) `scripts/gate.sh` cannot adjudicate; check 2 disassembled `borrow-cost.o`, which no check produced; check 3 counted `pthread_mutex`/`__crug_lock`, which the phase never emits, so it could not fail for the reason it names; check 4 required exit 1 *and* a code in stderr in one line. Each item is now one command with one exit status and, where useful, one countable printed line. |
 
 

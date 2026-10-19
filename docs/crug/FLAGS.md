@@ -1,11 +1,12 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phase 4 and Phase 5 use it** (2026-10-19). The
+Status: **Phase 3 implemented; Phases 4, 5 and 6 use it** (2026-10-19). The
 option set, its closure and the feature macros exist. `-fcrug-ownership` gates
 the `own`, `move` and drop productions of Phases 4 and 5 (`OWNERSHIP.md`,
-`DROP.md`); the productions the other flags name do not exist yet. This page is
-the digest - the normative text is ADR 0018 D1 and D9, RFC-0001 sections 10 and
-13, and the gates are `EXIT-GATES.md` phases 3, 4 and 5.
+`DROP.md`), and `-fcrug-borrow` gates `ref`, `mut`, `borrow` and `borrow_mut`
+(`BORROW.md`); the productions the other flags name do not exist yet. This page
+is the digest - the normative text is ADR 0018 D1 and D9, RFC-0001 sections 10
+and 13, and the gates are `EXIT-GATES.md` phases 3, 4, 5 and 6.
 
 ## 1. The option set
 
@@ -28,10 +29,10 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
 `Common Joined RejectNegative` with a comma-separated list of kinds -
-`ownership` and `drop` today; an unknown kind is an error. It writes
-`<stem>.crug-ownership` / `<stem>.crug-drop` next to the output base while the
-front end runs, and changes no code. `OWNERSHIP.md` section 4 and `DROP.md`
-section 6 give the formats.
+`ownership`, `drop` and `borrow` today; an unknown kind is an error. It writes
+`<stem>.crug-ownership`, `<stem>.crug-drop` or `<stem>.crug-borrow` next to the
+output base while the front end runs, and changes no code. `OWNERSHIP.md`
+section 4, `DROP.md` section 6 and `BORROW.md` section 4 give the formats.
 
 With no option at all, `crugc` is upstream GCC: the same predefined macros, the
 same parses, the same object code. That is the Phase 1 identity and it keeps
@@ -117,10 +118,13 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 
 - `own`, `move`, `adopt`, `release`, `drop` and automatic destruction exist
   (`OWNERSHIP.md`, `DROP.md`); ownership transfer at call sites does not.
-- No borrow rules (Phase 6).
+- The lexical borrow rules of Phase 6 exist (`BORROW.md`): whole-object
+  borrows, the conflict matrix, lexical lifetime, `ref`/`mut` parameters as
+  live borrows. No call-site checking (Phase 8), no member or array-element
+  borrows, no mutable reborrow, no NLL (Phase 7), no struct fields.
 - No goroutine, scope or channel lowering (Phase 14-16).
-- Only the `ownership` and `drop` dumps exist (`-fcrug-dump=` comma list); no
-  borrow, goroutine or channel dump.
+- Only the `ownership`, `drop` and `borrow` dumps exist (`-fcrug-dump=` comma
+  list); no goroutine or channel dump.
 - Six `-Wcrug-*` options are declared and default on
   (`-Wcrug-unadopted-own`, `-Wcrug-intrinsic-operand`, `-Wcrug-adopt-signature`,
   `-Wcrug-jump-into-scope`, `-Wcrug-setjmp-drops`, `-Wcrug-drop-unreachable`);
@@ -141,11 +145,15 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `crugc -fcrug-dump=ownership` | the ownership dump of a branch join (`OWNERSHIP.md` section 4) |
 | `make check-DROP` | destruction and its rejections: 39 expected passes under `gcc/testsuite/crug.dg/drop/` |
 | `scripts/check-drop-dump.sh` | the `drop` dump records every exit kind (`DROP.md` section 6) |
+| `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on: 62 expected passes under `gcc/testsuite/crug.dg/borrow/` |
+| `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
+| `scripts/check-borrow-dump.sh` | the `borrow` dump records shared and mutable borrows and their ends (`BORROW.md` section 4) |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
-ownership rows plus the ABI and diagnostic-code checks, and the phase-5 gate runs
-the six `scripts/check-drop-*.sh` and `scripts/check-diagnostics.sh` checks; see
-`EXIT-GATES.md`.
+ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the
+six `scripts/check-drop-*.sh` and `scripts/check-diagnostics.sh` checks, and the
+phase-6 gate runs the five `scripts/check-borrow-*.sh` scripts, one compile-fail
+exit status and `scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

@@ -103,7 +103,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 
 | Code | Option | Default | Strict | Canonical message | Origin |
 |------|--------|---------|--------|-------------------|--------|
-| `crug-BORROW-001` | `-Wcrug-returned-borrow` | error | error | cannot return a borrow of '%s' | ADR 0018 D2 |
+| `crug-BORROW-001` | `-Wcrug-returned-borrow` | error | error | a function cannot return a borrow | ADR 0018 D2 |
 | `crug-BORROW-002` | - | error | error | cannot mutably borrow '%s' while it is shared-borrowed | MASTER_SPEC s10, RFC-0001 B1 |
 | `crug-BORROW-003` | - | error | error | cannot mutably borrow '%s' more than once | MASTER_SPEC s10, RFC-0001 B1 |
 | `crug-BORROW-004` | - | error | error | cannot move '%s' while it is borrowed | MASTER_SPEC s10 |
@@ -111,6 +111,15 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-BORROW-006` | `-Wcrug-intrinsic-operand` | error | error | borrow() operand must be an lvalue | ADR 0018 D3 |
 | `crug-BORROW-007` | - | error | error | borrow '%s' escapes the lifetime of its referent | MASTER_SPEC s10 |
 | `crug-BORROW-008` | - | error | error | assignment through shared borrow '%s' | MASTER_SPEC s10 |
+| `crug-BORROW-009` | - | error | error | borrow() operand must be a whole owned object or a borrow; member borrows are not supported in this phase | ADR 0018 D3, Phase 6 |
+| `crug-BORROW-010` | - | error | error | a mutable borrow of a borrow, or of a non-owned object, is not supported in this phase | ADR 0018 D3, Phase 6 |
+| `crug-BORROW-011` | - | error | error | cannot borrow '%s' because it owns nothing | ADR 0005 A-5, Phase 6 |
+| `crug-BORROW-012` | - | error | error | a mutable borrow cannot be initialized from a shared borrow | ADR 0018 D2, Phase 6 |
+| `crug-BORROW-013` | - | error | error | borrow '%s' is used without being initialized on this path | ADR 0018 D3, Phase 6 |
+| `crug-BORROW-014` | - | error | error | cannot assign to '%s' while it is borrowed | MASTER_SPEC s10, Phase 6 |
+| `crug-BORROW-015` | - | error | error | cannot use '%s' while it is mutably borrowed | MASTER_SPEC s10, Phase 6 |
+| `crug-BORROW-016` | - | error | error | cannot borrow '%s' while it is mutably borrowed | MASTER_SPEC s10, Phase 6 |
+| `crug-BORROW-017` | - | error | error | borrow '%s' must be initialized from borrow(), borrow_mut() or another borrow | ADR 0018 D3, Phase 6 |
 
 ### 4.4 Destruction (`DROP`)
 
@@ -164,6 +173,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-TYPE-004` | `-Wcrug-qualifier-combination` | error | error | '_Atomic' may not be combined with a Crug qualifier | ADR 0018 D2 |
 | `crug-TYPE-005` | `-Wcrug-qualifier-placement` | error | error | 'own' may not qualify a function type | ADR 0018 D2 |
 | `crug-TYPE-006` | `-Wcrug-qualifier-placement` | error | error | qualifier is not allowed on a bit-field, flexible array member or unnamed member | ADR 0018 D2 |
+| `crug-TYPE-007` | `-Wcrug-qualifier-placement` | error | error | a borrow qualifier must apply to a pointer declarator | ADR 0018 D2, Phase 6 |
 | `crug-TYPE-010` | `-Wcrug-generic-form` | error | error | generic type is not allowed in this position | ADR 0018 D7 |
 | `crug-TYPE-011` | `-Wcrug-generic-form` | error | error | '%s<...>' is not a generic type; unknown type constructor | ADR 0018 D7 |
 
@@ -266,14 +276,15 @@ caught by the script.
 
 ## 9. Status
 
-66 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 8,
-DROP 8, CONC 9, ADT 10, TYPE 8, GRAMMAR 6.
+76 codes are registered. The count per area is: UAM 7, OWN 10, BORROW 17,
+DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 and 5 of the
+suite that the owning gate runs. Implemented today (Phases 4, 5 and 6 of the
 roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
-OWN-007, OWN-009, OWN-010, DROP-001, DROP-002, DROP-003, DROP-006, DROP-007,
-DROP-008, TYPE-001, TYPE-002, TYPE-004, TYPE-005, TYPE-006. Everything else is
+OWN-007, OWN-009, OWN-010, BORROW-001 to BORROW-017, DROP-001, DROP-002,
+DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002, TYPE-004, TYPE-005,
+TYPE-006, TYPE-007. Everything else is
 planned; the FFI and KERNEL areas are still reserved only. FFI has a defined format (ADR 0007) but no allocated
 codes yet; KERNEL's owning ADRs are still unwritten. Both have reserved ranges.
 When the frontend lands, a code moves to `implemented` only when its test is in

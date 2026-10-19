@@ -7,8 +7,9 @@ Last updated: 2026-10-19
 The repository contains specification text, a phase-gate adjudicator, a
 reproducible GCC build, the `crugc` driver (Phase 1), and from Phases 4 and 5 the
 first Crug productions - `own`, `move`, automatic destruction, `adopt`,
-`release` and `drop` - with their analysis, diagnostics and dg suites. There is
-no `libcrug` and no borrow checking yet. The `kernel-compat`
+`release` and `drop` - with their analysis, diagnostics and dg suites, and from
+Phase 6 the lexical borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`). There
+is no `libcrug` and no goroutine, channel or `slice`/`match` support yet. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -81,6 +82,22 @@ cleanliness, absence of `__crug_` helper calls and the dump. The Phase 5 gate
 passes 7/7 at `eeac7df` (logs under `docs/crug/gates/phase-5/eeac7df/`), and the
 Phase 4 gate was re-adjudicated at the same commit with 7/7.
 
+Phase 6 adds the lexical borrow checker: `ref` and `mut` are qualifiers on
+pointer declarators, `borrow`/`borrow_mut` are intrinsic identifiers that lower
+to plain pointers, and one shared with many `ref` reads or exactly one `mut` is
+enforced for the lexical extent of the borrow. A borrow may name a whole owned
+object or an existing shared borrow; members, array elements, dereferences and
+plain pointers are refused (`crug-BORROW-009`), as are a mutable borrow of a
+borrow or of a non-owned object (`crug-BORROW-010`) and a mutable borrow
+initialized from a shared one (`crug-BORROW-012`). Moves, drops, assignments and
+reads that conflict with a live borrow are rejected with `crug-BORROW-002`..`-005`,
+`-008` and `-014`..`-016`; an inner borrow cannot escape its block
+(`crug-BORROW-007`). `ref`/`mut` change no `sizeof`, `_Alignof` or object byte:
+`scripts/check-borrow-cost.sh` compares a borrowed function with its
+plain-pointer twin and `scripts/check-borrow-abi.sh` asserts the layout
+identities. `docs/crug/BORROW.md` is the digest; `make check-BORROW` runs 62
+expected passes under `gcc/testsuite/crug.dg/borrow/`.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -113,7 +130,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | The decision set was unratified, so nothing could be cited as settled | eight ADRs carry Status Accepted (six on 2026-10-18, ADRs 0006 and 0007 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
-| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (66 codes; 22 implemented through Phases 4 and 5) + scripts/check-diagnostics.sh |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (76 codes; 40 implemented through Phases 4, 5 and 6) + scripts/check-diagnostics.sh |
 | The kernel baseline had no CI protection, so Phase 2 could not close and Phase 4 could not start | `.github/workflows/kernel-compat.yml` green on `78c759b`; branch protection on `main` requires `kernel-compat`; phase-2 and phase-3 gates 4/4 archived under docs/crug/gates/phase-{2,3}/78c759b/ |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
@@ -135,6 +152,7 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | Predefined feature macros contradicted the flags-off identity guarantee | ADR 0018 D9 R6 amendment A-1 and spec/000-PRECEDENCE.md C-12: `__CRUG__` and the feature macros exist only when a `-fcrug-*` option is active |
 | Ownership had no implementation, so the state machine and the zero-metadata claim were untested | `own`/`move` front-end (gcc/c/crug-ownership.cc), 17-pass dg suite, `-fcrug-dump=ownership`; docs/crug/OWNERSHIP.md; phase-4 gate 7/7 |
 | Destruction was undefined, so every owning object leaked and the O1 claim was untestable | drop lowering in `gcc/c/crug-ownership.cc`, `adopt`/`release`/`drop` intrinsics, 39-pass dg suite, six `scripts/check-drop-*.sh` checks, `-fcrug-dump=drop`; docs/crug/DROP.md; ADR 0005 A-1..A-7; phase-5 gate |
+| Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
 
 ## Still open
 
@@ -147,15 +165,16 @@ the corpus are Phase 9 work; nothing consumes the format yet.
 | -  | No `.crugffi` parser exists and only one fixture is written; the Phase 9 corpus in ADR 0007 D11 is otherwise unwritten | Phase 9 implementation |
 | -  | Every Crug-native layout is a pending row in `docs/crug/ABI.md`; no size, alignment or calling representation is frozen | Phases 10 and 13-14 (slice/option/payload enum, then chan); `result` also needs its focused RFC |
 | -  | Ownership transfer at call sites is unchecked: a caller may pass a value it still owns to an owning parameter, and an owning return value is not tracked by the caller | a later phase; recorded in docs/crug/DROP.md section 8 |
-| -  | `borrow`/`ref`/`mut` and the remaining productions still do not parse; the `ref`/`mut` keywords and their analyses are Phase 6 | Phase 6 |
+| -  | Borrow checking stops at the lexical subset: call sites, struct and array-element borrows, mutable reborrow, NLL and interior mutability are not implemented | Phases 7 (NLL), 8 (call sites) and 12 (interior mutability); recorded in docs/crug/BORROW.md section 5 |
+| -  | `slice<T>`, `chan T`, payload enums and `match` still do not parse | Phases 10 and 13-14 |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 
 ## Next actions, in dependency order
 
-1. **Start Phase 6** (borrow checker): `ref` and `mut`, NLL, reborrowing and
-   the B1 class. The ownership and drop passes now provide the path facts it
-   needs, and the drop pass must learn to refuse moves and drops of borrowed
-   values (`crug-BORROW-004`/`-005`).
+1. **Start Phase 7** (CFG borrowing and non-lexical lifetimes): last-use analysis
+   so a borrow ends before the end of its block, and mutable reborrowing
+   (`crug-BORROW-010` is the Phase 6 refusal). The lexical checker of Phase 6 is
+   the substrate; `docs/crug/BORROW.md` section 5 lists what it defers.
 2. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
    of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
    `-fcrug-ownership` until that phase decides kernel drop lowering.

@@ -24,8 +24,12 @@ to a register copy, use-after-move and implicit copy are compile errors, and
 [docs/crug/OWNERSHIP.md](docs/crug/OWNERSHIP.md). Phase 5 (automatic
 destruction) implements `adopt`, `release`, `drop` and drop insertion on every
 exit path, with `setjmp` and never-adopted values diagnosed - see
-[docs/crug/DROP.md](docs/crug/DROP.md). Borrow checking, `libcrug` and
-concurrency are not implemented. See
+[docs/crug/DROP.md](docs/crug/DROP.md). Phase 6 (lexical borrow checker)
+implements the `ref` and `mut` qualifiers and the `borrow`/`borrow_mut`
+intrinsics: many shared borrows or exactly one mutable borrow, a lexical
+lifetime, and compile errors for every conflicting use - see
+[docs/crug/BORROW.md](docs/crug/BORROW.md). `libcrug`, goroutines, channels,
+`slice`/`match` and non-lexical lifetimes are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -56,7 +60,8 @@ in [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md), and
 
 - `own`, `ref`, `mut`, `raw` qualifiers with move-only ownership and
   deterministic destruction, without changing C layout or calling conventions.
-- Borrow checking (N shared or one exclusive) enforced at compile time.
+- Borrow checking (N shared or one exclusive) enforced at compile time for the
+  lexical extent of the borrow (Phases 6-8).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -92,11 +97,13 @@ writes `out/` (ignored); see [docs/crug/KERNEL-COMPATIBILITY.md](docs/crug/KERNE
 `make check-CRUG_FLAGS` checks the `-fcrug-*` option set, its closure and the
 feature macros, and `make check-GNU_C_COMPAT` recompiles the GNU C and kernel
 corpora with the full flag set; both are described in
-[docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP` and
-`make check-DROP` run the ownership and destruction dg suites, and
-`scripts/check-drop-*.sh` assert exactly-once destruction, sanitizer
-cleanliness and the absence of helper calls. Runnable programs that need no
-harness live in [examples/](examples/README.md), one per Phase 4-5 feature.
+[docs/crug/FLAGS.md](docs/crug/FLAGS.md). `make check-OWNERSHIP`,
+`make check-DROP` and `make check-BORROW` run the ownership, destruction and
+borrow dg suites; `scripts/check-drop-*.sh` assert exactly-once destruction,
+sanitizer cleanliness and the absence of helper calls, and
+`scripts/check-borrow-*.sh` assert that a borrowed function compiles to the same
+object as its plain-pointer twin. Runnable programs that need no harness live in
+[examples/](examples/README.md), one per Phase 4-6 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
