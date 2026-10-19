@@ -95,12 +95,21 @@ section 27, ADR 0018 D4), all errors:
 | `crug-CONC-011` | `move` targets a parameter that is not `own` | `the task does not take ownership of the captured value: declare the parameter own` |
 | `crug-CONC-012` | a `ref`/`mut` borrow (or `borrow()`/`borrow_mut()`) is captured | `a borrow cannot be captured by a concurrent task; capture an owned value with move (...)` |
 | `crug-CONC-014` | `adopt (p, dtor)` is captured | `a destructor cannot cross a task boundary; the task destroys an owned parameter by itself` |
+| `crug-CONC-024` | the captured value is not `Send` (a raw pointer, or an aggregate holding one) | `a value of type 'T *' cannot cross to another task; the type is not 'Send'` + a note naming the offending field |
+| `crug-CONC-025` | the captured value comes from an FFI call with `thread_affinity` | `a thread-affine value cannot cross to another task; it belongs to the 'render' thread` |
+| `crug-CONC-026` | a shared borrow captured by a scoped task whose pointee is not `Sync` | `a shared borrow of 'struct Holder' cannot cross to another task; the type is not 'Sync'` |
 
 The rule behind them: a task outlives the statement that spawned it, so a
 borrow could dangle and a destructor could run on the wrong stack. Ownership
 moves through the frame, and the callee's `own` parameter is then destroyed by
 the task itself (an `own` parameter is destroyed at the callee's scope end, so
 the callee is the right stack for that destructor).
+
+Phase 17 adds the property rules (ADR 0026, `SEND-SYNC.md`): a captured value
+must be `Send`, a shared borrow inside a `scope` must be of a `Sync` pointee,
+and a thread-affine value cannot cross at all. An array capture is rejected
+for the same reason - the array decays to a pointer, which is not `Send` - so
+pass the elements, a struct by value, or an owned pointer with `move ()`.
 
 An owned parameter with no destructor must be released explicitly with
 `release (p)`; `drop (p)` reports `crug-OWN-007` because the parameter has no
@@ -157,6 +166,7 @@ the tokens.
 | `make check-GOROUTINES_DG` | 17 DejaGnu cases under `gcc/testsuite/crug.dg/goroutines/`: two run forms, capture shapes, yield, owned capture, and the rejection cases for CONC-008/010/011/012/013/014 plus arity, flag-off, a variable named `go` and a `go:` label |
 | `make check-GOROUTINES` | the DejaGnu cases, the five runtime programs and the stress/`strace` counts |
 | `make check-SCOPE` | the structured-scope suite: 23 DejaGnu cases and eight group programs (`SCOPE.md`) |
+| `make check-SEND_SYNC` | the Send/Sync suite: 14 compile cases in `gcc/testsuite/crug.dg/send-sync/` plus the script that exercises the sidecar escapes (`SEND-SYNC.md`, ADR 0026) |
 
 The five runtime programs (`libcrug/tests/goroutines/`) print their own
 `goroutines-*` line: `spawn` (8 tasks, sum=36), `yield` (4 yields),
@@ -166,8 +176,9 @@ into a task and released there) and `shutdown` (idempotent shutdown, restart).
 ## 9. Limits
 
 - A task's captures are plain C values: no generic task type, no tuple, no
-  closure over a local's address. A borrow is refused outside a scope
-  (CONC-012); inside a `scope` block a borrow of a value that outlives the
+  closure over a local's address. A captured value must be `Send` (CONC-024),
+  and a raw pointer is never `Send` by inference (the FFI annotation is the
+  documented escape). A borrow is refused outside a scope (CONC-012); inside a `scope` block a borrow of a value that outlives the
   block may be captured (`SCOPE.md`, ADR 0024 D4).
 - `go` cannot be used as an expression and there is no `go` with a result
   value; a task that must report a result uses a channel (`CHANNELS.md`) or an

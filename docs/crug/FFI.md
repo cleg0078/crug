@@ -56,9 +56,9 @@ the name of an external function that takes one pointer argument.
 | `nullable` | `fn` or `returns owned` | a pointer may be null; null owns nothing and is never destroyed |
 | `callback argN` | `fn` | argument N is a function pointer the callee may call during the call |
 | `retained argN until X` | `fn` | recorded only; no check is performed in v1 |
-| `blocking`, `thread_affinity X` | `fn` | recorded only; scheduling is not enforced in v1 |
+| `blocking`, `thread_affinity X` | `fn` | `blocking` is recorded only; `thread_affinity` is enforced since Phase 17 - the value belongs to that thread and cannot cross a task or channel boundary (`crug-CONC-025`, ADR 0026 D5) |
 | `type opaque T` | `type` | the type may not be used by value |
-| `type send T` / `type !send T` / `type sync T` / `type !sync T` | `type` | recorded only; concurrency checks arrive with Phase 13 |
+| `type send T` / `type !send T` / `type sync T` / `type !sync T` | `type` | enforced at every task and channel crossing since Phase 17 (ADR 0026 D6, `SEND-SYNC.md`); the annotation is the author's safety claim |
 
 Clauses may not repeat on one operand, except `drop` once at declaration
 level and once on a `returns owned`. Conflicting clauses on one operand are
@@ -173,8 +173,9 @@ command line produces byte-identical stderr, which is what
   (ADR 0007 D9).
 - No returned borrows, no conditional ownership (`realloc` and
   `sqlite3_open` stay Level 1 `adopt`), no refcounted APIs.
-- `retained`, `blocking`, `thread_affinity`, `send`/`sync` are parsed
-  and recorded but not enforced.
+- `retained` and `blocking` are parsed and recorded but not enforced;
+  `thread_affinity` and the `send`/`sync` annotations are enforced since
+  Phase 17 at every task and channel crossing (`SEND-SYNC.md`).
 - Discovery does not search `-I` directories: a header found through
   `-I` gets its sidecar only when the sidecar sits next to the including
   file, or when it is named explicitly. This is recorded as an ADR 0007 D5

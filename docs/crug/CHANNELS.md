@@ -117,10 +117,15 @@ compiler enforces:
 | `select { case v = recv (ch): ... }` on an owning-element channel | `[crug-CONC-017]`: the arm might not run |
 | `channel (n)` with no channel type in the context | `[crug-CONC-002]` |
 | element type is `void`, a function or incomplete | `[crug-CONC-019]` |
+| element type is not `Send` (a raw pointer, a pointer-holding struct) | `[crug-CONC-027]`; annotate the pointee in a `.crugffi` to widen it |
+| a sent value whose type is not `Send` | `[crug-CONC-024]` |
+| a thread-affine value sent on a channel | `[crug-CONC-025]` |
 
-A channel whose element owns nothing (every value type, a plain pointer, a
-struct of such values) carries no ownership at all: `send` copies the value
-and the sender keeps its own.
+A channel whose element owns nothing (every value type, a struct of such
+values) carries no ownership at all: `send` copies the value and the sender
+keeps its own. A plain pointer is not a value in this sense: it is not `Send`,
+so a `chan char *` is rejected until the sidecar annotates the pointee
+(`SEND-SYNC.md`, ADR 0026 D2).
 
 ## 4. Runtime API
 

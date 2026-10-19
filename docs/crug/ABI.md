@@ -122,6 +122,7 @@ depend on a guessed layout for any of these types.
 | A task frame changes no calling convention: `go f (args)` lowers to a copied frame and one `crug_task_spawn` call, and the plain-C ABI rows still hold | `gcc/testsuite/crug.dg/goroutines/`, `scripts/check-goroutines.sh` |
 | Metadata changes no binary ABI | `scripts/diff-obj.sh gcc/testsuite/crug.dg/ffi/ "-O2" "-O2 -fcrug-ffi=gcc/testsuite/crug.dg/ffi/libc.crugffi"` |
 | A channel is one pointer whatever the element type is, so no element layout enters the ABI | `gcc/testsuite/crug.dg/channels/chan-layout.c`, `scripts/check-channels.sh` |
+| Send/Sync are compile-time properties only: no size, alignment, calling-convention or symbol changes, and a program without `-fcrug-goroutines`/`-fcrug-channels` is unchanged | `gcc/testsuite/crug.dg/send-sync/`, `scripts/check-send-sync.sh` |
 
 ## 8. Changelog
 
@@ -135,3 +136,4 @@ depend on a guessed layout for any of these types.
 | 2026-10-19 | Phase 14 froze **runtime ABI version 1** (`task.h`, ADR 0008/0009/0013): the spawn/yield signatures and the stats fields. No C-level type, layout, calling-convention or symbol row changed, so the Crug-native type ABI version stays 1. |
 | 2026-10-19 | Phase 15 added the task-group calls to runtime ABI version 1 additively (`crug_scope_enter`, `crug_scope_leave`, `crug_task_spawn_scoped`, `struct crug_scope_stats`; ADR 0024): existing signatures are unchanged, a program with no `scope` does not reference them, and no C-level type row changed. |
 | 2026-10-19 | Phase 16 froze the `chan T` row (ADR 0025): a channel is one opaque pointer whatever the element type is, asserted by `crug.dg/channels/chan-layout.c`, so the Crug-native ABI version 1 now covers five rows; `libcrug/core/chan.h` extends runtime ABI version 1 additively and no existing signature changed. |
+| 2026-10-20 | Phase 17 recorded that Send/Sync are compile-time properties only (ADR 0026): no type, layout, calling-convention or symbol row changed, so the Crug-native and runtime ABI versions stay 1. |

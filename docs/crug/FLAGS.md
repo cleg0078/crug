@@ -1,6 +1,6 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phases 4 to 16 use it** (2026-10-19). The option
+Status: **Phase 3 implemented; Phases 4 to 17 use it** (2026-10-20). The option
 set, its closure and the feature macros exist.
 `-fcrug-ownership` gates the `own`, `move` and drop productions of Phases 4
 and 5 (`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`,
@@ -13,7 +13,8 @@ turns a proven `mut` or `own` parameter into a `restrict` fact
 (`OPTIMIZATION.md`), and `-fcrug-goroutines` gates the `go`, `yield`
 and `scope` statements (`GOROUTINES.md`, `SCOPE.md`),
 `-fcrug-channels` gates `chan`, `channel`, `send`, `recv`, `close` and
-`select` (`CHANNELS.md`); the production the remaining flag names (the
+`select` (`CHANNELS.md`). Those two flags also switch on the Send/Sync checks
+(`SEND-SYNC.md`, ADR 0026); the properties have no flag of their own; the production the remaining flag names (the
 kernel port) does not exist yet. This page is the digest - the normative text is
 ADR 0018 D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
 `EXIT-GATES.md` phases 3, 4, 5, 6, 7, 8, 9 and 10.
@@ -32,8 +33,8 @@ closure is computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-slices` | `slice<T>`, `slice (ptr, len)`, checked `s[i]` | - |
 | `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
 | `-fcrug-adt` | payload enums and `match` over `option`, `result` and payload enums | - |
-| `-fcrug-goroutines` | `go` and `yield` (`GOROUTINES.md`) and `scope` (`SCOPE.md`) | - |
-| `-fcrug-channels` | `chan T`; `channel`, `send`, `recv`, `close`; `select` (`CHANNELS.md`) | `-fcrug-goroutines` |
+| `-fcrug-goroutines` | `go` and `yield` (`GOROUTINES.md`), `scope` (`SCOPE.md`), and the Send/Sync checks at a capture (`SEND-SYNC.md`) | - |
+| `-fcrug-channels` | `chan T`; `channel`, `send`, `recv`, `close`; `select` (`CHANNELS.md`), and the Send/Sync checks on an element and a sent value (`SEND-SYNC.md`) | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-ffi=<file>` | reads one `.crugffi` sidecar; repeatable, merged in command-line order (`FFI.md`) | `-fcrug-ownership` |
 | `-fcrug-ffi-discover` | turns the FFI layer on without naming a file, so sidecars next to quoted includes (and in `CRUG_FFI_PATH`) are discovered | `-fcrug-ownership` |
@@ -156,7 +157,10 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
   `yield ()` lower to a per-call-site frame struct, a static thunk and one
   `crug_task_spawn` call (`GOROUTINES.md`); the capture rules are CONC-008,
   CONC-010 to CONC-014, and a capture needs `-fcrug-ownership` for an `own`
-  value or `-fcrug-borrow` for a borrow. Structured scope exists (Phase 15):
+  value or `-fcrug-borrow` for a borrow. Phase 17 adds the Send/Sync rules
+  (CONC-024 to CONC-027, `SEND-SYNC.md`): a raw pointer, a pointer-holding
+  aggregate, a non-Sync shared borrow and a thread-affine value are rejected
+  at a task or channel crossing, and the only widening is the FFI annotation. Structured scope exists (Phase 15):
   `scope { ... }` is a task group that waits for its children, a scoped child
   may capture a borrow of a value that outlives the block, and the extra codes
   are CONC-015 (a goto into a scope) and CONC-016 (a lender that dies first)
@@ -223,9 +227,10 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `scripts/check-optimization.sh` | the golden alias dump, 8/8 benchmark kernel objects byte-identical to their hand-written `restrict` twins, ref-only and flag-off identity, five adversarial rejections and one runtime program |
 | `scripts/check-stop-conditions.sh` | every dumped fact names a `mut`/`own` parameter, a ref-only function has no fact, and 0 false-noalias reports |
 | `bench/run.py --matrix alias --check` / `--lto` / `--plain-c --check` | the 5% band with byte identity as the primary evidence, LTO correctness, and plain C not degraded (object identity, 1.02 band when code changes) |
-| `make check-GOROUTINES` / `scripts/check-goroutines.sh` | `go`/`yield` lowering: 27 DejaGnu cases, five runtime programs, 100000 tasks on 4 workers and 4 thread-creating calls under `strace` (`GOROUTINES.md`, `TASKS.md`) |
+| `make check-GOROUTINES` / `scripts/check-goroutines.sh` | `go`/`yield` lowering: 28 DejaGnu cases, five runtime programs, 100000 tasks on 4 workers and 4 thread-creating calls under `strace` (`GOROUTINES.md`, `TASKS.md`) |
 | `make check-SCOPE` / `scripts/check-scope.sh` | `scope` lowering: 23 DejaGnu cases and eight group programs whose counters balance (`SCOPE.md`, ADR 0024) |
 | `make check-CHANNELS` / `scripts/check-channels.sh` | `chan`, `send`, `recv`, `close` and `select`: 40 DejaGnu cases and seven runtime programs, including an owned transfer and a handoff (`CHANNELS.md`, ADR 0025) |
+| `make check-SEND_SYNC` / `scripts/check-send-sync.sh` | the Send/Sync checks: 14 DejaGnu cases, the unchanged `spawn` program, the raw-pointer rejection, both thread-affinity cases and both FFI annotation cases (`SEND-SYNC.md`, ADR 0026) |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
 ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the

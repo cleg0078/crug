@@ -105,7 +105,14 @@ of an owning element requires `move` (the receiver destroys it), a destructor
 cannot cross a channel, and a `select` arm cannot bind a receive from an
 owning-element channel - see [docs/crug/CHANNELS.md](docs/crug/CHANNELS.md)
 and [ADR 0025](docs/crug/adr/0025-channels-and-select.md). The Phase 16 gate
-passes 7/7 at `601e0cc` (logs under `docs/crug/gates/phase-16/601e0cc/`). See
+passes 7/7 at `601e0cc` (logs under `docs/crug/gates/phase-16/601e0cc/`).
+Phase 17 adds the static crossing rules: a captured or sent value must be
+`Send` (a raw or plain pointer and anything containing one is not), a shared
+borrow captured by a scoped task must be `Sync`, and a thread-affine FFI handle
+cannot leave its thread - see [docs/crug/SEND-SYNC.md](docs/crug/SEND-SYNC.md)
+and [ADR 0026](docs/crug/adr/0026-send-sync.md). The checks ride on the
+goroutine and channel flags, report `CONC-024` to `CONC-027`, and the only
+widening is a `.crugffi` `send sync` annotation. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -186,6 +193,9 @@ procedure and a 31-check acceptance matrix, governed by
 - `chan T`, `send`, `recv`, `close` and `select` with explicit ownership
   transfer on send: an owning element crosses only through `move`, and the
   receiver destroys it exactly once (Phase 16, ADR 0025).
+- `Send`/`Sync` checks at task and channel boundaries: a raw pointer cannot be
+  captured or sent, a scoped shared borrow needs `Sync`, and a thread-affine
+  FFI handle stays on its thread (Phase 17, ADR 0026).
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
 
 ## Building
@@ -251,11 +261,13 @@ the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
 `make check-SCOPE` runs 23 `scope` dg cases and eight group programs whose
 counters must balance (`leaked task group state: 0`); `docs/crug/SCOPE.md`
-describes them. `make check-CHANNELS` runs 39 `chan`/`select` dg cases and seven
+describes them. `make check-CHANNELS` runs 40 `chan`/`select` dg cases and seven
 channel programs (buffered round trip, handoff, receive and send arms, an owned
 transfer, close, fan-in); `docs/crug/CHANNELS.md` describes them.
+`make check-SEND_SYNC` runs 14 `Send`/`Sync` dg cases plus the raw-pointer,
+thread-affinity and FFI-annotation pairs; `docs/crug/SEND-SYNC.md` describes them.
 Runnable programs that need no harness live in
-[examples/](examples/README.md), one per Phase 4-16 feature.
+[examples/](examples/README.md), one per Phase 4-17 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

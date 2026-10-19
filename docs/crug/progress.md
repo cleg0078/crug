@@ -1,6 +1,6 @@
 # CRUG Project Status
 
-Last updated: 2026-10-19
+Last updated: 2026-10-20
 
 ## Where the project stands
 
@@ -16,7 +16,8 @@ contract suite); Phase 14 adds the task runtime and the `go`/`yield` lowering
 switch); Phase 15 adds `scope`, the task group that owns its children and joins
 them on every exit, and from Phase 16 channels (`chan T`, `channel`, `send`,
 `recv`, `close`) and `select`, so the concurrency surface of the roadmap
-exists; the Phase 10 safe
+exists, and from Phase 17 the static `Send`/`Sync` rules that decide what
+may cross a worker or channel boundary at all; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
@@ -344,6 +345,22 @@ owned transfer (`channels-owned: text=hi releases=1`), `close` and fan-in.
 A-19) passes 7/7 at `601e0cc` (logs under
 `docs/crug/gates/phase-16/601e0cc/`), so M16 is awarded.
 
+Phase 17 makes the boundary rules explicit: a value may cross to another task or
+through a channel only when it is `Send` - scalars, function pointers, channel
+handles, arrays and aggregates of `Send` values, and an own pointer whose
+pointee is `Send` - and a shared borrow captured by a scoped task also requires
+`Sync`; a raw or plain pointer is neither, so `go use (&x)`,
+`go fill (buf, 4)` (array decay) and `chan char *` are rejected
+(`CONC-024`, `CONC-027`). `docs/crug/SEND-SYNC.md` and ADR 0026 record the
+rules; the checks need no flag of their own because they ride on
+`-fcrug-goroutines`/`-fcrug-channels`, and only an FFI `.crugffi`
+`send sync` annotation widens the inference. A thread-affine FFI result
+(`thread_affinity`) cannot leave its thread (`CONC-025`), and a scoped mutable
+capture must be `Send` while a shared one must be `Sync` (`CONC-026`).
+Measured: `make check-SEND_SYNC` prints `send-sync: 14 compiler test(s), 0
+failure(s); raw pointer rejected, thread affinity enforced, FFI annotations
+enforced`.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -421,6 +438,7 @@ superseding ADR and owner ratification.
 | The language had `go`/`yield` in its grammar but no lowering and no runtime, so M:N concurrency was a word | `gcc/c/crug-tasks.cc` (frame + static thunk + `crug_task_spawn`), parser and capture hooks, CONC-008/010..014, `libcrug/core/task.c` (M:N, one ready queue, cooperative, epoch wait), `libcrug/arch/x86_64/sysv` (switch, stack preparation), 27 dg cases, five runtime programs, 100000-task stress run, `scripts/check-goroutines.sh`, `make check-GOROUTINES`; `docs/crug/TASKS.md`, `docs/crug/GOROUTINES.md`; ADRs 0008/0009/0013; phase-14 gate A-17 |
 | A task could outlive every lexical block that explains it, so a borrowed capture was unsound and a child could still run after its data died | `scope { ... }` (task group) in `gcc/c/crug-tasks.cc`, `gcc/c/crug-ownership.cc` and `gcc/c/c-parser.cc`, CONC-015/016, scoped borrow captures with BORROW-002/003, runtime `crug_scope_enter`/`crug_scope_leave`/`crug_task_spawn_scoped`/`crug_scope_stats_get`, 23 dg cases, eight group programs, 3000-task/200-group sanitizer stress, `scripts/check-scope.sh`, `make check-SCOPE`; `docs/crug/SCOPE.md`; ADR 0024; phase-15 gate A-18 |
 | A task could not pass a value to another task, so the concurrency surface stopped at spawn/yield/scope | `chan T`, `channel`, `send`, `recv`, `close` and `select` in `gcc/c/crug-chan.cc`, `gcc/c/c-parser.cc` and `libcrug/core/chan.c`; CONC-017..023; 40 dg cases and seven channel programs, `scripts/check-channels.sh`, `make check-CHANNELS`; frozen `chan` ABI row; `docs/crug/CHANNELS.md`; ADR 0025; phase-16 gate A-19 |
+| A value could cross a task or channel boundary unchecked, so the ownership model appeared to bless data races | `gcc/c/crug-send-sync.cc` (`Send`/`Sync` inference, thread affinity, FFI widening), CONC-024..027, ten dg cases, `scripts/check-send-sync.sh`, `make check-SEND_SYNC`; `docs/crug/SEND-SYNC.md`; ADR 0026; phase-17 gate A-20 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -437,10 +455,11 @@ superseding ADR and owner ratification.
 | -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | a later phase (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
 | -  | An owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | a later ownership increment for aggregates |
 | -  | A channel is a ring with a rotation counter rather than a fairness guarantee: `select` has no timeout, blocked tasks burn scheduler turns, `send` on a closed channel is fatal, and there is no `range`/`select` cancellation | ADR 0025 D5 and D6; a later phase or RFC |
-| -  | The task runtime has no preemption, no cancellation, no growable stack, no I/O and no TSan support (the switch is invisible to ThreadSanitizer); a blocking call blocks a worker | ADRs 0008, 0009 and 0013 state the limits; preemption/place-level races are a later phase (17 Send/Sync), the poller is post-1.0 |
+| -  | The task runtime has no preemption, no cancellation, no growable stack, no I/O and no TSan support (the switch is invisible to ThreadSanitizer); a blocking call blocks a worker | ADRs 0008, 0009 and 0013 state the limits; preemption, place-level races and dynamic race detection are a later phase, the poller is post-1.0 |
 | -  | A task frame is a plain C value: no generic task type, no closure over a local's address, and no task result; a task that must report a value uses a channel (`CHANNELS.md`) | a later phase (generic task types) |
 | -  | A `scope` waits cooperatively and has no cancellation, no error aggregation and no detached child: a child that never returns hangs the scope, and a waiting scope burns scheduler turns because there is no parked WAITING state in v1 | ADR 0024 D3 and D7; cancellation and error propagation are a later RFC (CRUG-RFC-0003), a parked-waiter state is future work |
 | -  | A scoped borrow is whole-object only and must name a value declared at the scope's own block depth or shallower; reborrowing a field, borrowing an element and borrowing through a call are refused or unchecked as in Phase 7 | ADR 0024 D4; place-level borrows are a later phase |
+| -  | The `Send`/`Sync` inference is structural and only an FFI sidecar can widen it: aggregate ownership is untracked, so a struct with an `own` field still counts as `Send` and copying it can double-free; there are no dynamic checks and no memory-ordering model | ADR 0026 D6 and D8; an ownership increment for aggregates |
 | -  | PAL v1 has no I/O poller and no second OS backend: the poller is deferred by the phase-13 non-goal (RFC-0001 section 32) and a Windows/Darwin/BSD/bare-metal backend is Phase 18 | ADR 0011 D2 and D9; a v1.1 amendment when an I/O phase needs the poller |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
@@ -449,12 +468,11 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Push Phase 16 and open Phase 17** (Send/Sync-like static concurrency
-   safety): the Phase 16 gate passes 7/7 at `601e0cc` (amendment A-19), so M16
-   is awarded and the next narrow question is which values may cross a worker or channel
-   boundary at all - non-sendable values, non-sync shared borrows and
-   thread-affine FFI handles. `chan T` and `select` now exist; Phase 17 adds the
-   static rules that keep them from becoming a data-race generator.
+1. **Push Phase 17 and open Phase 18 (multi-OS runtime)**: the Phase 17 gate
+   (amendment A-20) runs seven runnable checks, so M17 is awarded and the static
+   crossing rules (`Send`, `Sync`, thread affinity, `CONC-024` to
+   `CONC-027`) now cover tasks and channels. Phase 18 adds the second OS
+   backend and the poller that PAL v1 deferred.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

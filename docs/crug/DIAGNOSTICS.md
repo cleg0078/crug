@@ -171,6 +171,10 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-CONC-021` | - | error | error | 'send' takes two arguments: send (channel, value) | ADR 0025 D1, Phase 16 |
 | `crug-CONC-022` | - | error | error | '%s' takes one argument | ADR 0025 D1, Phase 16 |
 | `crug-CONC-023` | - | error | error | a destructor cannot cross a channel; the receiver of the value destroys it | ADR 0025 D4, Phase 16 |
+| `crug-CONC-024` | - | error | error | a value of type '%s' cannot cross to another task; the type is not 'Send' | ADR 0026 D2, Phase 17 |
+| `crug-CONC-025` | - | error | error | a thread-affine value cannot cross to another task; it belongs to the '%s' thread | ADR 0026 D7, Phase 17 |
+| `crug-CONC-026` | - | error | error | a shared borrow of '%s' cannot cross to another task; the type is not 'Sync' | ADR 0026 D3, Phase 17 |
+| `crug-CONC-027` | - | error | error | a channel element must be 'Send'; '%s' is not | ADR 0026 D4, Phase 17 |
 
 ### 4.6 Payload enums and match (`ADT`)
 
@@ -348,8 +352,15 @@ caught by the script.
 
 ## 9. Status
 
-125 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
-DROP 8, CONC 23, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+129 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
+DROP 8, CONC 27, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 17 added four codes, all in ADR 0026: CONC-024 (a value whose type is
+not Send crosses a task or channel boundary), CONC-025 (a thread-affine value
+from an FFI function crosses a task or channel boundary), CONC-026 (a shared
+borrow of a type that is not Sync crosses a task boundary) and CONC-027 (a
+channel element type that is not Send). The negative cases reuse CONC-003,
+CONC-011 and CONC-012 where the ownership rule is the same.
 
 Phase 16 added seven codes, all in ADR 0025: CONC-017 (a 'select' arm cannot
 receive from a channel with an owning element), CONC-018 (a channel operation
@@ -385,14 +396,14 @@ adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
 at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 16 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+suite that the owning gate runs. Implemented today (Phases 4 to 17 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-023,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
 ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-015, ADT-016, ADT-017,
 ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013, TYPE-014, CONC-001 to
-CONC-008 and CONC-010 to CONC-023. ADT-014 (match
+CONC-008, CONC-010 to CONC-023 and CONC-024 to CONC-027. ADT-014 (match
 used as an expression) is still planned: it is reachable only after the
 expression form of `match` gets its own recovery path. Everything else is
 planned; the KERNEL area is still reserved only,
