@@ -1,0 +1,5 @@
+# SQLite through two wrappers: Level 2 ownership (ADR 0007 D3).
+crugffi 1.0;
+
+fn my_open returns owned sqlite3 nullable drop my_close;
+fn my_close consumes arg0 nullable;

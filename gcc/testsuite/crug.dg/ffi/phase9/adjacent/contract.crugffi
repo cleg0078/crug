@@ -1,0 +1,3 @@
+crugffi 1.0;
+fn adj_alloc returns owned Node nullable drop adj_free;
+fn adj_free consumes arg0 nullable;

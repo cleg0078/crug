@@ -1,0 +1,5 @@
+# libcurl: easy handles are owned between init and cleanup.
+crugffi 1.0;
+
+fn my_init returns owned CURL nullable drop my_cleanup;
+fn my_cleanup consumes arg0 nullable;

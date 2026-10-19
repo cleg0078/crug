@@ -1,0 +1,2 @@
+crugffi 2.0;
+fn peek borrows arg0;

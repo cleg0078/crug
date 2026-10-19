@@ -1,0 +1,5 @@
+# OpenSSL: an SSL_CTX is owned between new and free.
+crugffi 1.0;
+
+fn my_ctx_new returns owned SSL_CTX nullable drop my_ctx_free;
+fn my_ctx_free consumes arg0 nullable;

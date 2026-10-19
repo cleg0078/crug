@@ -1,0 +1,10 @@
+# Phase 9 contract fixture: one function per clause kind (ADR 0007 D3).
+crugffi 1.0;
+
+fn my_alloc returns owned Node nullable drop my_free;
+fn my_free consumes arg0 nullable;
+fn fill_node out_owned arg0 drop my_free;
+fn peek borrows arg0;
+fn set_value mut_borrows arg0;
+fn run_cb callback arg0;
+fn live_count returns int;
