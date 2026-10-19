@@ -70,8 +70,10 @@ epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
 suite covers exactly those calls, so a runtime linked against a new backend is
 tested by the same twelve cases as the fake one. A task group (Phase 15,
 `SCOPE.md`) adds no PAL call of its own: a waiter uses `wait_u32` on the group's
-pending count on the main thread and `yield` inside a task. Channels (P16)
-are the next expected consumers; neither needs a v1 entry point that does not
+pending count on the main thread and `yield` inside a task. Channels (Phase 16,
+`CHANNELS.md`) are clients too: a blocked send or receive yields inside a task
+and calls `sleep_ns` on the main thread, and `crug_chan_poll_wait` is the same
+pair behind one name. No consumer so far needs a v1 entry point that does not
 already exist.
 
 ## 3. Error model
@@ -177,9 +179,9 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
   candidate for a v1.1 addition, when an I/O phase needs it; adding it now
   would freeze an interface with no client.
 - No Windows, Darwin, FreeBSD or bare-metal backend (P18).
-- No task, scheduler, channel or scope API: Phase 14 added the scheduler as a
-  *consumer* (section 2), not a PAL entry point, and channels and scopes remain
-  clients of v1.
+- No task, scheduler, channel or scope API: Phases 14 to 16 added the
+  scheduler, task groups and channels as *consumers* (section 2), not as PAL
+  entry points, and they remain clients of v1.
 - No timers as a service: `sleep_ns` is the only clock-based service, and it
   is not a timer wheel.
 - No affinity, priority or naming for threads.

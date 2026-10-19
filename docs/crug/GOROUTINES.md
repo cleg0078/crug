@@ -2,7 +2,8 @@
 
 Status: **v1 implemented** (2026-10-19, Phase 14; ADRs 0008, 0009, 0013).
 The structured `scope` statement is part of the same surface and is described
-in `SCOPE.md` (Phase 15, ADR 0024). Front end: `gcc/c/crug-tasks.cc`
+in `SCOPE.md` (Phase 15, ADR 0024). Channels and `select`, the way tasks pass
+values, are described in `CHANNELS.md` (Phase 16, ADR 0025). Front end: `gcc/c/crug-tasks.cc`
 (lowering) with the parser hooks in `gcc/c/c-parser.cc` and the capture checks
 in `gcc/c/crug-ownership.cc`. Runtime: `docs/crug/TASKS.md`.
 
@@ -169,7 +170,7 @@ into a task and released there) and `shutdown` (idempotent shutdown, restart).
   (CONC-012); inside a `scope` block a borrow of a value that outlives the
   block may be captured (`SCOPE.md`, ADR 0024 D4).
 - `go` cannot be used as an expression and there is no `go` with a result
-  value; a task that must report a result needs a channel (Phase 16) or FFI
-  callback.
+  value; a task that must report a result uses a channel (`CHANNELS.md`) or an
+  FFI callback.
 - The runtime is absent from kernel and plain-C builds: a program with no
   `go`/ `yield` never references `__crug_`.

@@ -1,6 +1,6 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phases 4 to 14 use it** (2026-10-19). The option
+Status: **Phase 3 implemented; Phases 4 to 16 use it** (2026-10-19). The option
 set, its closure and the feature macros exist.
 `-fcrug-ownership` gates the `own`, `move` and drop productions of Phases 4
 and 5 (`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`,
@@ -11,9 +11,10 @@ unchecked-operation policy with `raw` and `unsafe` (`STRICT.md`),
 constructors and `match` (`SAFE-TYPES.md`), and `-fcrug-alias-facts`
 turns a proven `mut` or `own` parameter into a `restrict` fact
 (`OPTIMIZATION.md`), and `-fcrug-goroutines` gates the `go`, `yield`
-and `scope` statements (`GOROUTINES.md`, `SCOPE.md`); the
-productions the remaining flags name (`chan`, `select`, the kernel port)
-do not exist yet. This page is the digest - the normative text is
+and `scope` statements (`GOROUTINES.md`, `SCOPE.md`),
+`-fcrug-channels` gates `chan`, `channel`, `send`, `recv`, `close` and
+`select` (`CHANNELS.md`); the production the remaining flag names (the
+kernel port) does not exist yet. This page is the digest - the normative text is
 ADR 0018 D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
 `EXIT-GATES.md` phases 3, 4, 5, 6, 7, 8, 9 and 10.
 
@@ -32,7 +33,7 @@ closure is computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
 | `-fcrug-adt` | payload enums and `match` over `option`, `result` and payload enums | - |
 | `-fcrug-goroutines` | `go` and `yield` (`GOROUTINES.md`) and `scope` (`SCOPE.md`) | - |
-| `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
+| `-fcrug-channels` | `chan T`; `channel`, `send`, `recv`, `close`; `select` (`CHANNELS.md`) | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
 | `-fcrug-ffi=<file>` | reads one `.crugffi` sidecar; repeatable, merged in command-line order (`FFI.md`) | `-fcrug-ownership` |
 | `-fcrug-ffi-discover` | turns the FFI layer on without naming a file, so sidecars next to quoted includes (and in `CRUG_FFI_PATH`) are discovered | `-fcrug-ownership` |
@@ -159,8 +160,15 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
   `scope { ... }` is a task group that waits for its children, a scoped child
   may capture a borrow of a value that outlives the block, and the extra codes
   are CONC-015 (a goto into a scope) and CONC-016 (a lender that dies first)
-  (`SCOPE.md`, ADR 0024). There is no channel, `send`, `recv`, `close`,
-  `channel` or `select` lowering (Phase 16).
+  (`SCOPE.md`, ADR 0024).
+- Channels and `select` exist (Phase 16, `CHANNELS.md`, ADR 0025): `chan T`
+  is one opaque pointer whatever the element type is, `channel (n)` takes its
+  type from the context, capacity 0 is a handoff, and a send of an owning
+  element requires `move` (CONC-003) because a destructor cannot cross a
+  channel (CONC-023). A `select` arm cannot receive from an owning-element
+  channel (CONC-017). There are no timeouts, no cancellation, no nil channel,
+  no fairness beyond the rotation counter, and a send on a closed channel is a
+  fatal runtime error.
 - Ownership-aware optimization exists as an opt-in contract
   (`-fcrug-alias-facts`, `OPTIMIZATION.md`, ADR 0010): `mut` and `own`
   pointer parameters become `restrict` and the caller must pass a proven
@@ -217,6 +225,7 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `bench/run.py --matrix alias --check` / `--lto` / `--plain-c --check` | the 5% band with byte identity as the primary evidence, LTO correctness, and plain C not degraded (object identity, 1.02 band when code changes) |
 | `make check-GOROUTINES` / `scripts/check-goroutines.sh` | `go`/`yield` lowering: 27 DejaGnu cases, five runtime programs, 100000 tasks on 4 workers and 4 thread-creating calls under `strace` (`GOROUTINES.md`, `TASKS.md`) |
 | `make check-SCOPE` / `scripts/check-scope.sh` | `scope` lowering: 23 DejaGnu cases and eight group programs whose counters balance (`SCOPE.md`, ADR 0024) |
+| `make check-CHANNELS` / `scripts/check-channels.sh` | `chan`, `send`, `recv`, `close` and `select`: 40 DejaGnu cases and seven runtime programs, including an owned transfer and a handoff (`CHANNELS.md`, ADR 0025) |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
 ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the
@@ -240,7 +249,10 @@ count, `make -C libcrug check-sanitizer`, the kernel object check,
 `make check-C_COMPAT`; the phase-15 gate runs `make check-SCOPE`, the
 scope-borrow and goto rejections, `make -C libcrug check-sanitizer`,
 `scripts/lint-no-os-apis.sh`, `scripts/check-diagnostics.sh` and
-`make check-C_COMPAT`; see `EXIT-GATES.md`.
+`make check-C_COMPAT`; the phase-16 gate runs `make check-CHANNELS`, the
+ownership and select rejections, `scripts/lint-no-os-apis.sh`,
+`scripts/check-diagnostics.sh` and `make check-C_COMPAT`; see
+`EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

@@ -96,8 +96,15 @@ still be exclusive), a `goto` into a scope body is rejected (`CONC-015`) and so
 is a borrow of a value that dies before the scope (`CONC-016`) - see
 [docs/crug/SCOPE.md](docs/crug/SCOPE.md) and
 [ADR 0024](docs/crug/adr/0024-structured-scope.md). The Phase 15 gate passes
-7/7 at `1f42cc7` (logs under `docs/crug/gates/phase-15/1f42cc7/`). `chan` and
-`select` are not implemented. See
+7/7 at `1f42cc7` (logs under `docs/crug/gates/phase-15/1f42cc7/`).
+Phase 16 adds channels and `select`: `chan T` is one opaque pointer whatever
+the element type is, `channel (n)` takes its type from the context, capacity 0
+is a handoff, and a `select` arm is `case recv (ch)`, `case v = recv (ch)`,
+`case send (ch, expr)` or `default` in any order with the default last. A send
+of an owning element requires `move` (the receiver destroys it), a destructor
+cannot cross a channel, and a `select` arm cannot bind a receive from an
+owning-element channel - see [docs/crug/CHANNELS.md](docs/crug/CHANNELS.md)
+and [ADR 0025](docs/crug/adr/0025-channels-and-select.md). See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -125,7 +132,9 @@ rules, modes, confidence, report, corpus). The runtime's operating-system
 boundary is specified in [docs/crug/PAL.md](docs/crug/PAL.md) (contract, error
 model, backends, suite). The task runtime and its stack and scheduler
 decisions are in [docs/crug/TASKS.md](docs/crug/TASKS.md), and the `go` surface
-and its lowering in [docs/crug/GOROUTINES.md](docs/crug/GOROUTINES.md). The C FFI
+and its lowering in [docs/crug/GOROUTINES.md](docs/crug/GOROUTINES.md); the
+structured `scope` block is in [docs/crug/SCOPE.md](docs/crug/SCOPE.md) and
+channels and `select` in [docs/crug/CHANNELS.md](docs/crug/CHANNELS.md). The C FFI
 metadata format is
 [docs/crug/adr/0007-ffi-metadata-format.md](docs/crug/adr/0007-ffi-metadata-format.md)
 (`.crugffi` v1, with a reference fixture at
@@ -173,7 +182,9 @@ procedure and a 31-check acceptance matrix, governed by
 - `scope` for structured concurrency: a block that waits for every task it
   spawned and lets those tasks borrow what outlives the block (Phase 15,
   ADR 0024).
-- `chan` and `select` with explicit ownership transfer on send (Phase 16).
+- `chan T`, `send`, `recv`, `close` and `select` with explicit ownership
+  transfer on send: an owning element crosses only through `move`, and the
+  receiver destroys it exactly once (Phase 16, ADR 0025).
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
 
 ## Building
@@ -239,9 +250,11 @@ the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
 `make check-SCOPE` runs 23 `scope` dg cases and eight group programs whose
 counters must balance (`leaked task group state: 0`); `docs/crug/SCOPE.md`
-describes them.
+describes them. `make check-CHANNELS` runs 39 `chan`/`select` dg cases and seven
+channel programs (buffered round trip, handoff, receive and send arms, an owned
+transfer, close, fan-in); `docs/crug/CHANNELS.md` describes them.
 Runnable programs that need no harness live in
-[examples/](examples/README.md), one per Phase 4-11 feature.
+[examples/](examples/README.md), one per Phase 4-16 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
