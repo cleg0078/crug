@@ -204,6 +204,9 @@ check-BORROW: ## run the Crug borrow checker tests under DejaGnu
 	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/borrow/borrow.exp' 2>&1 | tee $(OBJ_DIR)/check-borrow.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
 	exit $${PIPESTATUS[0]}
 
+check-FFI: ## run the Crug FFI contract fixtures (.crugffi)
+	@scripts/check-ffi-suite.sh
+
 check-STRICT_UNSAFE: ## run the Crug strict mode, raw and unsafe tests under DejaGnu
 	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
 	@. tools/dejagnu.env 2>/dev/null || true; \
@@ -254,5 +257,5 @@ distclean: ## remove build/ and sources/ entirely
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
-	check-STRICT_UNSAFE \
+	check-STRICT_UNSAFE check-FFI \
 	status print-config reconfigure clean distclean
