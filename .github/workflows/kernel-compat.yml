@@ -18,12 +18,22 @@ jobs:
   kernel-compat:
     name: kernel-compat
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    # Private-repository runners are 2 CPU / 8 GB / 14 GB SSD, not the 4 CPU /
+    # 16 GB public-repo runner. The GCC build plus the checkout needs about
+    # 8 GB, so the job frees space first and allows up to five hours.
+    timeout-minutes: 300
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+      - name: Free disk space
+        run: |
+          # The runner image ships toolchains this build never uses; removing
+          # them turns a 14 GB disk into roughly 30 GB of usable space.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker image prune -af || true
       - name: Require disk headroom
         run: |
           available=$(df --output=avail -k . | tail -n 1)
@@ -38,6 +48,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd
       - name: Configure and build the pinned GCC baseline
-        run: make baseline JOBS=4
+        run: make baseline JOBS=$(nproc)
       - name: Run the kernel compatibility suite
         run: make check-KERNEL_COMPAT
