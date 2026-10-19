@@ -1,0 +1,22 @@
+phase-13 #1 rc=0
+cmd: make -C libcrug check-PAL PAL=fake
+expected: exit 0 and the log ends `pal-contract[fake]: 12 cases, 0 failed, 1 skipped` (the one skip is the documented guard-page decline; the core compiles against the fake PAL and runs the whole suite).
+---
+make: Entering directory '/home/cleg/MyDev/crug/libcrug'
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"fake"' -c -o build/fake/pal_contract.o core/pal_contract.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"fake"' -c -o build/fake/pal_fake.o pal/fake/pal_fake.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"fake"' -o build/fake/pal-contract tests/pal_contract_main.c build/fake/pal_contract.o build/fake/pal_fake.o 
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: skip (backend declines guard pages)
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[fake]: 12 cases, 0 failed, 1 skipped
+make: Leaving directory '/home/cleg/MyDev/crug/libcrug'

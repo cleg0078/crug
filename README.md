@@ -76,8 +76,9 @@ way the runtime may touch an operating system, two backends implement it (a fake
 with no OS at all and a Linux one on `pthread`/`futex`/`mmap`), and a twelve-case
 contract suite runs against both so a port is a backend and not a fork - see
 [docs/crug/PAL.md](docs/crug/PAL.md) and
-[ADR 0011](docs/crug/adr/0011-pal-contract.md). The scheduler, goroutines,
-channels and tasks are not implemented. See
+[ADR 0011](docs/crug/adr/0011-pal-contract.md). The Phase 13 gate passes 7/7 at
+`e8a0b22` (logs under `docs/crug/gates/phase-13/e8a0b22/`). The scheduler,
+goroutines, channels and tasks are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

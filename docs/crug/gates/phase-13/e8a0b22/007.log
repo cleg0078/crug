@@ -1,0 +1,5 @@
+phase-13 #7 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0 and `111 registered code(s); 111 referenced code(s)` (Phase 13 adds no diagnostic but must not break the registry).
+---
+check-diagnostics: 111 registered code(s); 111 referenced code(s); all references registered.

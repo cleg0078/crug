@@ -1,0 +1,5 @@
+phase-13 #5 rc=0
+cmd: test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0
+expected: exit 0 (architecture-dependent context code lives only under `libcrug/arch/`, not `libcrug/pal/arch/` as the draft gate said).
+---
+

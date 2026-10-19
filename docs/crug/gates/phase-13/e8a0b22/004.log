@@ -1,0 +1,5 @@
+phase-13 #4 rc=0
+cmd: scripts/check-pal.sh
+expected: exit 0 and `check-pal: fake and linux share 12 contract cases, 0 failures; fake backend links no system primitive, guard pages fault on linux` (same case names on both backends, no unexpected skip, no system symbol in the fake object).
+---
+check-pal: fake and linux share 12 contract cases, 0 failures; fake backend links no system primitive, guard pages fault on linux

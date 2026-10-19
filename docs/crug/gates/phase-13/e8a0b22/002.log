@@ -1,0 +1,24 @@
+phase-13 #2 rc=0
+cmd: make -C libcrug check-PAL PAL=linux
+expected: exit 0, the log ends `pal-contract[linux]: 12 cases, 0 failed, 0 skipped`, and `guard-fault: SIGSEGV on the guarded page as claimed` is present (the Linux backend passes the same suite and its guard pages really fault).
+---
+make: Entering directory '/home/cleg/MyDev/crug/libcrug'
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"linux"' -c -o build/linux/pal_contract.o core/pal_contract.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"linux"' -c -o build/linux/pal_linux.o pal/linux/pal_linux.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"linux"' -o build/linux/pal-contract tests/pal_contract_main.c build/linux/pal_contract.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -DCRUG_PAL_BACKEND='"linux"' -o build/linux/pal-guard-fault tests/linux/pal_guard_fault.c build/linux/pal_linux.o -pthread
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: ok
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[linux]: 12 cases, 0 failed, 0 skipped
+guard-fault: SIGSEGV on the guarded page as claimed
+make: Leaving directory '/home/cleg/MyDev/crug/libcrug'

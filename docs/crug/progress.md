@@ -257,8 +257,8 @@ layout follows the master specification's two axes (`libcrug/pal` for the OS,
 The poller is deliberately not in v1: the phase's own non-goal defers
 pollers and io_uring to post-1.0, and an interface with no client cannot be
 validated (ADR 0011 D2). The Phase 13 gate (amendment A-16) runs seven
-runnable checks; M13 is awarded when `scripts/gate.sh --run phase-13` archives
-a 7/7 run.
+runnable checks and passes 7/7 at `e8a0b22` (logs under
+`docs/crug/gates/phase-13/e8a0b22/`), so M13 is awarded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -358,7 +358,7 @@ superseding ADR and owner ratification.
 ## Next actions, in dependency order
 
 1. **Push and open Phase 14** (goroutine and task runtime MVP): the Phase 13
-   gate passes 7/7 at its gate commit; push the branch, then write ADR 0008
+   gate passes 7/7 at `e8a0b22`; push the branch, then write ADR 0008
    (goroutine stack model) and ADR 0009 (scheduler model), which the required
    ADR list fixes and which the next phase cannot start without. The task and
    scheduler code goes in `libcrug/core/` on top of `crug_pal.h`, and the

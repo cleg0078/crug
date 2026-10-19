@@ -1,0 +1,5 @@
+phase-13 #3 rc=0
+cmd: scripts/lint-no-os-apis.sh libcrug/core
+expected: exit 0 and `lint-no-os-apis: 2 file(s) under libcrug/core, 0 operating-system primitive references` (the gate names `pthread_|epoll|futex|CreateThread|kqueue|WaitOnAddress`; the script also rejects the extended list).
+---
+lint-no-os-apis: 2 file(s) under libcrug/core, 0 operating-system primitive references
