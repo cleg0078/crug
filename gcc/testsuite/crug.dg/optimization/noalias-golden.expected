@@ -1,0 +1,4 @@
+void mixed (int * restrict d, const int * a, int * p)
+int ref_only (const int * a)
+void write_only (int * restrict d)
+int own_only (int * restrict p)
