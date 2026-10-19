@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-fcrug-ownership" } */
+/* { dg-options "-fcrug-ownership -Wno-crug-unadopted-own" } */
 
 /* ADR 0004 D4: partial moves are post-MVP.  */
 

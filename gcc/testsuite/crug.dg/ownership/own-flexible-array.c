@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-fcrug-ownership" } */
+/* { dg-options "-fcrug-ownership -Wno-crug-unadopted-own" } */
 
 /* ADR 0004: a flexible array member cannot be an owning array; the
    qualifier must go on a complete array or on a pointer.  */

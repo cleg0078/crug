@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -fcrug-ownership" } */
+/* { dg-options "-O2 -fcrug-ownership -Wno-crug-unadopted-own" } */
 
 /* ADR 0003 D3 and ADR 0004 D3: the qualifier is erased at every ABI
    boundary, so it may not change size or alignment.  */

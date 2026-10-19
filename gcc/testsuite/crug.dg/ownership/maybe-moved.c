@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -fcrug-ownership" } */
+/* { dg-options "-O2 -fcrug-ownership -Wno-crug-unadopted-own" } */
 
 /* ADR 0003 D2: the join of OWNED and MOVED is MAYBE_MOVED, and using a
    possibly-moved value is an error rather than a silent assumption.  */

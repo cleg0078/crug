@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-fcrug-ownership" } */
+/* { dg-options "-fcrug-ownership -Wno-crug-unadopted-own" } */
 
 /* ADR 0004 D6: an owning member in a union needs an active-variant
    contract, which the MVP does not have.  */
