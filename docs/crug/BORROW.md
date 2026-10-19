@@ -102,6 +102,12 @@ a `ref`/`mut` parameter (crug-BORROW-020), a borrow may not be returned
 function is summarized, so a call can never extend a borrow's lifetime. Passing
 a plain pointer where a `ref T *` is expected remains accepted: the callee
 then has a borrow the caller never granted, and Phase 8 owns that direction.
+A plain pointer at a `mut T *` parameter is also accepted by default, but it
+proves no exclusivity; `-fcrug-alias-facts` (ADR 0010) is the mode in which the
+contract is checked: it rejects a plain pointer (crug-BORROW-021) and a shared
+borrow (crug-BORROW-022) at a `mut` parameter, two borrows of one lender in
+one call when at least one is mutable (crug-BORROW-002 and crug-BORROW-003), and
+a call that passes a lender beside its own mutable borrow (crug-BORROW-023).
 
 ### 2.5 Where a borrow may appear
 

@@ -209,16 +209,17 @@ The first check compiles one fixture twice: without `-fcrug-strict` it must exit
 
 ## Phase 11 — Ownership-Aware Optimization
 **Closes:** M11 — Optimizer-aware ownership.
-**Prerequisite:** Phase 7 gate archived (proven `mut` exclusivity, NLL soundness) and the three-arm benchmark matrix (C ordinary / C restrict / Crug ref-mut) exists under `bench/`.
+**Prerequisite:** Phase 7 gate archived (proven `mut` exclusivity, NLL soundness), ADR 0010 (noalias lowering, Accepted; the 5% band is ratified there), and the three-arm benchmark matrix (C ordinary / C restrict / Crug mut-ref) exists under `bench/`.
 **Exit gate:**
-- `CHECK: bench/run.py --matrix alias --check` => every Crug ref/mut case within 5% of its hand-written `restrict` twin (ratio ≤ 1.05) on at least one benchmark.
-- `CHECK: crugc -O2 -fdump-tree-alias gcc/testsuite/crug.dg/optimization/noalias-golden.c` => restrict/noalias annotations appear only where the `mut` proof exists; golden diff 0.
-- `CHECK: make check-OPTIMIZATION` => exit 0, including adversarial-alias and LTO correctness suites.
-- `CHECK: bench/run.py --plain-c --check` => plain-C ratios ≤ 1.02 versus the recorded baseline GCC at -O0/-O2/-O3/LTO (not systematically degraded).
-- `CHECK: ./scripts/check-stop-conditions.sh` => 0 false-noalias reports (a false noalias fact is a P0 and stops the phase).
+- `CHECK: bench/run.py --matrix alias --check` => exit 0: for every kernel at -O2 and -O3 the Crug kernel object is byte-identical to its hand-written `restrict` twin, and the measured crug/restrict ratio is ≤ 1.05 wherever the objects differ (identical objects are reported as 1.000).
+- `CHECK: scripts/check-optimization.sh` => exit 0: the `-fdump-tree-alias` signatures of `noalias-golden.c` match `noalias-golden.expected` exactly (restrict on `mut`/`own` parameters only), 8/8 kernel objects are byte-identical, a ref-only function equals its plain twin, the flag alone changes nothing, and the five adversarial programs are rejected (BORROW-002, -003, -021, -022, -023).
+- `CHECK: make check-OPTIMIZATION` => exit 0: 16 DejaGnu `crug.dg/alias` cases plus `scripts/check-optimization.sh`, `--matrix alias --check` and `--matrix alias --lto` (LTO build, equal results, execution).
+- `CHECK: bench/run.py --plain-c --check` => exit 0: the plain kernel objects are byte-identical to `bench/baseline.json` at -O0/-O2/-O3 (a code change is then measured against the 1.02 band), and the LTO arm builds and runs correctly; LTO timing is not enforced because GCC's LTO objects are not byte-reproducible.
+- `CHECK: scripts/check-stop-conditions.sh` => exit 0 printing `stop-conditions: N facts audited, 0 false-noalias reports` with N > 0 (a false noalias fact is a P0 and stops the phase).
+- `CHECK: scripts/check-diagnostics.sh` => exit 0 (BORROW-021, BORROW-022 and BORROW-023 registered, no duplicate or unknown-area code).
+- `CHECK: make check-C_COMPAT` => exit 0 (plain C objects are unchanged when the flag is off).
 **Non-goals:** no new GIMPLE opcodes, no alias facts from unproven ownership, no vectorizer changes outside justified facts, no "Crug must beat C" target (§26).
 **Risk of skipping:** a false noalias is a silent miscompilation with no user-visible symptom until the program is wrong in production.
-`VAGUE:` "restrict-like optimization" has no number; the weakest defensible check is the 5% band above, ratified by the owner in an ADR before P11 closes.
 
 ## Phase 12 — `c2crug` Migration Tool Integration
 **Closes:** M12 — c2crug migration tooling.
@@ -474,7 +475,7 @@ pass without proving what it claims, and each names who must fix it.
    stages K3/K4 lets the pinned file list shrink. Fix: freeze the list in
    `kernel/KERNEL-CORPUS.md` with counts before M19 is claimed.
 
-The same pattern may exist in other VAGUE markers (9 in this file). A VAGUE marker
+The same pattern may exist in other VAGUE markers (8 in this file). A VAGUE marker
 is an open gate by section 2.5; this list is the subset known to be exploitable.
 
 ## 12. Amendment record
@@ -494,5 +495,6 @@ is an open gate by section 2.5; this list is the subset known to be exploitable.
 | A-11 | 2026-10-19 | Phase 10 checks replaced by seven runnable commands (`make check-SAFE_TYPES`, `scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh`, the layout compile, the non-exhaustive `match` compile, `make check-C_COMPAT`, `scripts/check-diagnostics.sh`); 10D payload enums and owned payloads recorded as a `VAGUE` item with the `adts-drop` command increment 2 must produce, so M10 cannot be awarded yet. | Old check 1 lumped 10A-10D into one Make observable; check 2 compiled `layout.c` without the flags that make the generic types parse, so it could only fail; check 3 named `gcc/testsuite/crug.dg/safe-types/adts-drop` as if a directory were a command, and no such test can exist before owned payloads; check 4 named `non-exhaustive-match.c`, which the suite spells `match-non-exhaustive.c`, and required exit 1 *and* a diagnostic in one line that `scripts/gate.sh` cannot adjudicate; check 5 alone did not exercise the new diagnostics. Increment 1 (2026-10-19) implements 10A, 10B, 10C, `match` and checked indexing; 10D stays open by section 2.5. |
 | A-12 | 2026-10-19 | Phase 10 gate extended by increment 2a: check 1's floor raised from 32 to 55 expected passes, the `layout.c` check scoped to `slice`/`option`/`result`, and two checks added (`payload-enum-layout.c` compiles, `payload-enum-forward.c` fails with `[crug-ADT-017]`); the `VAGUE` item now covers owned payloads only. | Increment 2a implements 10D payload enums and `match` over them, so the old `VAGUE` text ("a payload enum needs a record storage type registered under an enum tag") is no longer true: `lookup_tag`/`parser_xref_tag` accept the pairing and the payload-enum `ABI.md` row is frozen. The gate now asserts that layout and the forward-reference rule, and keeps only the owned-payload `adts-drop` command open. |
 | A-13 | 2026-10-19 | Phase 10 gate closed: check 1's floor raised from 55 to 77 expected passes, `scripts/check-owned-payloads.sh` added as a check, the diagnostic check extended to ADT-018..ADT-020, and the owned-payload `VAGUE` item removed. | Increment 2b implements owned payloads, so the observable A-11 and A-12 kept open now exists and passes: one drop for the active variant, none for an inactive one, a tag guard in the generated code, and the six unsafe forms rejected. Nothing in the gate is prose any more, so M10 is adjudicable by `scripts/gate.sh --run phase-10`. |
+| A-14 | 2026-10-19 | Phase 11 checks replaced by seven runnable commands (matrix check, `scripts/check-optimization.sh`, `make check-OPTIMIZATION`, plain-C check, `scripts/check-stop-conditions.sh`, `scripts/check-diagnostics.sh`, `make check-C_COMPAT`); byte identity of the Crug and hand-written `restrict` kernel objects is the primary observable, with the 5% band measured only when the objects differ; the LTO timing band is replaced by LTO correctness; the `VAGUE` marker on "restrict-like optimization" is removed because ADR 0010 fixes the number. | Check 1's timing band cannot adjudicate this host: repeated runs of two *identical* objects were observed between 0.65 and 2.3, so a 1.05 ratio would fail at random. Check 2 diffed `-fdump-tree-alias` output, which is a points-to dump with a pass number in the file name and decl UIDs in the body; the golden signature extract in `scripts/check-optimization.sh` is the same evidence with a stable shape. Check 4's LTO band cannot exist: GCC's LTO objects are not byte-reproducible (two builds of one source differ), so LTO is asserted by correctness and execution instead. Identity is the stronger claim: identical machine code cannot be five percent slower for a reason attributable to the fact. |
 
 

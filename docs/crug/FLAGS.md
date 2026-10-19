@@ -1,28 +1,31 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phases 4, 5, 6, 7, 8, 9 and 10 use it**
+Status: **Phase 3 implemented; Phases 4, 5, 6, 7, 8, 9, 10 and 11 use it**
 (2026-10-19). The option set, its closure and the feature macros exist.
 `-fcrug-ownership` gates the `own`, `move` and drop productions of Phases 4
 and 5 (`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`,
 `borrow` and `borrow_mut` (`BORROW.md`), `-fcrug-strict` adds the
 unchecked-operation policy with `raw` and `unsafe` (`STRICT.md`),
 `-fcrug-ffi=<file>` reads a contract sidecar (`FFI.md`), and
-`-fcrug-slices`/`-fcrug-result` now gate the safe core types, the value
-constructors and `match` (`SAFE-TYPES.md`); the productions the remaining
-flags name do not exist yet. This page is the digest - the normative text is
+`-fcrug-slices`/`-fcrug-result` gate the safe core types, the value
+constructors and `match` (`SAFE-TYPES.md`), and `-fcrug-alias-facts`
+turns a proven `mut` or `own` parameter into a `restrict` fact
+(`OPTIMIZATION.md`); the productions the remaining flags name do not exist
+yet. This page is the digest - the normative text is
 ADR 0018 D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
 `EXIT-GATES.md` phases 3, 4, 5, 6, 7, 8, 9 and 10.
 
 ## 1. The option set
 
-Ten options are declared in `gcc/common.opt`, all `Common` so that the driver
-and every front end accept them, and all with a `Var(...)` so the closure is
-computed in one place (`gcc/c-family/crug-common.cc`).
+The feature options are declared in `gcc/common.opt`, all `Common` so that
+the driver and every front end accept them, and all with a `Var(...)` so the
+closure is computed in one place (`gcc/c-family/crug-common.cc`).
 
 | Option | Enables, when its phase lands | Implies |
 | --- | --- | --- |
 | `-fcrug-ownership` | `own`, `raw`; `move`, `drop`, `adopt`, `release`; `unsafe {}` | - |
 | `-fcrug-borrow` | `ref`, `mut`; `borrow`, `borrow_mut` | `-fcrug-ownership` |
+| `-fcrug-alias-facts` | compiles `mut` and `own` pointer parameters as `restrict` and rejects unproven call sites (`OPTIMIZATION.md`) | `-fcrug-borrow` |
 | `-fcrug-slices` | `slice<T>`, `slice (ptr, len)`, checked `s[i]` | - |
 | `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
 | `-fcrug-adt` | payload enums and `match` over `option`, `result` and payload enums | - |
@@ -44,10 +47,12 @@ decisions rather than driver-wide switches, and are handled in
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
 `Common Joined RejectNegative` with a comma-separated list of kinds -
-`ownership`, `drop` and `borrow` today; an unknown kind is an error. It writes
-`<stem>.crug-ownership`, `<stem>.crug-drop` or `<stem>.crug-borrow` next to the
-output base while the front end runs, and changes no code. `OWNERSHIP.md`
-section 4, `DROP.md` section 6 and `BORROW.md` section 4 give the formats.
+`ownership`, `drop`, `borrow` and `alias` today; an unknown kind is an
+error. It writes `<stem>.crug-ownership`, `<stem>.crug-drop`,
+`<stem>.crug-borrow` or `<stem>.crug-alias` next to the output base while the
+front end runs, and changes no code. `OWNERSHIP.md` section 4, `DROP.md`
+section 6, `BORROW.md` section 4 and `OPTIMIZATION.md` section 4 give the
+formats.
 
 With no option at all, `crugc` is upstream GCC: the same predefined macros, the
 same parses, the same object code. That is the Phase 1 identity and it keeps
@@ -86,6 +91,7 @@ Defined in `c_cpp_builtins` only when `crug_features` is non-zero:
 | `__CRUG_COMPILER__` | same |
 | `__CRUG_OWNERSHIP__` | `-fcrug-ownership` after closure |
 | `__CRUG_BORROW__` | `-fcrug-borrow` after closure |
+| `__CRUG_ALIAS_FACTS__` | `-fcrug-alias-facts` after closure |
 | `__CRUG_SLICES__` | `-fcrug-slices` |
 | `__CRUG_RESULT__` | `-fcrug-result` |
 | `__CRUG_ADT__` | `-fcrug-adt` after closure |
@@ -143,8 +149,15 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 - Strict mode, `raw` and `unsafe` exist (`STRICT.md`); there is no
   provenance or UB sanitizer, and `unsafe` code is not analysed.
 - No goroutine, scope or channel lowering (Phase 14-16).
-- Only the `ownership`, `drop` and `borrow` dumps exist (`-fcrug-dump=` comma
-  list); no goroutine or channel dump.
+- Ownership-aware optimization exists as an opt-in contract
+  (`-fcrug-alias-facts`, `OPTIMIZATION.md`, ADR 0010): `mut` and `own`
+  pointer parameters become `restrict` and the caller must pass a proven
+  mutable borrow. It is off by default and `-fcrug-modern` does not enable it,
+  because the fact changes code generation and makes an unproven call site
+  undefined. Without the flag, a plain pointer at a `mut` parameter is still
+  accepted (`BORROW.md` section 2.4).
+- Only the `ownership`, `drop`, `borrow` and `alias` dumps exist
+  (`-fcrug-dump=` comma list); no goroutine or channel dump.
 - `slice<T>`, `option<T>`, `result<T,E>`, their value constructors, `match`
   over all three sum shapes, payload enums and checked slice indexing exist
   (`SAFE-TYPES.md`). Payload enums are gated by `-fcrug-adt` exactly as
@@ -186,6 +199,10 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
 | `scripts/check-borrow-dump.sh` | the `borrow` dump records shared and mutable borrows and their ends (`BORROW.md` section 4) |
 | `scripts/check-borrow-nll.sh` / `check-borrow-escape.sh` / `check-borrow-real-c.sh` | a borrow ends at last use in the dump, an escaping borrow is rejected with its origin noted, and six realistic programs compile and run |
+| `make check-ALIAS_FACTS` | `mut`/`own` alias facts, the flag-off leniency, and the five call-site rejections (BORROW-002, -003, -021, -022, -023): 16 expected passes under `gcc/testsuite/crug.dg/alias/` |
+| `scripts/check-optimization.sh` | the golden alias dump, 8/8 benchmark kernel objects byte-identical to their hand-written `restrict` twins, ref-only and flag-off identity, five adversarial rejections and one runtime program |
+| `scripts/check-stop-conditions.sh` | every dumped fact names a `mut`/`own` parameter, a ref-only function has no fact, and 0 false-noalias reports |
+| `bench/run.py --matrix alias --check` / `--lto` / `--plain-c --check` | the 5% band with byte identity as the primary evidence, LTO correctness, and plain C not degraded (object identity, 1.02 band when code changes) |
 
 The phase-3 gate runs the first four in order, the phase-4 gate runs the
 ownership rows plus the ABI and diagnostic-code checks, the phase-5 gate runs the
@@ -199,7 +216,11 @@ compatibility suites and `scripts/check-diagnostics.sh`; the phase-9 gate runs
 `scripts/check-diagnostics.sh`; the phase-10 gate runs `make check-SAFE_TYPES`,
 `scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh`,
 `scripts/check-owned-payloads.sh`, the layout compiles and the two
-compatibility suites; see `EXIT-GATES.md`.
+compatibility suites; the phase-11 gate runs `bench/run.py --matrix alias
+--check`, `scripts/check-optimization.sh`, `make check-OPTIMIZATION`,
+`bench/run.py --plain-c --check`, `scripts/check-stop-conditions.sh`,
+`scripts/check-diagnostics.sh` and `make check-C_COMPAT`; see
+`EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

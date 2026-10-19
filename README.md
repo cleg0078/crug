@@ -52,8 +52,19 @@ no runtime and no helper calls - see
 (`own char *`): it is transferred into the constructor, dropped only when its
 variant is active, and moved into `match` (`crug-ADT-015`/`-018`/`-019`/`-020`).
 The Phase 10 gate passes 10/10 at `43996fe` (logs under
-`docs/crug/gates/phase-10/43996fe/`). `libcrug`, goroutines and channels are
-not implemented. See
+`docs/crug/gates/phase-10/43996fe/`). Phase 11 makes ownership visible to the
+optimizer: with the opt-in `-fcrug-alias-facts`, a `mut` parameter (an
+exclusive borrow) and an `own` parameter (the only owner) are compiled as
+`restrict`, and the caller must pass `borrow_mut`/`borrow` - a plain
+pointer at a `mut` parameter is rejected (`crug-BORROW-021`), as are two
+views of one lender in a single call. The phase rests on byte identity: the
+Crug kernel objects of the `bench/` matrix are identical to their
+hand-written `restrict` twins at `-O2`/`-O3`, so the optimizer receives
+exactly the fact the source proves and nothing more - see
+[docs/crug/OPTIMIZATION.md](docs/crug/OPTIMIZATION.md) and
+[ADR 0010](docs/crug/adr/0010-noalias-lowering.md). The Phase 11 gate passes
+7/7 at the gate commit (logs under `docs/crug/gates/phase-11/`). `libcrug`,
+goroutines and channels are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -105,6 +116,10 @@ procedure and a 31-check acceptance matrix, governed by
   `some`/`none`/`ok`/`err`/variant constructors and a `match` statement.
   Plain C records with frozen layouts, so they cost what the equivalent struct
   costs (Phase 10).
+- Ownership-aware optimization: an opt-in `restrict` fact from a proven
+  `mut` or `own` parameter, with the caller contract checked at every call
+  site and a byte-identical result to a hand-written `restrict` twin
+  (Phase 11, ADR 0010).
 - `go`, `scope`, `chan`, `select` for structured concurrency with explicit
   ownership transfer on send.
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
@@ -154,9 +169,14 @@ runs the safe-type suite (77 expected passes), `scripts/check-safe-types.sh` tal
 `scripts/check-safe-bounds.sh` asserts that an out-of-range `s[i]` traps while
 `-fno-crug-bounds-checks` removes the trap, and `scripts/check-owned-payloads.sh`
 asserts that an owning payload enum destroys the active variant exactly once and
-never an inactive one. Runnable programs
-that need no harness live in [examples/](examples/README.md), one per Phase 4-8
-feature.
+never an inactive one. `make check-ALIAS_FACTS` runs the alias-fact dg suite,
+`make check-OPTIMIZATION` adds the golden alias dump, the byte-identity and
+adversarial checks and the LTO pass, `scripts/check-stop-conditions.sh` audits
+every derived fact against its source declaration, and `bench/run.py` runs the
+three-arm matrix (`--matrix alias --check`, `--matrix alias --lto`,
+`--plain-c --check`); `docs/crug/OPTIMIZATION.md` describes them. Runnable
+programs that need no harness live in [examples/](examples/README.md), one per
+Phase 4-11 feature.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence

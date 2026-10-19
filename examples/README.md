@@ -20,13 +20,14 @@ its first comment.
 | `12-bounds.c` | checked indexing: an out-of-range `s[i]` traps (exit 132, SIGILL), while `-fno-crug-bounds-checks` removes the trap | `./gcc/crugc -O2 -fcrug-slices examples/12-bounds.c -o build/bounds && ./build/bounds; echo "exit=$?"` |
 | `13-payload-enum.c` | a payload `enum` (`Text (char *)`, `Number (int)` and the unit variant `Quit`), construction from each variant and a `match` covering every one | `./gcc/crugc -O2 -fcrug-adt examples/13-payload-enum.c -o build/payload-enum && ./build/payload-enum` |
 | `14-owned-payload.c` | an owned payload (`Text (own char *)`): ownership moves in through `adopt`, each value is moved into `match`, the arm binding releases the text once, and the variants that own nothing release nothing | `./gcc/crugc -O2 -fcrug-adt -fcrug-ownership examples/14-owned-payload.c -o build/owned-payload && ./build/owned-payload` |
+| `15-alias-facts.c` | `-fcrug-alias-facts`: a `mut` parameter is compiled as `restrict` and the caller passes `borrow_mut`; the dump records the fact | `./gcc/crugc -O2 -fcrug-borrow -fcrug-alias-facts examples/15-alias-facts.c -o build/alias-facts && ./build/alias-facts` |
 | `stress-test-mem.c` | a 1,000,000-iteration ownership stress run: seven allocation patterns per iteration, every object destroyed once (created = destroyed, live 0) | `./gcc/crugc -O2 -fcrug-borrow examples/stress-test-mem.c -o build/stress && ./build/stress` |
 
 `crugc` finds the build tree automatically (`build/obj/gcc/xgcc`); `make
 baseline` creates it.  The full flag set is in `docs/crug/FLAGS.md` and the
 ownership rules in `docs/crug/OWNERSHIP.md` and `docs/crug/DROP.md`, the
 borrow rules in `docs/crug/BORROW.md`, strict mode in `docs/crug/STRICT.md`, the FFI contracts in `docs/crug/FFI.md`, and the
-safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`.
+safe core types, payload enums and owned payloads in `docs/crug/SAFE-TYPES.md`, and ownership-aware optimization in `docs/crug/OPTIMIZATION.md`.
 
 A rejected program is as much an example as an accepted one: the second
 column of the table is the point of the phase.

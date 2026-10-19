@@ -32,6 +32,7 @@ the existing C testsuite and `scripts/diff-cc.sh` already assert the same facts.
 | Construct | Guarantee | Where it is asserted |
 |-----------|-----------|----------|
 | `own`, `ref`, `mut`, `raw` pointer qualifiers | Same size, alignment and calling representation as the unqualified pointer; erased for type compatibility, prototypes, function-pointer assignment, `_Generic` and linkage | `crug.dg/ownership/abi-ptr.c` (Phase 4 gate), `crug.dg/abi/qualifier-erasure.c` |
+| `mut`/`own` parameters under `-fcrug-alias-facts` | The parameter type gains `restrict` for alias analysis only; no size, alignment, calling-convention or symbol change, and the fact is not part of the type compatibility rules (ADR 0010 D5) | `bench/` kernel objects are byte-identical to their hand-written `restrict` twins (`scripts/check-optimization.sh`) |
 | Qualified `struct` members | Byte-identical layout to the C struct, including padding; no hidden field, bit-field or state byte | `crug.dg/abi/layout-twins.c` |
 | Qualified function parameters and returns | Same machine argument and return representation as the unqualified declaration; no hidden parameter, no wrapper | `crug.dg/abi/call-both-directions.c` |
 | Owned aggregate by value | C classification of the underlying struct; move is a bitwise copy plus logical transfer, no helper call | `crug.dg/abi/agg-by-value.c` |
@@ -114,3 +115,4 @@ depend on a guessed layout for any of these types.
 | 2026-10-19 | Phase 10 increment 1 froze `slice<T>`, `option<T>` and `result<T,E>` (size, alignment, member offsets, calling representation, inactive variant), asserted by `crug.dg/safe-types/layout.c`. Crug-native ABI version 1. |
 | 2026-10-19 | Phase 10 increment 2a froze the payload `enum` row (record of `unsigned int tag` and a payload union, 0-based declaration index, no niche optimization), asserted by `crug.dg/safe-types/payload-enum-layout.c`. Still Crug-native ABI version 1. |
 | 2026-10-19 | Phase 10 increment 2b recorded that an owned payload is analysis-only metadata: no layout change, asserted by `crug.dg/safe-types/payload-enum-own-abi.c`, and an owning payload enum may not cross a function boundary by value. No row changed value, so the ABI version stays 1. |
+| 2026-10-19 | Phase 11 recorded that `-fcrug-alias-facts` adds `restrict` to `mut`/`own` parameter types for the optimizer only; no layout, calling-convention or symbol row changed, so the ABI version stays 1. |

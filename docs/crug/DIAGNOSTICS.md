@@ -127,6 +127,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-BORROW-018` | - | error | error | a borrow must be an automatic variable; it cannot outlive its referent | ADR 0019 D3, Phase 7 |
 | `crug-BORROW-019` | - | error | error | a borrow cannot be returned from the function that created it | ADR 0019 D4, Phase 7 |
 | `crug-BORROW-020` | - | error | error | a borrow may only be passed to a 'ref' or 'mut' parameter | ADR 0019 D2, Phase 7 |
+| `crug-BORROW-021` | - | error | error | passing a plain pointer to a 'mut' parameter proves no exclusive access; pass borrow_mut (...) or a mutable borrow | ADR 0010 D4, Phase 11 |
+| `crug-BORROW-022` | - | error | error | a shared borrow cannot be passed to a 'mut' parameter | ADR 0010 D4, Phase 11 |
+| `crug-BORROW-023` | - | error | error | the lender '%s' is also passed to this call; a 'mut' parameter must be the only view of its object | ADR 0010 D4, Phase 11 |
 
 ### 4.4 Destruction (`DROP`)
 
@@ -331,8 +334,14 @@ caught by the script.
 
 ## 9. Status
 
-108 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+111 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
 DROP 8, CONC 9, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 11 added three codes, all in ADR 0010 D4: BORROW-021 (a plain pointer at a
+'mut' parameter), BORROW-022 (a shared borrow at a 'mut' parameter) and
+BORROW-023 (the lender passed beside its own mutable borrow). BORROW-002 and
+BORROW-003 gained a call-site reading: two borrows of one lender passed to one
+call are rejected when at least one is mutable.
 
 Phase 10 added nine codes: ADT-005 and ADT-006 (constructor context), TYPE-012
 (slice first argument shape), TYPE-013 (type-argument arity) and TYPE-014
@@ -344,8 +353,8 @@ adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
 at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 10 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
-OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
+suite that the owning gate runs. Implemented today (Phases 4 to 11 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
+OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-023,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,

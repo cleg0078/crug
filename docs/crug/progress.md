@@ -12,7 +12,9 @@ Phase 6 the borrow checker (`ref`, `mut`, `borrow`, `borrow_mut`) and from
 Phase 7 last-use lifetimes and the depth-zero interprocedural policy. There
 is no `libcrug` and no goroutine or channel support yet; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
-checked indexing) exist and are described below. The `kernel-compat`
+checked indexing) exist and are described below, and Phase 11 lets the
+optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
+as `restrict`). The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -185,6 +187,25 @@ compiles, the forward-reference rejection, the non-exhaustive `match`
 rejection, `scripts/check-owned-payloads.sh`, `make check-C_COMPAT` and
 `scripts/check-diagnostics.sh`.
 
+Phase 11 makes proven ownership visible to the optimizer. `-fcrug-alias-facts`
+(off by default; implies `-fcrug-borrow`) compiles `mut` and `own` pointer
+parameters as `restrict` and rejects a call site that cannot prove
+exclusivity: a plain pointer at a `mut` parameter (`crug-BORROW-021`), a
+shared borrow there (`crug-BORROW-022`), two borrows of one lender in one call
+(`crug-BORROW-002`/`-003`) and a lender passed beside its own mutable borrow
+(`crug-BORROW-023`). `-fcrug-dump=alias` records every derived fact, and
+`scripts/check-stop-conditions.sh` audits each one against the source
+declaration. The evidence is the three-arm matrix in `bench/`: each kernel is
+built as plain C, C + hand-written `restrict`, and Crug `mut`/`ref`, with
+one shared plain-C `main`, so the Crug and restrict kernel objects are
+byte-identical at `-O2` and `-O3` (8/8 kernels); timing is reported but the
+gate rests on identity because this host's runs of identical code swing by more
+than a factor of two. `bench/run.py --matrix alias --check`, `--matrix alias
+--lto` and `--plain-c --check` are the runnable checks, and
+`docs/crug/OPTIMIZATION.md` is the digest. The Phase 11 gate (amendment A-14)
+passes 11/11 at the gate commit (logs under `docs/crug/gates/phase-11/`), so
+M11 is awarded.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -229,7 +250,7 @@ superseding ADR and owner ratification.
 | The decision set was unratified, so nothing could be cited as settled | ten ADRs carry Status Accepted (six on 2026-10-18; ADRs 0006 and 0007 on 2026-10-19; ADRs 0019 and 0020 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
-| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (103 codes; 70 implemented through Phases 4 to 10) + scripts/check-diagnostics.sh |
+| No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (111 codes; 84 implemented through Phases 4 to 11) + scripts/check-diagnostics.sh |
 | The kernel baseline had no CI protection, so Phase 2 could not close and Phase 4 could not start | `.github/workflows/kernel-compat.yml` green on `78c759b`; branch protection on `main` requires `kernel-compat`; phase-2 and phase-3 gates 4/4 archived under docs/crug/gates/phase-{2,3}/78c759b/ |
 | No mechanism existed to evaluate a gate | scripts/gate.sh (`--list`, `--run`, archives per-check logs) |
 | No upstream GCC was pinned | docs/crug/GCC-BASELINE.md + docs/crug/adr/0001-gcc-16.2-baseline.md + docs/crug/gcc-baseline.sha512 |
@@ -255,7 +276,8 @@ superseding ADR and owner ratification.
 | Borrowing did not exist, so `ref`/`mut` were unimplemented words and the B1 class was unclaimed | `ref`/`mut` qualifiers and `borrow`/`borrow_mut` intrinsics in `gcc/c/crug-ownership.cc`; 62-pass dg suite; five `scripts/check-borrow-*.sh` checks; `-fcrug-dump=borrow`; docs/crug/BORROW.md; ADR 0018 A-4/A-5; phase-6 gate |
 | Unanalysed operations (deref of a plain view, casts, asm, setjmp) had no policy, so "strict mode" was a word without a definition | ADR 0021 (Accepted 2026-10-19) + docs/crug/STRICT.md: `raw`, `unsafe` and five `crug-SAFE-*` restrictions with `-fcrug-strict`; C-08 resolved |
 | A borrow lived for its whole block and could cross calls unchecked | last-use liveness in `gcc/c/crug-ownership.cc` (ADR 0020), depth-zero call policy (ADR 0019) with `crug-BORROW-018`..`-020`, 88-pass dg suite over 46 fixtures, six `real-c` programs, three new `scripts/check-borrow-*.sh` checks, `(last-use)` in the dump; docs/crug/BORROW.md; phase-7 gate |
-| The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/payload enums/`match`/checked indexing in `gcc/c/crug-safe.cc`; 55-pass dg suite, `scripts/check-safe-types.sh` and `scripts/check-safe-bounds.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increments 1 and 2a (owned payloads open) |
+| The safe core types did not exist, so "memory-safe Crug" had no data types and the Phase 10 layouts were still pending rows | `slice<T>`/`option<T>`/`result<T,E>`/payload enums/`match`/checked indexing in `gcc/c/crug-safe.cc`; 77-pass dg suite, `scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh` and `scripts/check-owned-payloads.sh`; `docs/crug/SAFE-TYPES.md`; frozen `ABI.md` rows; Phase 10 increments 1, 2a and 2b; phase-10 gate 10/10 |
+| Ownership proved exclusivity but the optimizer never saw it, so `mut` was checked and then discarded | `-fcrug-alias-facts` (ADR 0010): `mut`/`own` parameters as `restrict`, BORROW-021..023 at unproven call sites, `-fcrug-dump=alias`, `bench/` three-arm matrix (Crug kernel objects byte-identical to the hand-written restrict twins, 8/8), `scripts/check-optimization.sh`, `scripts/check-stop-conditions.sh`; `docs/crug/OPTIMIZATION.md`; phase-11 gate 7/7 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 
 ## Still open
@@ -269,18 +291,21 @@ superseding ADR and owner ratification.
 | -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
 | -  | `slice`, `option`, `result` and payload enum layouts are frozen (`ABI.md` section 3), but the `chan` row is still pending, and no Crug-native type other than the four frozen rows may cross a C interface | Phases 13-14 (`chan`) |
 | -  | Ownership transfer is checked only where a contract exists: a `.crugffi` sidecar makes a return value owned and a consuming parameter require `move`, but an unannotated C function still neither returns an owned value nor receives one, and an owned value passed to an `own` parameter is diagnosed only under `-fcrug-strict` (`crug-OWN-011`) | a later phase (call-site direction); recorded in docs/crug/DROP.md section 8 and docs/crug/FFI.md |
-| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented, and a plain pointer may still be passed where a `ref`/`mut` parameter is expected (probed: `read_ref (plain)` compiles) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9 (a plain pointer still has no borrow contract, so `ref`/`mut` parameters remain stricter than `.crugffi`); recorded in docs/crug/BORROW.md section 5 |
+| -  | Borrow checking stops at whole objects: struct and array-element borrows, mutable reborrow, and interior mutability are not implemented. A plain pointer at a `ref` parameter is still accepted, and at a `mut` parameter it is accepted only without `-fcrug-alias-facts` (with the flag it is `crug-BORROW-021`) | Phase 12 (place-level borrows); the FFI half of the call-site direction was decided in Phase 9; recorded in docs/crug/BORROW.md sections 2.4 and 5 |
 | -  | `chan T` does not parse; an owned payload is tracked only for local values and `match` bindings, so an owning payload enum stored in a struct, union or array, or held in an `option`/`result` payload, has no tracked destructor | Phase 13-14 (`chan`); a later ownership increment for aggregates |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
+| -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
 | -  | The upgrade procedure has never been executed against a real new release; the first M- or J-class upgrade is the drill | first GCC release after 16.2 |
 
 ## Next actions, in dependency order
 
-1. **Push and open Phase 11** (ownership-aware optimization): the Phase 10
-   gate passes 10/10 at `43996fe`; push the branch, then start the three-arm
-   benchmark matrix (`bench/`) that Phase 11 requires before its gate can be
-   written.
+1. **Push and open Phase 12** (the `c2crug` migration tool): the Phase 11
+   gate passes 7/7 at the gate commit; push the branch, then build `c2crug`
+   against the `corpus/` programs. Phase 12's prerequisite also asks for a C
+   corpus project with its own green test suite at a pinned commit, which
+   `corpus/` (30 programs) does not yet provide as a test suite - decide
+   whether to extend it with assertions or pin a small external project.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.

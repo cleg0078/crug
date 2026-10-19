@@ -7,13 +7,14 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Eleven of the twelve written ADRs are Accepted and are cited by number
+Eleven of the thirteen written ADRs are Accepted and are cited by number
 throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
-2026-10-18, ADRs 0006 and 0007 on 2026-10-19, and ADRs 0019 and 0020 on
-2026-10-19 as the Phase 7 planning decisions. ADR 0021 (Phase 8) is Proposed: it
-is implemented and tested but awaits owner ratification. ADR 0022 (GCC baseline
-upgrade policy) is Proposed: its measurements are recorded, but the policy
-itself awaits ratification.
+2026-10-18, ADRs 0006 and 0007 on 2026-10-19, ADRs 0019 and 0020 on 2026-10-19
+as the Phase 7 planning decisions, and ADR 0010 on 2026-10-19 together with the
+5% phase-11 acceptance band. ADR 0021 (Phase 8) is Proposed: it is implemented
+and tested but awaits owner ratification. ADR 0022 (GCC baseline upgrade
+policy) is Proposed: its measurements are recorded, but the policy itself awaits
+ratification.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -22,6 +23,7 @@ itself awaits ratification.
 | 0003 | 0003-ownership-metadata-storage.md | static metadata, no hidden state, ABI erasure, forbidden representations | Accepted (2026-10-18) |
 | 0004 | 0004-ownership-analysis-layer.md | owning aggregates, field places, drop order, unions, arrays, adoption | Accepted (2026-10-18) |
 | 0005 | 0005-drop-lowering.md | where drops run, setjmp/exit/abort, task scopes | Accepted (2026-10-18) |
+| 0010 | 0010-noalias-lowering.md | opt-in `restrict` fact from `mut`/`own`, caller obligations, 5% band, false-noalias stop conditions | Accepted (2026-10-19) |
 | 0018 | 0018-grammar.md | productions, qualifier attachment, go/scope/select/match, payload enums | Accepted (2026-10-18) |
 | 0006 | 0006-c-abi-policy.md | two ABI classes, erasure, boundary moves, Crug-native registry, targets, versioning | Accepted (2026-10-19) |
 | 0007 | 0007-ffi-metadata-format.md | `.crugffi` v1 grammar, clause semantics, discovery, versioning, trust model | Accepted (2026-10-19) |
@@ -62,14 +64,14 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0005 drop lowering | written and accepted as `0005-drop-lowering.md` |
 | 0006 c-abi-policy | written and accepted as `0006-c-abi-policy.md` |
 | 0007 ffi-metadata-format | written and accepted as `0007-ffi-metadata-format.md` |
-| 0008-0017 | not written |
+| 0010 noalias-lowering | written and accepted as `0010-noalias-lowering.md` |
+| 0008, 0009, 0011-0017 | not written |
 
 ## Candidate next ADRs
 
 | Number | Topic | Depends on |
 |--------|-------|------------|
 | 0008 | Goroutine stack model | ADR 0018 D4/D5 |
-| 0010 | Aliasing and the noalias permission model | ADR 0004 |
 | 0011 | PAL contract | ADR 0006 |
 | 0016 | Freestanding and no-runtime policy | ADR 0017 |
 | 0017 | Kernel ownership policy | C-09 (kernel pin) |
@@ -78,10 +80,11 @@ ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
 ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
 last-use liveness). ADR 0022 keeps the GCC pin revisable on evidence; a major
-baseline upgrade would supersede ADR 0001 with the next free number (0023 today). The next ADR that unblocks work is 0010 (alias/noalias model,
-the prerequisite for Phase 11), unless scheduler work starts first and needs 0008
-and 0009. 0012 to 0015 have no written dependency yet and should be scheduled
-with the phase that needs them.
+baseline upgrade would supersede ADR 0001 with the next free number (0023 today).
+ADR 0010 is written and accepted, so Phase 11 is unblocked on the document side.
+The next ADRs that unblock work are 0008/0009 (goroutine stack and scheduler
+model, Phases 14-16) and 0011-0015 (PAL, OS backend, context switch, poller,
+kernel compatibility); 0016 and 0017 follow the kernel ownership work.
 
 ## Writing rules
 
