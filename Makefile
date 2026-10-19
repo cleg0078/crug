@@ -207,6 +207,13 @@ check-BORROW: ## run the Crug borrow checker tests under DejaGnu
 check-FFI: ## run the Crug FFI contract fixtures (.crugffi)
 	@scripts/check-ffi-suite.sh
 
+check-SAFE_TYPES: ## run the Crug safe core type tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/safe-types/safe-types.exp' 2>&1 | tee $(OBJ_DIR)/check-safe-types.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 check-STRICT_UNSAFE: ## run the Crug strict mode, raw and unsafe tests under DejaGnu
 	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
 	@. tools/dejagnu.env 2>/dev/null || true; \
@@ -266,6 +273,6 @@ distclean: ## remove build/ and sources/ entirely
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
-	check-STRICT_UNSAFE check-FFI \
+	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean
