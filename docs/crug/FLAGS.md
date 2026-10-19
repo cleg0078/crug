@@ -1,14 +1,17 @@
 # Crug feature flags and feature macros
 
-Status: **Phase 3 implemented; Phases 4, 5, 6, 7 and 8 use it** (2026-10-19).
-The option set, its closure and the feature macros exist. `-fcrug-ownership`
-gates the `own`, `move` and drop productions of Phases 4 and 5
-(`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`, `borrow` and
-`borrow_mut` (`BORROW.md`), and `-fcrug-strict` adds the unchecked-operation
-policy with `raw` and `unsafe` (`STRICT.md`); the productions the other flags
-name do not exist yet. This page is the digest - the normative text is ADR 0018
-D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
-`EXIT-GATES.md` phases 3, 4, 5, 6, 7 and 8.
+Status: **Phase 3 implemented; Phases 4, 5, 6, 7, 8, 9 and 10 use it**
+(2026-10-19). The option set, its closure and the feature macros exist.
+`-fcrug-ownership` gates the `own`, `move` and drop productions of Phases 4
+and 5 (`OWNERSHIP.md`, `DROP.md`), `-fcrug-borrow` gates `ref`, `mut`,
+`borrow` and `borrow_mut` (`BORROW.md`), `-fcrug-strict` adds the
+unchecked-operation policy with `raw` and `unsafe` (`STRICT.md`),
+`-fcrug-ffi=<file>` reads a contract sidecar (`FFI.md`), and
+`-fcrug-slices`/`-fcrug-result` now gate the safe core types, the value
+constructors and `match` (`SAFE-TYPES.md`); the productions the remaining
+flags name do not exist yet. This page is the digest - the normative text is
+ADR 0018 D1 and D9, ADR 0021, RFC-0001 sections 10, 13 and 20, and the gates are
+`EXIT-GATES.md` phases 3, 4, 5, 6, 7, 8, 9 and 10.
 
 ## 1. The option set
 
@@ -20,9 +23,9 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | --- | --- | --- |
 | `-fcrug-ownership` | `own`, `raw`; `move`, `drop`, `adopt`, `release`; `unsafe {}` | - |
 | `-fcrug-borrow` | `ref`, `mut`; `borrow`, `borrow_mut` | `-fcrug-ownership` |
-| `-fcrug-slices` | `slice<T>` | - |
-| `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err` | `-fcrug-adt` |
-| `-fcrug-adt` | payload enums, `match` | - |
+| `-fcrug-slices` | `slice<T>`, `slice (ptr, len)`, checked `s[i]` | - |
+| `-fcrug-result` | `option<T>`, `result<T,E>`, `some`, `none`, `ok`, `err`, `match` | `-fcrug-adt` |
+| `-fcrug-adt` | payload enums (pending, 10D); `match` over `option`/`result` | - |
 | `-fcrug-goroutines` | `go`, `scope` | - |
 | `-fcrug-channels` | `chan T`; `send`, `recv`, `close`, `channel`; `select` | `-fcrug-goroutines` |
 | `-fcrug-strict` | no production of its own: it is a checking mode. Promotes every `-Wcrug-*` warning to an error and enforces the unchecked-operation policy (`STRICT.md`) | `-fcrug-ownership`, `-fcrug-borrow` |
@@ -30,6 +33,14 @@ computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-ffi-discover` | turns the FFI layer on without naming a file, so sidecars next to quoted includes (and in `CRUG_FFI_PATH`) are discovered | `-fcrug-ownership` |
 | `-fcrug-modern` | everything above | all eight flags |
 | `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` until Phase 19 |
+
+`Three more options live in `gcc/c-family/c.opt`, because they are C-family
+decisions rather than driver-wide switches, and are handled in
+`c_common_handle_option`: `-fcrug-ffi=<file>`, `-fcrug-ffi-discover`
+(`FFI.md`) and `-fcrug-bounds-checks` / `-fno-crug-bounds-checks`
+(`C Var(flag_crug_bounds_checks) Init(1)`), which selects whether `s[i]` on a
+`slice<T>` emits the length comparison and the `__builtin_trap` of
+`SAFE-TYPES.md` section 6. It changes no accepted syntax and no other lowering.
 
 `-fcrug-dump=<kind>` is a debugging option, not a feature flag: it is
 `Common Joined RejectNegative` with a comma-separated list of kinds -
@@ -134,6 +145,10 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 - No goroutine, scope or channel lowering (Phase 14-16).
 - Only the `ownership`, `drop` and `borrow` dumps exist (`-fcrug-dump=` comma
   list); no goroutine or channel dump.
+- `slice<T>`, `option<T>`, `result<T,E>`, their value constructors, `match`
+  over the two sums and checked slice indexing exist (`SAFE-TYPES.md`). Payload
+  enums (10D) and owned payloads are open, so `-fcrug-adt` alone still gates no
+  production of its own beyond the closure.
 - Six `-Wcrug-*` options are declared and default on
   (`-Wcrug-unadopted-own`, `-Wcrug-intrinsic-operand`, `-Wcrug-adopt-signature`,
   `-Wcrug-jump-into-scope`, `-Wcrug-setjmp-drops`, `-Wcrug-drop-unreachable`);
@@ -157,6 +172,8 @@ ADR 0013 (versioning), and Phase 3 has no version number to report.
 | `make check-BORROW` | `ref`, `mut`, `borrow` and `borrow_mut` with the flag on, including last-use lifetimes and the call policy: 88 expected passes under `gcc/testsuite/crug.dg/borrow/` |
 | `make check-STRICT_UNSAFE` | strict mode, `raw` and `unsafe`: 21 expected passes under `gcc/testsuite/crug.dg/strict/` |
 | `make check-FFI` | `.crugffi` contract fixtures: 19 cases, 0 failures, under `gcc/testsuite/crug.dg/ffi/phase9/` |
+| `make check-SAFE_TYPES` / `scripts/check-safe-types.sh` | `slice`, `option`, `result`, `match` and the frozen layouts: 32 expected passes under `gcc/testsuite/crug.dg/safe-types/` |
+| `scripts/check-safe-bounds.sh` | in-range indexing runs, an out-of-range index traps with `SIGILL`, and `-fno-crug-bounds-checks` removes the trap |
 | `scripts/check-ffi-*.sh` | the metadata reads the same twice (conflict determinism), four real libraries keep their hashes while their handles are closed exactly once, and objects are byte-identical with and without a sidecar |
 | `scripts/check-strict-*.sh` | the codegen identity (objects byte-identical with and without `-fcrug-strict`), the hybrid-vs-strict answer for one raw dereference, and the eight strict codes observed |
 | `scripts/check-borrow-cost.sh` / `check-borrow-abi.sh` | a borrowed function compiles to the same object as its plain-pointer twin, and `ref`/`mut` do not change `sizeof` or `_Alignof` |
@@ -172,7 +189,9 @@ borrow scripts, the two compatibility suites and `scripts/check-diagnostics.sh`;
 the phase-8 gate runs the four `scripts/check-strict-*.sh` scripts, the two
 compatibility suites and `scripts/check-diagnostics.sh`; the phase-9 gate runs
 `make check-FFI` and the four `scripts/check-ffi-*.sh` scripts plus
-`scripts/check-diagnostics.sh`; see `EXIT-GATES.md`.
+`scripts/check-diagnostics.sh`; the phase-10 gate runs `make check-SAFE_TYPES`,
+`scripts/check-safe-types.sh`, `scripts/check-safe-bounds.sh`, the layout
+compile and the two compatibility suites; see `EXIT-GATES.md`.
 
 ## 7. Adding a flag
 

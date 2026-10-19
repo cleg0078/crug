@@ -163,6 +163,8 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-ADT-002` | `-Wcrug-adt-form` | error | error | a payload variant takes exactly one type-name | ADR 0018 D8 |
 | `crug-ADT-003` | - | error | error | variant '%s' expects a payload | ADR 0018 D8 |
 | `crug-ADT-004` | - | error | error | variant '%s' does not take a payload | ADR 0018 D8 |
+| `crug-ADT-005` | - | error | error | '%s' needs an option or result type from its context; initialize a declaration or use it in a return statement | ADR 0018 D8, Phase 10 |
+| `crug-ADT-006` | - | error | error | '%s' does not construct '%s' | ADR 0018 D8, Phase 10 |
 | `crug-ADT-010` | `-Wcrug-match-form` | error | error | match arm must be 'pattern => expression' or 'pattern => { ... }' | ADR 0018 D8 |
 | `crug-ADT-011` | `-Wcrug-match-non-exhaustive` | error | error | match on '%s' is not exhaustive; add the missing variant or '_' | ADR 0018 D8 |
 | `crug-ADT-012` | `-Wcrug-match-unreachable` | warning | error | match arm '%s' is unreachable | ADR 0018 D8 |
@@ -183,6 +185,9 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-TYPE-007` | `-Wcrug-qualifier-placement` | error | error | a borrow qualifier must apply to a pointer declarator | ADR 0018 D2, Phase 6 |
 | `crug-TYPE-010` | `-Wcrug-generic-form` | error | error | generic type is not allowed in this position | ADR 0018 D7 |
 | `crug-TYPE-011` | `-Wcrug-generic-form` | error | error | '%s<...>' is not a generic type; unknown type constructor | ADR 0018 D7 |
+| `crug-TYPE-012` | - | error | error | '%s' needs a pointer as its first argument | ADR 0018 D7, Phase 10 |
+| `crug-TYPE-013` | `-Wcrug-generic-form` | error | error | '%s' needs exactly %d type argument(s) | ADR 0018 D7, Phase 10 |
+| `crug-TYPE-014` | `-Wcrug-generic-form` | error | error | expected '>' to close the type argument list | ADR 0018 D7, Phase 10 |
 
 ### 4.8 Parsing and shadowing (`GRAMMAR`)
 
@@ -321,15 +326,21 @@ caught by the script.
 
 ## 9. Status
 
-98 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
-DROP 8, CONC 9, ADT 10, TYPE 9, GRAMMAR 6, SAFE 5, FFI 11.
+103 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 20,
+DROP 8, CONC 9, ADT 12, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 10 added five codes and they are implemented at the increment-1 commit:
+ADT-005 and ADT-006 (constructor context), TYPE-012 (slice first argument
+shape), TYPE-013 (type-argument arity) and TYPE-014 (unclosed type-argument
+list).
 
 A code is **implemented** when the frontend emits it and its test is in the dg
 suite that the owning gate runs. Implemented today (Phases 4 to 9 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
 OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-020,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
-FFI-011. Everything else is planned; the KERNEL area is still reserved only,
+FFI-011, plus Phase 10's ADT-004, ADT-005, ADT-006, ADT-011, ADT-013,
+TYPE-012, TYPE-013 and TYPE-014. Everything else is planned; the KERNEL area is still reserved only,
 because its owning ADRs are unwritten.
 When the frontend lands, a code moves to `implemented` only when its test is in
 `gcc/testsuite/crug.dg/diagnostics/` and the gate suite that owns it passes at
