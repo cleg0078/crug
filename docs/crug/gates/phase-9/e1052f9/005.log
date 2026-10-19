@@ -1,0 +1,5 @@
+phase-9 #5 rc=0
+cmd: scripts/check-ffi-policy.sh
+expected: exit 0, printed `ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011`.
+---
+ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011

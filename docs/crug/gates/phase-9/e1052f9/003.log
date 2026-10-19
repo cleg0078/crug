@@ -1,0 +1,5 @@
+phase-9 #3 rc=0
+cmd: scripts/check-ffi-conflict.sh
+expected: exit 0, printed `ffi-conflict: crug-FFI-004 stable across 2 runs`.
+---
+ffi-conflict: crug-FFI-004 stable across 2 runs

@@ -1,0 +1,5 @@
+phase-9 #6 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0.
+---
+check-diagnostics: 98 registered code(s); 98 referenced code(s); all references registered.

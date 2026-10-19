@@ -146,7 +146,8 @@ with and without a sidecar and `scripts/check-ffi-integration.sh` hashes
 `libc.so.6`, `libsqlite3.so.0`, `libcurl.so.4` and `libssl.so.3` before and
 after building four programs that open and close a real handle. The suite is 19
 cases (`make check-FFI`), `docs/crug/FFI.md` is the digest, and the Phase 9 gate
-is the six-check list in `docs/crug/EXIT-GATES.md` (amendment A-10).
+is the six-check list in `docs/crug/EXIT-GATES.md` (amendment A-10). The Phase 9
+gate passes 6/6 at `e1052f9` (logs under `docs/crug/gates/phase-9/e1052f9/`).
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry

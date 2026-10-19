@@ -1,0 +1,24 @@
+phase-9 #1 rc=0
+cmd: make check-FFI
+expected: exit 0, printed `ffi-suite: 19 cases, 0 failures`.
+---
+PASS returns-owned
+PASS consume-move
+PASS consume-rejected
+PASS out-owned
+PASS out-owned-busy
+PASS borrows
+PASS mut-borrows
+PASS shared-to-mut
+PASS callback
+PASS callback-rejected
+PASS nullable
+PASS adjacent
+PASS conflict
+PASS bad-no-version
+PASS bad-version-2
+PASS bad-unknown-clause
+PASS bad-bad-arg
+PASS bad-bad-dtor
+PASS bad-unmatched
+ffi-suite: 19 cases, 0 failures

@@ -1,0 +1,5 @@
+phase-9 #4 rc=0
+cmd: scripts/check-ffi-codegen.sh
+expected: exit 0, printed `ffi-codegen: 2 files, 0 differences`.
+---
+ffi-codegen: 2 files, 0 differences
