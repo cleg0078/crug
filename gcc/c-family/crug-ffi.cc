@@ -61,6 +61,9 @@ struct ffi_type_decl {
 struct ffi_fn_decl {
   std::string name;
   std::vector<ffi_op> ops;
+  /* 'thread_affinity NAME' names the thread the returned value belongs to
+     (ADR 0007, ADR 0026 D7).  */
+  std::string affinity;
   std::string file;
   int line;
   bool explicit_p;
@@ -211,7 +214,8 @@ merge_fn (ffi_fn_decl fn)
       ffi_functions[fn.name] = fn;
       return;
     }
-  if (ops_signature (it->second.ops) == ops_signature (fn.ops))
+  if (ops_signature (it->second.ops) == ops_signature (fn.ops)
+      && it->second.affinity == fn.affinity)
     {
       /* D4: identical declarations merge.  An explicit occurrence wins the
 	 origin, so the undeclared-function rule still applies.  */
@@ -371,7 +375,22 @@ parse_fn_ops (ffi_parser &p, ffi_fn_decl &fn)
 	}
       else if (w == "thread_affinity")
 	{
-	  (void) take (p);
+	  std::string aff = take (p);
+	  if (aff.empty ())
+	    {
+	      ffi_error (p.path, line, 3,
+			 "'thread_affinity' needs a thread name");
+	      p.failed = true;
+	      return false;
+	    }
+	  if (!fn.affinity.empty ())
+	    {
+	      ffi_error (p.path, line, 3,
+			 "'thread_affinity' is stated twice");
+	      p.failed = true;
+	      return false;
+	    }
+	  fn.affinity = aff;
 	  continue;
 	}
       else if (w == "nullable")
@@ -712,9 +731,20 @@ ffi_type_matches (tree type, const std::string &name, const std::string &tag_kin
 
   if (!tag_kind.empty ())
     {
+      /* A tagged type carries its name either as a TYPE_DECL (the C++ and
+	 the usual C case) or, in this front end, directly as an identifier
+	 node; accept both.  */
       tree tn = TYPE_NAME (main);
-      if (tn != NULL_TREE && TREE_CODE (tn) == TYPE_DECL)
-	return strcmp (IDENTIFIER_POINTER (DECL_NAME (tn)), name.c_str ()) == 0;
+      if (tn != NULL_TREE)
+	{
+	  const char *nm = NULL;
+	  if (TREE_CODE (tn) == TYPE_DECL)
+	    nm = IDENTIFIER_POINTER (DECL_NAME (tn));
+	  else if (TREE_CODE (tn) == IDENTIFIER_NODE)
+	    nm = IDENTIFIER_POINTER (tn);
+	  if (nm != NULL && strcmp (nm, name.c_str ()) == 0)
+	    return true;
+	}
     }
   return false;
 }
@@ -838,6 +868,8 @@ resolve_fn (ffi_fn_decl &decl)
   info.callback.assign (nargs, false);
   info.nullable.assign (nargs, false);
   info.out_dtor.assign (nargs, NULL_TREE);
+  info.thread_affine = !decl.affinity.empty ();
+  info.affinity = decl.affinity;
 
   /* First pass: shape checks that do not need the return type.  */
   for (size_t i = 0; i < decl.ops.size (); i++)
@@ -1067,6 +1099,61 @@ crug_ffi_arg_nullable (tree fndecl, unsigned int idx)
   const crug_ffi_info *info = crug_ffi_lookup (fndecl);
 
   return info != NULL && idx < info->nullable.size () && info->nullable[idx];
+}
+
+bool
+crug_ffi_thread_affine (tree fndecl, const char **name)
+{
+  const crug_ffi_info *info = crug_ffi_lookup (fndecl);
+
+  if (info == NULL || !info->thread_affine)
+    return false;
+  if (name != NULL)
+    *name = info->affinity.c_str ();
+  return true;
+}
+
+/* The explicit send/sync annotations of TYPE.  A type declaration names a
+   type either through its tag or through a typedef; ffi_type_matches
+   already knows both, so this is a scan over the few annotated types.  */
+
+bool
+crug_ffi_type_flags (tree type, bool *send, bool *sync,
+		     bool *not_send, bool *not_sync)
+{
+  bool found = false;
+
+  if (send != NULL)
+    *send = false;
+  if (sync != NULL)
+    *sync = false;
+  if (not_send != NULL)
+    *not_send = false;
+  if (not_sync != NULL)
+    *not_sync = false;
+  if (type == NULL_TREE || type == error_mark_node || ffi_types.empty ())
+    return false;
+
+  for (std::map<std::string, ffi_type_decl>::const_iterator it
+	 = ffi_types.begin (); it != ffi_types.end (); ++it)
+    {
+      const ffi_type_decl &t = it->second;
+
+      if (!t.send && !t.sync && !t.not_send && !t.not_sync)
+	continue;
+      if (!ffi_type_matches (type, t.name, t.tag_kind))
+	continue;
+      found = true;
+      if (t.send && send != NULL)
+	*send = true;
+      if (t.sync && sync != NULL)
+	*sync = true;
+      if (t.not_send && not_send != NULL)
+	*not_send = true;
+      if (t.not_sync && not_sync != NULL)
+	*not_sync = true;
+    }
+  return found;
 }
 
 /* Options and discovery.  */

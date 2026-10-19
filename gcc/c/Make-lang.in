@@ -53,7 +53,7 @@ CFLAGS-c/gccspec.o += $(DRIVER_DEFINES)
 C_AND_OBJC_OBJS = attribs.o c/c-errors.o c/c-decl.o c/c-typeck.o \
   c/c-convert.o c/c-aux-info.o c/c-objc-common.o c/c-parser.o \
   c/c-fold.o c/gimple-parser.o c/crug-ownership.o c/crug-safe.o \
-  c/crug-tasks.o c/crug-chan.o \
+  c/crug-tasks.o c/crug-chan.o c/crug-send-sync.o \
   $(C_COMMON_OBJS) $(C_TARGET_OBJS)
 
 # Language-specific object files for C.

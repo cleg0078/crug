@@ -74,6 +74,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "crug-safe.h"
 #include "crug-tasks.h"
 #include "crug-chan.h"
+#include "crug-send-sync.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
 #include "memmodel.h"
@@ -3259,6 +3260,7 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
 		  maybe_warn_string_init (init_loc, TREE_TYPE (d), init);
 		  finish_decl (d, init_loc, init.value,
 			       init.original_type, asm_name);
+		  crug_note_affine_initializer (d, init.value);
 		  result = d;
 		}
 	    }
@@ -3576,6 +3578,9 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
 	  && (crug_ownership_enabled () || crug_borrow_enabled ()
 	      || crug_function_has_scope (fndecl)))
 	crug_check_function (fndecl, fnbody, crug_function_has_scope (fndecl));
+      /* The affinity records of this body's declarations are no longer
+	 needed once the body has been analysed (ADR 0026 D5).  */
+      crug_forget_affine_decls (fndecl);
       if (nested && specs->declspec_il == cdil_none)
 	{
 	  tree decl = current_function_decl;

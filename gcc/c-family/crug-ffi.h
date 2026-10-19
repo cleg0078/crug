@@ -3,6 +3,7 @@
 #ifndef GCC_C_FAMILY_CRUG_FFI_H
 #define GCC_C_FAMILY_CRUG_FFI_H
 
+#include <string>
 #include <vector>
 
 /* Resolved contract of one annotated function.  Built lazily the first
@@ -24,6 +25,11 @@ struct crug_ffi_info
   std::vector<bool> callback;
   std::vector<bool> nullable;
   std::vector<tree> out_dtor;
+  /* 'thread_affinity NAME': the call returns a value that belongs to one
+     thread and may not migrate to a task or a channel (ADR 0007, ADR 0026
+     D7).  */
+  bool thread_affine;
+  std::string affinity;
 };
 
 /* True once -fcrug-ffi=<path> was given.  */
@@ -54,5 +60,13 @@ extern bool crug_ffi_arg_out_owned (tree fndecl, unsigned int idx, tree *dtor);
 extern bool crug_ffi_arg_callback (tree fndecl, unsigned int idx);
 extern bool crug_ffi_arg_borrow (tree fndecl, unsigned int idx, bool *mut_p);
 extern bool crug_ffi_arg_nullable (tree fndecl, unsigned int idx);
+
+/* The thread affinity of FNDECL, when its metadata carries one.  */
+extern bool crug_ffi_thread_affine (tree fndecl, const char **name);
+
+/* The explicit send/sync annotations of TYPE, when the sidecar has any.
+   Returns false when TYPE is not named by the metadata at all.  */
+extern bool crug_ffi_type_flags (tree type, bool *send, bool *sync,
+				 bool *not_send, bool *not_sync);
 
 #endif /* GCC_C_FAMILY_CRUG_FFI_H */

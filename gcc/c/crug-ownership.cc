@@ -66,6 +66,7 @@
 #include "crug-safe.h"
 #include "crug-tasks.h"
 #include "crug-chan.h"
+#include "crug-send-sync.h"
 
 #include <map>
 #include <set>
@@ -861,11 +862,31 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
   if (arg == NULL_TREE || arg == error_mark_node)
     return true;
 
+  /* A thread-affine value belongs to one thread and may not migrate; the
+     check runs before anything else, because no ownership rule can make the
+     move legal (ADR 0026 D5).  */
+  {
+    const char *affinity = NULL;
+
+    if (crug_expr_thread_affine_p (arg, &affinity))
+      {
+	error_at (loc, "a thread-affine value cannot cross to another task; "
+		  "it belongs to the %qs thread [crug-CONC-025]",
+		  affinity == NULL ? "unknown" : affinity);
+	return false;
+      }
+  }
+
   enum crug_intrinsic kind;
   if (TREE_CODE (arg) == CALL_EXPR && is_intrinsic_call (arg, &kind))
     {
       if (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT)
 	{
+	  bool is_mut = kind == CRUG_INTR_BORROW_MUT;
+	  tree lender = NULL_TREE;
+	  tree lender_type = NULL_TREE;
+	  tree blocker = NULL_TREE;
+
 	  if (scope == NULL_TREE)
 	    {
 	      error_at (loc, "a borrow cannot be captured by a concurrent task; "
@@ -876,19 +897,64 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 	     the block ends, so the lent object still exists while the task can
 	     read it.  The lender has to outlive the scope block itself, which
 	     is checked when that block is analysed (crug-CONC-016).  */
-	  tree lender = NULL_TREE;
 	  if (call_expr_nargs (arg) >= 1)
 	    lender = expr_base_decl (CALL_EXPR_ARG (arg, 0));
-	  crug_register_scoped_lender (scope, lender, loc,
-				       kind == CRUG_INTR_BORROW_MUT);
+	  crug_register_scoped_lender (scope, lender, loc, is_mut);
+
+	  /* The child and the scope's owner then share the object, so a shared
+	     borrow needs Sync and a mutable borrow needs Send (ADR 0026 D3).  */
+	  lender_type = TREE_TYPE (arg);
+	  if (TREE_CODE (lender_type) == POINTER_TYPE
+	      && TREE_TYPE (lender_type) != NULL_TREE)
+	    lender_type = TREE_TYPE (lender_type);
+	  if (is_mut)
+	    {
+	      if (!crug_type_send_p (lender_type, &blocker))
+		{
+		  error_at (loc, "a value of type %qT cannot cross to another "
+			    "task; the type is not %<Send%> [crug-CONC-024]",
+			    lender_type);
+		  if (blocker != NULL_TREE && blocker != lender_type)
+		    inform (loc, "%qT contains %qT, which is not %<Send%>",
+			    lender_type, blocker);
+		  return false;
+		}
+	    }
+	  else if (!crug_type_sync_p (lender_type, &blocker))
+	    {
+	      error_at (loc, "a shared borrow of %qT cannot cross to another "
+			"task; the type is not %<Sync%> [crug-CONC-026]",
+			lender_type);
+	      if (blocker != NULL_TREE && blocker != lender_type)
+		inform (loc, "%qT contains %qT, which is not %<Sync%>",
+			lender_type, blocker);
+	      return false;
+	    }
 	  return true;
 	}
       if (kind == CRUG_INTR_MOVE)
 	{
+	  tree moved = TREE_TYPE (arg);
+	  tree probe;
+	  tree blocker = NULL_TREE;
+
 	  if (parm != NULL_TREE && !crug_is_owning_decl (parm))
 	    {
 	      error_at (loc, "the task does not take ownership of the captured "
 			"value: declare the parameter %<own%> [crug-CONC-011]");
+	      return false;
+	    }
+	  /* The task owns the value, so its type must be Send.  */
+	  probe = (TREE_CODE (moved) == POINTER_TYPE
+		   && TREE_TYPE (moved) != NULL_TREE)
+		  ? TREE_TYPE (moved) : moved;
+	  if (!crug_type_send_p (probe, &blocker))
+	    {
+	      error_at (loc, "a value of type %qT cannot cross to another task; "
+			"the type is not %<Send%> [crug-CONC-024]", probe);
+	      if (blocker != NULL_TREE && blocker != probe)
+		inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
+			blocker);
 	      return false;
 	    }
 	  return true;
@@ -904,24 +970,44 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 
   tree decl = arg;
   STRIP_NOPS (decl);
-  if (decl == NULL_TREE || !DECL_P (decl))
-    return true;
 
-  if (crug_is_owning_decl (decl))
+  if (decl != NULL_TREE && DECL_P (decl))
     {
-      error_at (loc, "owned value passed to concurrent task without ownership "
-		"transfer [crug-CONC-011]");
-      inform (loc, "use %<move (%E)%> to transfer it to the task", decl);
-      return false;
+      if (crug_is_owning_decl (decl))
+	{
+	  error_at (loc, "owned value passed to concurrent task without "
+		    "ownership transfer [crug-CONC-011]");
+	  inform (loc, "use %<move (%E)%> to transfer it to the task", decl);
+	  return false;
+	}
+
+      if (crug_is_borrow_decl (decl, NULL))
+	{
+	  error_at (loc, "a borrow cannot be captured by a concurrent task; "
+		    "capture an owned value with %<move (...)%> [crug-CONC-012]");
+	  return false;
+	}
     }
 
-  if (crug_is_borrow_decl (decl, NULL))
-    {
-      error_at (loc, "a borrow cannot be captured by a concurrent task; "
-		"capture an owned value with %<move (...)%> [crug-CONC-012]");
-      return false;
-    }
+  /* Whatever is left is copied into the task's frame, so its type has to be
+     Send (ADR 0026 D2).  A plain expression is checked here as well, not
+     only a declaration.  */
+  {
+    tree type = TREE_TYPE (arg);
+    tree blocker = NULL_TREE;
 
+    if (type != NULL_TREE
+	&& TREE_CODE (type) != ERROR_MARK
+	&& !crug_type_send_p (type, &blocker))
+      {
+	error_at (loc, "a value of type %qT cannot cross to another task; "
+		  "the type is not %<Send%> [crug-CONC-024]", type);
+	if (blocker != NULL_TREE && blocker != type)
+	  inform (loc, "%qT contains %qT, which is not %<Send%>", type,
+		  blocker);
+	return false;
+      }
+  }
   return true;
 }
 

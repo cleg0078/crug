@@ -51,6 +51,7 @@
 #include "diagnostic-core.h"
 #include "c-tree.h"
 #include "crug-chan.h"
+#include "crug-send-sync.h"
 
 #include <vector>
 
@@ -128,6 +129,25 @@ crug_channel_type (tree element, bool owns_element, location_t loc)
 		"known at compile time [crug-CONC-019]");
       return error_mark_node;
     }
+
+  /* A channel moves its values between tasks, so its element type must be
+     Send (ADR 0026 D4).  An owning channel owns the pointee and the receiver
+     gets the pointee, so that is the type to check.  */
+  {
+    tree probe = (owns_element && TREE_CODE (element) == POINTER_TYPE)
+		 ? TREE_TYPE (element) : element;
+    tree blocker = NULL_TREE;
+
+    if (!crug_type_send_p (probe, &blocker))
+      {
+	error_at (loc, "a channel element must be %<Send%>; %qT is not "
+		  "[crug-CONC-027]", probe);
+	if (blocker != NULL_TREE && blocker != probe)
+	  inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
+		  blocker);
+	return error_mark_node;
+      }
+  }
 
   tree record = lang_hooks.types.make_type (RECORD_TYPE);
   tree decl = build_decl (loc, TYPE_DECL, get_identifier ("crug_chan"),
@@ -297,6 +317,32 @@ crug_channel_send (location_t loc, tree channel, tree value)
 
   if (element == NULL_TREE || value == error_mark_node)
     return error_mark_node;
+
+  /* A send hands the value to another worker, so the value must be Send and
+     must not belong to one thread (ADR 0026 D4/D5).  */
+  {
+    tree probe = (owned && TREE_CODE (element) == POINTER_TYPE)
+		 ? TREE_TYPE (element) : element;
+    tree blocker = NULL_TREE;
+    const char *affinity = NULL;
+
+    if (crug_expr_thread_affine_p (value, &affinity))
+      {
+	error_at (loc, "a thread-affine value cannot cross to another task; "
+		  "it belongs to the %qs thread [crug-CONC-025]",
+		  affinity == NULL ? "unknown" : affinity);
+	return error_mark_node;
+      }
+    if (!crug_type_send_p (probe, &blocker))
+      {
+	error_at (loc, "a value of type %qT cannot cross to another task; "
+		  "the type is not %<Send%> [crug-CONC-024]", probe);
+	if (blocker != NULL_TREE && blocker != probe)
+	  inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
+		  blocker);
+	return error_mark_node;
+      }
+  }
 
   /* Box the value: the runtime copies it through a pointer, and a compound
      literal is the expression form of "an object of this type, initialized
