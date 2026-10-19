@@ -108,6 +108,13 @@ extern tree crug_build_intrinsic_call (enum crug_intrinsic kind,
 extern void crug_register_match_scrutinee (tree tmp);
 extern void crug_register_match_binding (tree binding, tree tmp, int variant);
 
+/* Check one capture of a 'go' statement: an owned value must be moved into
+   the task, a borrow cannot escape into it, and a custom destructor cannot
+   cross the boundary (ADR 0018 D4, MASTER_SPEC section 27.2).  PARM is the
+   callee parameter of that argument, or NULL_TREE for an indirect call.
+   Returns false after reporting a diagnostic.  */
+extern bool crug_check_go_capture (location_t loc, tree arg, tree parm);
+
 /* Check BODY, the GENERIC body of FNDECL, for ownership errors, insert the
    destruction of every owned object on every exit edge, and remove the
    intrinsic calls.  */

@@ -72,6 +72,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
 #include "crug-safe.h"
+#include "crug-tasks.h"
 #include "tree-iterator.h"
 #include "tree-pretty-print.h"
 #include "memmodel.h"
@@ -682,6 +683,9 @@ crug_qualifier_type_name_p (c_parser *parser, unsigned int n)
 static tree crug_parse_generic_type (c_parser *);
 static struct c_expr crug_parse_constructor (c_parser *, int, location_t);
 static tree crug_parse_match (c_parser *);
+static tree crug_parse_go_statement (c_parser *);
+static tree crug_parse_yield_statement (c_parser *);
+static bool crug_task_statement_start_p (c_parser *);
 static bool crug_generic_start_p (c_parser *, unsigned int);
 static int crug_ctor_word (tree);
 
@@ -8268,7 +8272,8 @@ c_parser_compound_statement_nostart (c_parser *parser)
 	    check_omp_intervening_code (parser);
 	  c_parser_label (parser, std_attrs);
 	}
-      else if (c_parser_next_tokens_start_declaration (parser)
+      else if ((c_parser_next_tokens_start_declaration (parser)
+		&& !crug_task_statement_start_p (parser))
 	       || (have_std_attrs
 		   && !c_parser_handle_statement_omp_attributes
 				(parser, std_attrs, &have_std_attrs)
@@ -9063,6 +9068,21 @@ c_parser_statement_after_labels (c_parser *parser, bool *if_p,
 	      }
 	    crug_mark_unsafe_block (blk);
 	    add_stmt (blk);
+	    break;
+	  }
+
+	/* 'go f (args);' and 'yield ();' are statement forms (ADR 0018 D4,
+	   MASTER_SPEC section 25).  Both words are contextual: a declaration of
+	   the word wins, and a label is read as a label.  */
+	if (crug_task_statement_start_p (parser))
+	  {
+	    tree stmt;
+	    if (strcmp (IDENTIFIER_POINTER (id), "go") == 0)
+	      stmt = crug_parse_go_statement (parser);
+	    else
+	      stmt = crug_parse_yield_statement (parser);
+	    if (stmt != NULL_TREE && stmt != error_mark_node)
+	      add_stmt (stmt);
 	    break;
 	  }
 	goto expr_stmt;
@@ -32415,6 +32435,142 @@ crug_skip_match_body (c_parser *parser)
 	depth--;
       c_parser_consume_token (parser);
     }
+}
+
+/* True when the current token starts a Crug task statement, 'go ...' or
+   'yield (...)', so that the block-item loop does not read it as a C
+   declaration (ADR 0018 D4: a declaration of the word wins, a label is a
+   label, and form A needs the name followed by '(').  */
+
+static bool
+crug_task_statement_start_p (c_parser *parser)
+{
+  if (!crug_feature_enabled (CRUG_FEAT_GOROUTINES))
+    return false;
+
+  c_token *tok = c_parser_peek_token (parser);
+  if (tok->type != CPP_NAME || tok->id_kind != C_ID_ID
+      || tok->value == NULL_TREE || TREE_CODE (tok->value) != IDENTIFIER_NODE
+      || lookup_name (tok->value) != NULL_TREE)
+    return false;
+
+  const char *word = IDENTIFIER_POINTER (tok->value);
+  c_token *n2 = c_parser_peek_2nd_token (parser);
+
+  if (strcmp (word, "yield") == 0)
+    return n2->type == CPP_OPEN_PAREN;
+
+  if (strcmp (word, "go") != 0)
+    return false;
+
+  if (n2->type == CPP_OPEN_PAREN)	/* form B: 'go (call);'  */
+    return true;
+
+  /* form A: 'go name (args);'  */
+  return n2->type == CPP_NAME
+    && c_parser_peek_nth_token (parser, 3)->type == CPP_OPEN_PAREN;
+}
+
+/* Parse 'go f (args);' or 'go (call);' and return the lowered block.  The
+   word 'go' has not been consumed yet (ADR 0018 D4).  */
+
+static tree
+crug_parse_go_statement (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+  tree callee = NULL_TREE;
+  tree args = NULL_TREE;
+  vec<tree, va_gc> *raw = NULL;
+
+  c_parser_consume_token (parser);	/* 'go'  */
+
+  if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
+    {
+      /* Form B: 'go (postfix-expression)'.  The expression has to be a call;
+	 anything else cannot name a task.  */
+      struct c_expr fn;
+
+      c_parser_consume_token (parser);	/* '('  */
+      fn = c_parser_postfix_expression (parser);
+      c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+      if (fn.value == error_mark_node)
+	{
+	  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+	  return NULL_TREE;
+	}
+      if (TREE_CODE (fn.value) != CALL_EXPR)
+	{
+	  error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+	  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+	  return NULL_TREE;
+	}
+      callee = CALL_EXPR_FN (fn.value);
+      for (unsigned int i = 0; i < call_expr_nargs (fn.value); i++)
+	args = tree_cons (NULL_TREE, CALL_EXPR_ARG (fn.value, i), args);
+      args = nreverse (args);
+    }
+  else if (c_parser_next_token_is (parser, CPP_NAME)
+	   && c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN)
+    {
+      /* Form A: 'go name (args)'.  The name has to be a function: a call
+	 through a pointer is form B.  */
+      tree id = c_parser_peek_token (parser)->value;
+      tree decl = lookup_name (id);
+
+      c_parser_consume_token (parser);	/* name  */
+      if (decl == NULL_TREE || TREE_CODE (decl) != FUNCTION_DECL)
+	{
+	  error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+	  if (decl == NULL_TREE)
+	    inform (loc, "%qE is not declared", id);
+	  /* Consume the argument list so the next token is the ';'.  */
+	  if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
+	    {
+	      c_parser_consume_token (parser);
+	      c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+					 "expected %<)%>");
+	    }
+	  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+	  return NULL_TREE;
+	}
+      c_parser_consume_token (parser);	/* '('  */
+      if (c_parser_next_token_is_not (parser, CPP_CLOSE_PAREN))
+	raw = c_parser_expr_list (parser, true, false, NULL, NULL, NULL, NULL,
+				  NULL);
+      for (unsigned int i = 0; i < vec_safe_length (raw); i++)
+	args = tree_cons (NULL_TREE, (*raw)[i], args);
+      args = nreverse (args);
+      c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+      callee = decl;
+    }
+  else
+    {
+      error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+      c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+      return NULL_TREE;
+    }
+
+  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+  if (raw != NULL)
+    release_tree_vector (raw);
+
+  return crug_go_lower (loc, callee, args);
+}
+
+/* Parse 'yield ();' and return the runtime call it lowers to.  A task gives
+   the worker back to the runtime at this point (MASTER_SPEC section 25,
+   cooperative yielding).  */
+
+static tree
+crug_parse_yield_statement (c_parser *parser)
+{
+  location_t loc = c_parser_peek_token (parser)->location;
+
+  c_parser_consume_token (parser);	/* 'yield'  */
+  c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>");
+  c_parser_require (parser, CPP_CLOSE_PAREN, "expected %<)%>");
+  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
+  return crug_yield_call (loc);
 }
 
 /* Parse 'match (e) { arm ... }' and return the lowered block.  The word

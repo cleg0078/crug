@@ -755,6 +755,73 @@ crug_is_borrow_decl (tree decl, bool *is_mut)
   return true;
 }
 
+/* The ownership rules for one capture of a 'go' statement (ADR 0018 D4,
+   MASTER_SPEC section 27.2).  A task starts later, so nothing about the
+   caller's frame can be assumed: an owned value has to be moved into the task
+   explicitly, a borrow cannot escape, and a destructor is not part of the
+   callee's contract.  PARM is the callee parameter of that argument, or
+   NULL_TREE for an indirect call whose type carries no declaration.
+
+   Returns false after reporting a diagnostic; the caller then emits no code,
+   so the program does not also get a cascade from the lowered frame.  */
+
+bool
+crug_check_go_capture (location_t loc, tree arg, tree parm)
+{
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return true;
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (arg) == CALL_EXPR && is_intrinsic_call (arg, &kind))
+    {
+      if (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT)
+	{
+	  error_at (loc, "a borrow cannot be captured by a concurrent task; "
+		    "capture an owned value with %<move (...)%> [crug-CONC-012]");
+	  return false;
+	}
+      if (kind == CRUG_INTR_MOVE)
+	{
+	  if (parm != NULL_TREE && !crug_is_owning_decl (parm))
+	    {
+	      error_at (loc, "the task does not take ownership of the captured "
+			"value: declare the parameter %<own%> [crug-CONC-011]");
+	      return false;
+	    }
+	  return true;
+	}
+      if (kind == CRUG_INTR_ADOPT)
+	{
+	  error_at (loc, "a destructor cannot cross a task boundary; the task "
+		    "destroys an owned parameter by itself [crug-CONC-014]");
+	  return false;
+	}
+      return true;
+    }
+
+  tree decl = arg;
+  STRIP_NOPS (decl);
+  if (decl == NULL_TREE || !DECL_P (decl))
+    return true;
+
+  if (crug_is_owning_decl (decl))
+    {
+      error_at (loc, "owned value passed to concurrent task without ownership "
+		"transfer [crug-CONC-011]");
+      inform (loc, "use %<move (%E)%> to transfer it to the task", decl);
+      return false;
+    }
+
+  if (crug_is_borrow_decl (decl, NULL))
+    {
+      error_at (loc, "a borrow cannot be captured by a concurrent task; "
+		"capture an owned value with %<move (...)%> [crug-CONC-012]");
+      return false;
+    }
+
+  return true;
+}
+
 /* Dumps.  -fcrug-dump= takes a comma-separated list of kinds.  */
 
 struct crug_dump_slot
