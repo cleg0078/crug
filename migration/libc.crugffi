@@ -1,0 +1,11 @@
+# Minimal sidecar for the migration corpus.  c2crug reads it to learn that
+# fopen returns an owned FILE whose destructor is fclose, and that fclose
+# consumes its argument.
+
+crugffi 1.0;
+
+fn fopen
+    returns owned FILE nullable drop fclose;
+
+fn fclose
+    consumes arg0;
