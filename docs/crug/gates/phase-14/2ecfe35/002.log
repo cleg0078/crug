@@ -1,0 +1,5 @@
+phase-14 #2 rc=0
+cmd: GOROUTINES_STRESS=1 ./build/tasks-stress
+expected: exit 0; prints `tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=4`.
+---
+tasks-stress: tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=8 queue_peak=4

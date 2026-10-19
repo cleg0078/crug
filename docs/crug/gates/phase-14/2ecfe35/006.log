@@ -1,0 +1,5 @@
+phase-14 #6 rc=0
+cmd: scripts/lint-no-os-apis.sh libcrug/core
+expected: exit 0; 0 operating-system primitive references: the scheduler reaches the OS only through the PAL.
+---
+lint-no-os-apis: 4 file(s) under libcrug/core, 0 operating-system primitive references

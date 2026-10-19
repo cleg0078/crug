@@ -86,8 +86,9 @@ boundary - see [docs/crug/TASKS.md](docs/crug/TASKS.md),
 [docs/crug/GOROUTINES.md](docs/crug/GOROUTINES.md),
 [ADR 0008](docs/crug/adr/0008-goroutine-stack-model.md),
 [ADR 0009](docs/crug/adr/0009-scheduler-model.md) and
-[ADR 0013](docs/crug/adr/0013-arch-context-switch-policy.md). Channels,
-`select` and structured `scope` are not implemented. See
+[ADR 0013](docs/crug/adr/0013-arch-context-switch-policy.md). The Phase 14 gate
+passes 8/8 at `2ecfe35` (logs under `docs/crug/gates/phase-14/2ecfe35/`).
+Channels, `select` and structured `scope` are not implemented. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 

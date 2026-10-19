@@ -1,0 +1,27 @@
+phase-14 #5 rc=0
+cmd: scripts/test-kernel-compat.sh && scripts/check-kernel-objects.sh out
+expected: exit 0; prints `kernel-objects: 20 objects, __crug_=0, libcrug=0` (plain C and kernel builds still link no runtime).
+---
+PASS 01 -fcrug-kernel accepted, byte-identical code, bad value rejected
+PASS 02 scripts/test-kernel-compat.sh exists
+PASS 03 kernel corpus has 18 sources (>= 18)
+PASS 04 statement expressions
+PASS 05 typeof / __typeof__
+PASS 06 __auto_type
+PASS 07 attributes
+PASS 08 section placement
+PASS 09 packed and aligned types
+PASS 10 zero-length arrays
+PASS 11 flexible array members
+PASS 12 computed goto
+PASS 13 inline asm
+PASS 14 asm goto
+PASS 15 volatile and MMIO
+PASS 16 builtin atomics and barriers
+PASS 17 branch prediction hints
+PASS 18 container_of
+PASS 19 -ffreestanding translation unit
+PASS 20 -nostdlib and runtime-free translation units
+PASS 21 objects scanned: no __crug_ symbols, no libcrug dependency
+kernel-compat: 21/21 work items PASS
+kernel-objects: 20 objects, __crug_=0, libcrug=0

@@ -1,0 +1,10 @@
+phase-14 #4 rc=0
+cmd: ASAN_OPTIONS=abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 make -C libcrug check-sanitizer
+expected: exit 0.
+---
+make: Entering directory '/home/cleg/MyDev/crug/libcrug'
+../scripts/check-tasks-sanitizer.sh
+tasks: 17 checks, 0 failed, workers 4, completed 125, yielded 24, queue peak 8
+tasks-stress: tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=16
+tasks-sanitizer: ASan and UBSan clean over the suite and 100000 tasks
+make: Leaving directory '/home/cleg/MyDev/crug/libcrug'

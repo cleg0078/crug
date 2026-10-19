@@ -291,7 +291,8 @@ workers=4 queue_peak=4` while `strace` counts 4 thread-creating calls;
 reports `kernel-objects: 20 objects, __crug_=0, libcrug=0`. The runtime ABI
 version 1 freezes the spawn/yield signatures and the stats fields
 (`docs/crug/ABI.md` section 6). The Phase 14 gate (amendment A-17) runs eight
-runnable checks over these artefacts.
+runnable checks over these artefacts and passes 8/8 at `2ecfe35` (logs under
+`docs/crug/gates/phase-14/2ecfe35/`).
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
@@ -394,8 +395,8 @@ superseding ADR and owner ratification.
 ## Next actions, in dependency order
 
 1. **Push and open Phase 15** (structured `scope`): the Phase 14 gate
-   adjudicates the task runtime, and Phase 15 adds the lexical scope that owns
-   its tasks and joins them at exit. `scope` is already in the grammar
+   adjudicates the task runtime (8/8 at `2ecfe35`), and Phase 15 adds the lexical
+   scope that owns its tasks and joins them at exit. `scope` is already in the grammar
    (ADR 0018 D4); it needs a parser production, a scope object in
    `libcrug/core/`, capture rules that reuse the `go` checks, and a dump."
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict

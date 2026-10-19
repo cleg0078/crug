@@ -1,0 +1,5 @@
+phase-14 #7 rc=0
+cmd: scripts/check-diagnostics.sh
+expected: exit 0; every referenced code is registered, including CONC-008 and CONC-010 to CONC-014.
+---
+check-diagnostics: 116 registered code(s); 116 referenced code(s); all references registered.

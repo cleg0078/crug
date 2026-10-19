@@ -1,0 +1,19 @@
+phase-14 #1 rc=0
+cmd: make check-GOROUTINES
+expected: exit 0; prints `goroutines: 27 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` (spawn, yield, capture, owned capture and shutdown programs plus the dg cases).
+---
+make -C libcrug check-GOROUTINES
+make[1]: Entering directory '/home/cleg/MyDev/crug/libcrug'
+make PAL=linux check-tasks
+make[2]: Entering directory '/home/cleg/MyDev/crug/libcrug'
+tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 2
+tasks-stress: tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=8 queue_peak=31
+make[2]: Leaving directory '/home/cleg/MyDev/crug/libcrug'
+make[1]: Leaving directory '/home/cleg/MyDev/crug/libcrug'
+scripts/check-goroutines.sh
+goroutines-capture: ticks=1 buf=1,2,3,4 pair=16
+goroutines-owned: seen=Q
+goroutines-shutdown: seen=5 completed=5 lost=0
+goroutines-spawn: sum=36 spawned=8 completed=8 lost=0
+goroutines-yield: steps=4 yielded=4 completed=1 lost=0
+goroutines: 27 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)

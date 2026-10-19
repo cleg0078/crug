@@ -1,0 +1,5 @@
+phase-14 #3 rc=0
+cmd: test "$(CRUG_TASKS_WORKERS=4 GOROUTINES_STRESS=1 strace -f -e trace=clone,clone3 ./build/tasks-stress 2>&1 | grep -c clone)" = 4
+expected: exit 0: 100000 tasks start 4 worker threads, not 100000.
+---
+
