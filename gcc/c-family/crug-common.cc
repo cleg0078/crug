@@ -81,7 +81,8 @@ crug_apply_option_closure (void)
 	{
 	  size_t n = strcspn (p, ",");
 	  if (!((n == 9 && memcmp (p, "ownership", 9) == 0)
-		|| (n == 4 && memcmp (p, "drop", 4) == 0)))
+		|| (n == 4 && memcmp (p, "drop", 4) == 0)
+		|| (n == 6 && memcmp (p, "borrow", 6) == 0)))
 	    error ("unrecognized argument to %<-fcrug-dump=%>: %qs",
 		   crug_dump_kind);
 	  p += n;

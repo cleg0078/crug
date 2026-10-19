@@ -2919,3 +2919,9 @@ Warn that destructors may be skipped by setjmp()/longjmp().
 Wcrug-drop-unreachable
 Common Var(warn_crug_drop_unreachable) Init(1) Warning
 Warn about a drop that control can never reach.
+
+Wcrug-returned-borrow
+Common Var(warn_crug_returned_borrow) Init(1) Warning
+Warn about a function that returns a borrow.  Reserved: returning a borrow
+is an error, not a warning, while ADR 0018 D2 R7 stands; the option exists
+so that the registry and any later relaxation have a stable name.

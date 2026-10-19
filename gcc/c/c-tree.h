@@ -365,6 +365,17 @@ enum c_declspec_il {
   cdil_rtl		/* __RTL  */
 };
 
+/* The Crug qualifier on a declarator, if any (ADR 0018 D2, ADR 0003 D1).
+   These are contextual words, not reserved words, and they are erased from
+   the type: everything a qualifier says lives in analysis metadata, never in
+   TYPE_* or in the object.  */
+enum crug_qualifier_kind {
+  CRUG_QUAL_NONE,
+  CRUG_QUAL_OWN,
+  CRUG_QUAL_REF,
+  CRUG_QUAL_MUT
+};
+
 /* A sequence of declaration specifiers in C.  When a new declaration
    specifier is added, please update the enum c_declspec_word above
    accordingly.  */
@@ -419,8 +430,8 @@ struct c_declspecs {
   /* Whether any expressions in typeof specifiers may appear in
      constant expressions.  */
   BOOL_BITFIELD expr_const_operands : 1;
-  /* Whether the Crug 'own' qualifier was seen (ADR 0018 D2).  */
-  BOOL_BITFIELD crug_own_p : 1;
+  /* The Crug qualifier seen on this declaration, if any (ADR 0018 D2).  */
+  ENUM_BITFIELD (crug_qualifier_kind) crug_qual : 2;
   /* Whether any declaration specifiers have been seen at all.  */
   BOOL_BITFIELD declspecs_seen_p : 1;
   /* Whether any declaration specifiers other than standard attributes

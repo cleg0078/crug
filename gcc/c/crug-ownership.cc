@@ -128,6 +128,7 @@ struct crug_frame
 {
   tree bind;
   std::vector<tree> decls;
+  std::vector<tree> borrows;
 };
 
 /* A loop or switch: where break and continue land, and the states that
@@ -155,6 +156,21 @@ struct crug_label_info
   std::vector<tree> decls_before;
 };
 
+/* A live borrow: which binding holds it and which object it borrows.  A
+   borrow is live from its initialization to the end of the innermost block
+   that declares it, so liveness is structural and needs no dataflow (this
+   phase is lexical; RFC-0001 section 18.4 asks for last-use analysis in a
+   later phase).  LENDER is the root object borrowed, never an intermediate
+   reborrow, and is NULL_TREE for a borrowed parameter, which has no local
+   lender.  DEPTH is the number of enclosing frames at the declaration.  */
+
+struct crug_borrow
+{
+  bool is_mut;
+  tree lender;
+  size_t depth;
+};
+
 struct crug_fn_ctx
 {
   tree fndecl;
@@ -170,6 +186,14 @@ struct crug_fn_ctx
   std::vector<crug_target> targets;
   std::set<tree> warned;
   std::set<tree> warned_setjmp;
+  /* Live borrows, keyed by the borrowing binding.  An entry disappears when
+     the block that declares the binding ends, which is what makes the
+     checker lexical.  */
+  std::map<tree, crug_borrow> borrows;
+  /* Bindings declared with ref or mut, initialized or not, and the frame
+     depth of every owning or borrowing declaration that has a lifetime.  */
+  std::set<tree> borrow_declared;
+  std::map<tree, size_t> decl_depth;
 };
 
 /* Declarations recorded as owning during parsing, keyed by DECL_UID rather
@@ -179,15 +203,26 @@ struct crug_fn_ctx
 
 static std::set<unsigned int> crug_owning_uids;
 
+/* Declarations recorded as borrows during parsing, keyed the same way.  The
+   value says whether the borrow is exclusive.  This is analysis metadata:
+   nothing is attached to the type or to the object (ADR 0003 D1).  */
+static std::map<unsigned int, bool> crug_borrow_uids;
+
 /* The artificial function declarations used by the intrinsics.  They exist
    only inside the front end: every call is removed by this pass.  */
 
-static tree crug_intr_fndecl[4];
+static tree crug_intr_fndecl[CRUG_INTR_BORROW_MUT + 1];
 
 bool
 crug_ownership_enabled (void)
 {
   return crug_feature_enabled (CRUG_FEAT_OWNERSHIP);
+}
+
+bool
+crug_borrow_enabled (void)
+{
+  return crug_feature_enabled (CRUG_FEAT_BORROW);
 }
 
 /* Intrinsic names and calls.  */
@@ -209,12 +244,29 @@ crug_intrinsic_kind (tree id, enum crug_intrinsic *kind)
     k = CRUG_INTR_RELEASE;
   else if (strcmp (name, "drop") == 0)
     k = CRUG_INTR_DROP;
+  else if (strcmp (name, "borrow") == 0)
+    k = CRUG_INTR_BORROW;
+  else if (strcmp (name, "borrow_mut") == 0)
+    k = CRUG_INTR_BORROW_MUT;
   else
     return false;
 
   if (kind != NULL)
     *kind = k;
   return true;
+}
+
+bool
+crug_intrinsic_enabled (enum crug_intrinsic kind)
+{
+  switch (kind)
+    {
+    case CRUG_INTR_BORROW:
+    case CRUG_INTR_BORROW_MUT:
+      return crug_borrow_enabled ();
+    default:
+      return crug_ownership_enabled ();
+    }
 }
 
 static const char *
@@ -230,6 +282,10 @@ intrinsic_name (enum crug_intrinsic kind)
       return "__builtin_crug_release";
     case CRUG_INTR_DROP:
       return "__builtin_crug_drop";
+    case CRUG_INTR_BORROW:
+      return "__builtin_crug_borrow";
+    case CRUG_INTR_BORROW_MUT:
+      return "__builtin_crug_borrow_mut";
     }
   return "__builtin_crug_move";
 }
@@ -306,7 +362,7 @@ is_intrinsic_call (tree t, enum crug_intrinsic *kind)
   if (fn == NULL_TREE)
     return false;
 
-  for (int i = 0; i < 4; i++)
+  for (int i = 0; i <= CRUG_INTR_BORROW_MUT; i++)
     if (fn == crug_intr_fndecl[i])
       {
 	if (kind != NULL)
@@ -385,6 +441,59 @@ crug_is_owning_decl (tree decl)
 	  && crug_owning_uids.count (DECL_UID (decl)) != 0);
 }
 
+void
+crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
+{
+  if (decl == NULL_TREE || decl == error_mark_node || !DECL_P (decl))
+    return;
+
+  if (TREE_CODE (decl) == TYPE_DECL)
+    {
+      error_at (loc, "a borrowed declarator cannot be a typedef "
+		"[crug-BORROW-007]");
+      return;
+    }
+
+  if (DECL_NAME (decl) == NULL_TREE)
+    return;
+
+  if (TREE_CODE (decl) == FUNCTION_DECL)
+    {
+      error_at (loc, "a function cannot return a borrow [crug-BORROW-001]");
+      return;
+    }
+
+  tree type = TREE_TYPE (decl);
+  if (type == NULL_TREE || type == error_mark_node)
+    return;
+
+  if (TREE_CODE (type) != POINTER_TYPE
+      || TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
+    {
+      error_at (loc, "a borrow qualifier must apply to a pointer declarator "
+		"[crug-TYPE-007]");
+      return;
+    }
+
+  crug_borrow_uids[DECL_UID (decl)] = is_mut;
+}
+
+bool
+crug_is_borrow_decl (tree decl, bool *is_mut)
+{
+  if (decl == NULL_TREE || !DECL_P (decl) || DECL_NAME (decl) == NULL_TREE)
+    return false;
+
+  std::map<unsigned int, bool>::const_iterator it
+    = crug_borrow_uids.find (DECL_UID (decl));
+  if (it == crug_borrow_uids.end ())
+    return false;
+
+  if (is_mut != NULL)
+    *is_mut = it->second;
+  return true;
+}
+
 /* Dumps.  -fcrug-dump= takes a comma-separated list of kinds.  */
 
 struct crug_dump_slot
@@ -399,7 +508,8 @@ struct crug_dump_slot
 static struct crug_dump_slot crug_dump_slots[] =
 {
   { "ownership", ".crug-ownership", "crug ownership dump v1", NULL, false },
-  { "drop", ".crug-drop", "crug drop dump v1", NULL, false }
+  { "drop", ".crug-drop", "crug drop dump v1", NULL, false },
+  { "borrow", ".crug-borrow", "crug borrow dump v1", NULL, false }
 };
 
 static bool
@@ -547,6 +657,31 @@ dump_drops (enum crug_exit_kind kind, location_t loc,
 	     ? IDENTIFIER_POINTER (DECL_NAME (drops[i].dtor)) : "none");
 }
 
+/* A borrow begins at its declaration and ends with the block that declares
+   it.  The root lender is printed, so a reborrow is shown against the object
+   that is actually borrowed.  */
+
+static void
+dump_borrow (bool begin, location_t loc, tree binding, bool is_mut, tree lender)
+{
+  if (!dump_kind_enabled ("borrow"))
+    return;
+
+  FILE *file = get_dump_file ("borrow");
+  if (file == NULL || DECL_NAME (binding) == NULL_TREE)
+    return;
+
+  expanded_location where = expand_location (loc);
+  fprintf (file, "%s %s:%d: %s %s %s\n",
+	   begin ? "borrow" : "end",
+	   where.file != NULL ? lbasename (where.file) : "<unknown>",
+	   where.line,
+	   IDENTIFIER_POINTER (DECL_NAME (binding)),
+	   is_mut ? "excludes" : "shares",
+	   lender != NULL_TREE && DECL_NAME (lender) != NULL_TREE
+	   ? IDENTIFIER_POINTER (DECL_NAME (lender)) : "<parameter>");
+}
+
 /* The analysis proper.  */
 
 static bool walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t,
@@ -632,6 +767,19 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
   crug_frame &f = ctx.frames.back ();
   for (size_t i = 0; i < f.decls.size (); i++)
     env.erase (f.decls[i]);
+  /* A borrow never outlives the block that declares it.  */
+  for (size_t i = 0; i < f.borrows.size (); i++)
+    {
+      std::map<tree, crug_borrow>::iterator b
+	= ctx.borrows.find (f.borrows[i]);
+      if (b != ctx.borrows.end ())
+	{
+	  dump_borrow (false, node_location (f.bind), f.borrows[i],
+		       b->second.is_mut, b->second.lender);
+	  ctx.borrows.erase (b);
+	}
+      ctx.decl_depth.erase (f.borrows[i]);
+    }
   ctx.frames.pop_back ();
 }
 
@@ -643,8 +791,100 @@ register_owned (crug_fn_ctx &ctx, state_map &env, tree decl)
     if (f.decls[i] == decl)
       return;
   f.decls.push_back (decl);
+  ctx.decl_depth[decl] = ctx.frames.size () - 1;
   if (env.find (decl) == env.end ())
     env[decl] = crug_ostate (CRUG_EMPTY, NULL_TREE);
+}
+
+/* Record that BINDING holds a borrow of LENDER.  The entry is removed when
+   the declaring block ends, so liveness is lexical (ADR 0018 D2; RFC-0001
+   section 18.4 asks for last-use analysis in a later phase).  */
+
+static void
+register_borrow (crug_fn_ctx &ctx, tree binding, bool is_mut, tree lender)
+{
+  crug_borrow b;
+  b.is_mut = is_mut;
+  b.lender = lender;
+  b.depth = ctx.frames.size () - 1;
+  ctx.frames.back ().borrows.push_back (binding);
+  ctx.borrow_declared.insert (binding);
+  ctx.decl_depth[binding] = b.depth;
+  ctx.borrows[binding] = b;
+  dump_borrow (true, DECL_SOURCE_LOCATION (binding), binding, is_mut, lender);
+}
+
+/* The object a binding borrows, following reborrows to the root.  */
+
+static tree
+resolve_lender (crug_fn_ctx &ctx, tree binding)
+{
+  std::map<tree, crug_borrow>::const_iterator it = ctx.borrows.find (binding);
+  if (it == ctx.borrows.end ())
+    return NULL_TREE;
+  return it->second.lender;
+}
+
+/* True when LENDER has a live borrow; SHARED and MUT report which kinds.  */
+
+static bool
+has_live_borrow (crug_fn_ctx &ctx, tree lender, bool *shared, bool *mut)
+{
+  bool any = false;
+  if (shared != NULL)
+    *shared = false;
+  if (mut != NULL)
+    *mut = false;
+
+  for (std::map<tree, crug_borrow>::const_iterator i = ctx.borrows.begin ();
+       i != ctx.borrows.end (); ++i)
+    {
+      if (i->second.lender != lender)
+	continue;
+      any = true;
+      if (i->second.is_mut)
+	{
+	  if (mut != NULL)
+	    *mut = true;
+	}
+      else if (shared != NULL)
+	*shared = true;
+    }
+  return any;
+}
+
+/* The declaration at the base of an lvalue expression: the object whose
+   storage an assignment actually writes.  Returns NULL_TREE for anything
+   that is not rooted in a local declaration.  */
+
+static tree
+expr_base_decl (tree e)
+{
+  while (e != NULL_TREE)
+    {
+      switch (TREE_CODE (e))
+	{
+	case COMPONENT_REF:
+	case ARRAY_REF:
+	case INDIRECT_REF:
+	case MEM_REF:
+	case REALPART_EXPR:
+	case IMAGPART_EXPR:
+	case VIEW_CONVERT_EXPR:
+	  e = TREE_OPERAND (e, 0);
+	  break;
+	case NOP_EXPR:
+	case CONVERT_EXPR:
+	  if (TREE_CODE (TREE_TYPE (e)) == POINTER_TYPE)
+	    return NULL_TREE;
+	  e = TREE_OPERAND (e, 0);
+	  break;
+	default:
+	  return (TREE_CODE (e) == VAR_DECL || TREE_CODE (e) == PARM_DECL)
+		 ? e : NULL_TREE;
+	}
+    }
+  return NULL_TREE;
 }
 
 static tree
@@ -920,6 +1160,11 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
       return NULL_TREE;
     }
 
+  bool shared = false;
+  bool mutborrow = false;
+  if (has_live_borrow (ctx, r, &shared, &mutborrow))
+    error_at (loc, "cannot move %qD while it is borrowed [crug-BORROW-004]", r);
+
   crug_state st = state_of (env, r);
   tree dtor = dtor_of (env, r);
 
@@ -986,6 +1231,11 @@ check_release (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
       return;
     }
 
+  bool shared = false;
+  bool mutborrow = false;
+  if (has_live_borrow (ctx, r, &shared, &mutborrow))
+    error_at (loc, "cannot move %qD while it is borrowed [crug-BORROW-004]", r);
+
   crug_state st = state_of (env, r);
   if (st == CRUG_MOVED)
     error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
@@ -1012,6 +1262,11 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
       error_at (loc, "drop() operand is not an owned object [crug-DROP-001]");
       return;
     }
+
+  bool shared = false;
+  bool mutborrow = false;
+  if (has_live_borrow (ctx, r, &shared, &mutborrow))
+    error_at (loc, "cannot drop %qD while it is borrowed [crug-BORROW-005]", r);
 
   crug_state st = state_of (env, r);
   tree dtor = dtor_of (env, r);
@@ -1113,11 +1368,228 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
   set_owned (env, decl, NULL_TREE);
 }
 
+/* A borrow must not outlive the object it borrows.  Both declarations are
+   in frames of the function, and a binding declared in a shallower frame
+   than its lender would still be live after the lender is destroyed.  */
+
 static void
-check_use (state_map &env, tree decl, location_t loc)
+borrow_escape_check (crug_fn_ctx &ctx, tree binding, tree lender,
+		     location_t loc)
 {
+  std::map<tree, size_t>::const_iterator me
+    = ctx.decl_depth.find (binding);
+  std::map<tree, size_t>::const_iterator le = ctx.decl_depth.find (lender);
+  if (me == ctx.decl_depth.end () || le == ctx.decl_depth.end ())
+    return;
+  if (me->second < le->second)
+    error_at (loc, "borrow %qD escapes the lifetime of its referent "
+	      "[crug-BORROW-007]", binding);
+}
+
+/* Validate the operand of borrow(e) / borrow_mut(e) and return the root
+   object it borrows, or NULL_TREE after reporting.  Reading the operand is
+   not a use: the checks below read the ownership state directly, so a call
+   does not also report crug-BORROW-015 against its own lender.  */
+
+static tree
+check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
+	      location_t loc)
+{
+  const char *what = want_mut ? "borrow_mut()" : "borrow()";
+  tree arg = CALL_EXPR_ARG (call, 0);
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return NULL_TREE;
+
+  tree r = arg;
+  STRIP_NOPS (r);
+
+  if (TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
+    {
+      if (TREE_CODE (r) == COMPONENT_REF || TREE_CODE (r) == ARRAY_REF
+	  || TREE_CODE (r) == INDIRECT_REF || TREE_CODE (r) == MEM_REF)
+	error_at (loc, "%s operand must be a whole owned object or a borrow; "
+		  "member borrows are not supported in this phase "
+		  "[crug-BORROW-009]", what);
+      else
+	error_at (loc, "%s operand must be an lvalue [crug-BORROW-006]", what);
+      return NULL_TREE;
+    }
+
+  bool arg_mut = false;
+  if (crug_is_borrow_decl (r, &arg_mut))
+    {
+      if (want_mut)
+	{
+	  error_at (loc, "a mutable borrow of a borrow is not supported in "
+		    "this phase [crug-BORROW-010]");
+	  return NULL_TREE;
+	}
+      if (arg_mut)
+	{
+	  error_at (loc, "cannot borrow %qD while it is mutably borrowed "
+		    "[crug-BORROW-016]", r);
+	  return NULL_TREE;
+	}
+      tree root = resolve_lender (ctx, r);
+      return root != NULL_TREE ? root : r;
+    }
+
+  if (!crug_is_owning_decl (r))
+    {
+      if (want_mut)
+	error_at (loc, "%s operand must be a whole modifiable owned object "
+		  "[crug-BORROW-010]", what);
+      else
+	error_at (loc, "%s operand must be a whole owned object or a borrow; "
+		  "member borrows are not supported in this phase "
+		  "[crug-BORROW-009]", what);
+      return NULL_TREE;
+    }
+
+  crug_state st = state_of (env, r);
+  if (st == CRUG_EMPTY)
+    {
+      error_at (loc, "cannot borrow %qD because it owns nothing "
+		"[crug-BORROW-011]", r);
+      return NULL_TREE;
+    }
+  if (st == CRUG_MOVED)
+    {
+      error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      return NULL_TREE;
+    }
+  if (st == CRUG_MAYBE_MOVED || st == CRUG_MAYBE_EMPTY)
+    {
+      error_at (loc, "use of possibly-moved value %qD after a branch join "
+		"[crug-UAM-004]", r);
+      return NULL_TREE;
+    }
+
+  bool shared = false;
+  bool mutborrow = false;
+  (void) has_live_borrow (ctx, r, &shared, &mutborrow);
+  if (want_mut)
+    {
+      if (mutborrow)
+	{
+	  error_at (loc, "cannot mutably borrow %qD more than once "
+		    "[crug-BORROW-003]", r);
+	  return NULL_TREE;
+	}
+      if (shared)
+	{
+	  error_at (loc, "cannot mutably borrow %qD while it is shared-borrowed "
+		    "[crug-BORROW-002]", r);
+	  return NULL_TREE;
+	}
+    }
+  else if (mutborrow)
+    {
+      error_at (loc, "cannot borrow %qD while it is mutably borrowed "
+		"[crug-BORROW-016]", r);
+      return NULL_TREE;
+    }
+
+  return r;
+}
+
+/* Initialize a borrowed binding from EXPR (ADR 0018 D3 R3, RFC-0001
+   section 18).  A borrow that outlives the block of its lender is rejected.  */
+
+static void
+assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
+	       location_t loc, bool want_mut)
+{
+  if (expr == NULL_TREE || expr == error_mark_node)
+    return;
+
+  tree r = expr;
+  STRIP_NOPS (r);
+
+  if (TREE_CODE (r) == CALL_EXPR)
+    {
+      enum crug_intrinsic kind;
+      if (is_intrinsic_call (r, &kind)
+	  && (kind == CRUG_INTR_BORROW || kind == CRUG_INTR_BORROW_MUT))
+	{
+	  bool src_mut = kind == CRUG_INTR_BORROW_MUT;
+	  if (want_mut && !src_mut)
+	    {
+	      error_at (loc, "a mutable borrow cannot be initialized from "
+			"%<borrow()%> [crug-BORROW-012]");
+	      return;
+	    }
+	  tree root = check_borrow (ctx, env, r, src_mut, loc);
+	  if (root == NULL_TREE)
+	    return;
+	  borrow_escape_check (ctx, decl, root, loc);
+	  register_borrow (ctx, decl, src_mut, root);
+	  return;
+	}
+    }
+
+  bool src_mut = false;
+  if ((TREE_CODE (r) == VAR_DECL || TREE_CODE (r) == PARM_DECL)
+      && crug_is_borrow_decl (r, &src_mut))
+    {
+      if (TREE_CODE (r) == VAR_DECL
+	  && ctx.borrows.find (r) == ctx.borrows.end ())
+	{
+	  error_at (loc, "borrow %qD is used without being initialized on "
+		    "this path [crug-BORROW-013]", r);
+	  return;
+	}
+      if (want_mut && !src_mut)
+	{
+	  error_at (loc, "a mutable borrow cannot be initialized from a "
+		    "shared borrow [crug-BORROW-012]");
+	  return;
+	}
+      if (!want_mut && src_mut)
+	{
+	  error_at (loc, "cannot borrow %qD while it is mutably borrowed "
+		    "[crug-BORROW-016]", r);
+	  return;
+	}
+      tree root = resolve_lender (ctx, r);
+      if (root == NULL_TREE)
+	root = r;
+      borrow_escape_check (ctx, decl, root, loc);
+      register_borrow (ctx, decl, src_mut, root);
+      return;
+    }
+
+  error_at (loc, "borrow %qD must be initialized from %<borrow()%>, "
+	    "%<borrow_mut()%> or another borrow [crug-BORROW-017]", decl);
+}
+
+static tree expr_base_decl (tree e);
+
+static void
+check_use (crug_fn_ctx &ctx, state_map &env, tree decl, location_t loc)
+{
+  bool is_mut = false;
+  if (crug_is_borrow_decl (decl, &is_mut))
+    {
+      /* A borrow that was declared but never initialized on this path has
+	 no lender to conflict with, and reading it would read a dangling
+	 pointer.  */
+      if (TREE_CODE (decl) == VAR_DECL
+	  && DECL_INITIAL (decl) == NULL_TREE
+	  && ctx.borrows.find (decl) == ctx.borrows.end ())
+	error_at (loc, "borrow %qD is used without being initialized on this "
+		  "path [crug-BORROW-013]", decl);
+      return;
+    }
+
   if (!crug_is_owning_decl (decl))
     return;
+
+  bool shared = false;
+  bool mutborrow = false;
+  if (has_live_borrow (ctx, decl, &shared, &mutborrow) && mutborrow)
+    error_at (loc, "cannot use %qD while it is mutably borrowed "
+	      "[crug-BORROW-015]", decl);
 
   crug_state state = state_of (env, decl);
   if (state == CRUG_MOVED)
@@ -1178,7 +1650,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     {
     case VAR_DECL:
     case PARM_DECL:
-      check_use (env, t, loc);
+      check_use (ctx, env, t, loc);
       return;
 
     case CALL_EXPR:
@@ -1200,6 +1672,12 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	      case CRUG_INTR_DROP:
 		check_drop (ctx, env, t, loc);
 		return;
+	      case CRUG_INTR_BORROW:
+	      case CRUG_INTR_BORROW_MUT:
+		/* A borrow used without a binding ends immediately.  */
+		(void) check_borrow (ctx, env, t,
+			     kind == CRUG_INTR_BORROW_MUT, loc);
+		return;
 	      }
 	  }
 	if (is_setjmp_call (t))
@@ -1214,9 +1692,42 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
       {
 	tree lhs = TREE_OPERAND (t, 0);
 	tree rhs = TREE_OPERAND (t, 1);
+	bool lhs_mut = false;
+	if (TREE_CODE (lhs) == VAR_DECL && crug_is_borrow_decl (lhs, &lhs_mut))
+	  {
+	    /* Re-initializing a borrow ends the previous one here.  */
+	    std::map<tree, crug_borrow>::iterator prev
+	      = ctx.borrows.find (lhs);
+	    if (prev != ctx.borrows.end ())
+	      ctx.borrows.erase (prev);
+	    assign_borrow (ctx, env, lhs, rhs, loc, lhs_mut);
+	    return;
+	  }
+	tree base = expr_base_decl (lhs);
+	bool base_mut = false;
+	if (base != NULL_TREE && crug_is_borrow_decl (base, &base_mut))
+	  {
+	    if (!base_mut)
+	      error_at (loc, "assignment through shared borrow %qD "
+			"[crug-BORROW-008]", base);
+	    /* Writing through a borrow does not change what the owner owns,
+	       and the borrow binding itself is not assigned.  */
+	    walk_expr (ctx, env, lhs, loc);
+	    walk_expr (ctx, env, rhs, loc);
+	    return;
+	  }
 	if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
 	    && crug_is_owning_decl (lhs))
 	  {
+	    bool shared = false;
+	    bool mutborrow = false;
+	    if (has_live_borrow (ctx, lhs, &shared, &mutborrow))
+	      {
+		error_at (loc, "cannot assign to %qD while it is borrowed "
+			  "[crug-BORROW-014]", lhs);
+		walk_expr (ctx, env, rhs, loc);
+		return;
+	      }
 	    crug_state st = state_of (env, lhs);
 	    if (st == CRUG_MOVED)
 	      error_at (loc, "use of moved value %qD [crug-UAM-001]", lhs);
@@ -1426,9 +1937,30 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
     case DECL_EXPR:
       {
 	tree decl = DECL_EXPR_DECL (t);
-	if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL
-	    || !crug_is_owning_decl (decl))
+	bool decl_is_mut = false;
+	if (decl != NULL_TREE && TREE_CODE (decl) == VAR_DECL
+	    && crug_is_borrow_decl (decl, &decl_is_mut))
+	  {
+	    /* The binding exists from here on, even if it is not initialized
+	       yet: its frame decides how long the borrow lives.  */
+	    ctx.frames.back ().borrows.push_back (decl);
+	    ctx.borrow_declared.insert (decl);
+	    ctx.decl_depth[decl] = ctx.frames.size () - 1;
+	    assign_borrow (ctx, env, decl, DECL_INITIAL (decl), loc,
+			   decl_is_mut);
+	    return true;
+	  }
+	if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL)
 	  return true;
+
+	if (!crug_is_owning_decl (decl))
+	  {
+	    /* An ordinary variable's initializer is still evaluated: it can
+	       use a moved value, call move(), or take a borrow.  */
+	    if (DECL_INITIAL (decl) != NULL_TREE)
+	      walk_expr (ctx, env, DECL_INITIAL (decl), loc);
+	    return true;
+	  }
 
 	register_owned (ctx, env, decl);
 	assign_from_expr (ctx, env, decl, DECL_INITIAL (decl), loc);
@@ -1866,7 +2398,9 @@ lower_intrinsic_cb (tree *tp, int *walk_subtrees, void *data)
 void
 crug_check_function (tree fndecl, tree body)
 {
-  if (fndecl == NULL_TREE || body == NULL_TREE || !crug_ownership_enabled ())
+  if (fndecl == NULL_TREE || body == NULL_TREE)
+    return;
+  if (!crug_ownership_enabled () && !crug_borrow_enabled ())
     return;
 
   crug_fn_ctx ctx;
@@ -1888,6 +2422,23 @@ crug_check_function (tree fndecl, tree body)
 	ctx.frames[0].decls.push_back (a);
 	env[a] = crug_ostate (CRUG_OWNED, NULL_TREE);
       }
+
+  /* A borrowed parameter is a live borrow of an object the caller owns: it
+     has no local lender and no destruction (ADR 0018 D2 R7, ADR 0003 D1).  */
+  for (tree a = DECL_ARGUMENTS (fndecl); a != NULL_TREE; a = DECL_CHAIN (a))
+    {
+      bool is_mut = false;
+      if (TREE_CODE (a) != PARM_DECL || !crug_is_borrow_decl (a, &is_mut))
+	continue;
+      crug_borrow b;
+      b.is_mut = is_mut;
+      b.lender = NULL_TREE;
+      b.depth = 0;
+      ctx.frames[0].borrows.push_back (a);
+      ctx.borrow_declared.insert (a);
+      ctx.decl_depth[a] = 0;
+      ctx.borrows[a] = b;
+    }
 
   bool reach = walk_stmt (ctx, env, BIND_EXPR_BODY (body));
   if (reach)

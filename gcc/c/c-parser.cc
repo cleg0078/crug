@@ -584,41 +584,59 @@ c_parser_peek_nth_token (c_parser *parser, unsigned int n)
   return &parser->tokens[n - 1];
 }
 
-/* True when the token N tokens ahead (1-based) is the contextual word 'own'
-   and may be read as the ownership qualifier: the feature is on, the lexer
-   reported an ordinary identifier, and the word is not declared (ADR 0018
-   D2 R1: a C parse wins).  */
+/* The Crug qualifier, if any, that the token N tokens ahead (1-based) is.
+   A qualifier is a contextual word: the lexer reports an ordinary identifier,
+   the word is not declared, and the feature that owns the word is on (ADR
+   0018 D1 and D2).  'own' belongs to -fcrug-ownership; 'ref' and 'mut'
+   belong to -fcrug-borrow.  A C parse always wins.  */
 
-static bool
-crug_qualifier_token_n_p (c_parser *parser, unsigned int n)
+static enum crug_qualifier_kind
+crug_qualifier_token_kind_n (c_parser *parser, unsigned int n)
 {
-  if (!crug_ownership_enabled ())
-    return false;
-
   c_token *token = c_parser_peek_nth_token (parser, n);
-  return (token->type == CPP_NAME
-	  && token->id_kind == C_ID_ID
-	  && token->value != NULL_TREE
-	  && strcmp (IDENTIFIER_POINTER (token->value), "own") == 0
-	  && lookup_name (token->value) == NULL_TREE);
+
+  if (token->type != CPP_NAME
+      || token->id_kind != C_ID_ID
+      || token->value == NULL_TREE
+      || lookup_name (token->value) != NULL_TREE)
+    return CRUG_QUAL_NONE;
+
+  const char *name = IDENTIFIER_POINTER (token->value);
+  if (strcmp (name, "own") == 0)
+    return crug_ownership_enabled () ? CRUG_QUAL_OWN : CRUG_QUAL_NONE;
+
+  if (crug_borrow_enabled ())
+    {
+      if (strcmp (name, "ref") == 0)
+	return CRUG_QUAL_REF;
+      if (strcmp (name, "mut") == 0)
+	return CRUG_QUAL_MUT;
+    }
+  return CRUG_QUAL_NONE;
+}
+
+static enum crug_qualifier_kind
+crug_qualifier_token_kind (c_parser *parser)
+{
+  return crug_qualifier_token_kind_n (parser, 1);
 }
 
 static bool
 crug_qualifier_token_p (c_parser *parser)
 {
-  return crug_qualifier_token_n_p (parser, 1);
+  return crug_qualifier_token_kind (parser) != CRUG_QUAL_NONE;
 }
 
-/* True when the token N tokens ahead is the 'own' qualifier starting a
-   type-name, i.e. it is the qualifier and the token after it can start
+/* True when the token N tokens ahead is a Crug qualifier starting a
+   type-name, i.e. it is a qualifier and the token after it can start
    declaration specifiers.  Used by sizeof, alignof and casts, where the
    parser must decide between a type-name and an expression before it calls
    c_parser_type_name (ADR 0018 D2 R3).  */
 
 static bool
-crug_own_type_name_p (c_parser *parser, unsigned int n)
+crug_qualifier_type_name_p (c_parser *parser, unsigned int n)
 {
-  return (crug_qualifier_token_n_p (parser, n)
+  return (crug_qualifier_token_kind_n (parser, n) != CRUG_QUAL_NONE
 	  && c_parser_next_tokens_start_declaration (parser, n + 1));
 }
 
@@ -943,8 +961,8 @@ c_parser_next_token_starts_declspecs (c_parser *parser)
       && c_parser_peek_2nd_token (parser)->type == CPP_DOT)
     return false;
 
-  /* The Crug 'own' qualifier starts declaration specifiers even though the
-     token is an ordinary identifier (ADR 0018 D2).  */
+  /* A Crug qualifier starts declaration specifiers even though the token is
+     an ordinary identifier (ADR 0018 D2).  */
   if (crug_qualifier_token_p (parser))
     return true;
 
@@ -974,11 +992,11 @@ c_parser_next_tokens_start_declaration (c_parser *parser, unsigned int n)
       && c_parser_peek_nth_token (parser, n + 1)->type == CPP_COLON)
     return false;
 
-  /* In Crug mode an undeclared 'own' starts a declaration when the token
+  /* In Crug mode an undeclared qualifier starts a declaration when the token
      after it can start one.  Without this, a statement such as
-     'own struct Foo *p;' would be parsed as an expression and diagnosed as
-     an undeclared identifier.  */
-  if (crug_qualifier_token_n_p (parser, n))
+     'own struct Foo *p;' or 'ref Foo *r;' would be parsed as an expression
+     and diagnosed as an undeclared identifier.  */
+  if (crug_qualifier_token_kind_n (parser, n) != CRUG_QUAL_NONE)
     return c_parser_next_tokens_start_declaration (parser, n + 1);
 
   /* A static assertion is only a declaration if followed by a semicolon;
@@ -3408,7 +3426,7 @@ c_parser_declaration_or_fndef (c_parser *parser, bool fndef_ok,
       tree fndecl = current_function_decl;
       if (fnbody != NULL_TREE
 	  && specs->declspec_il == cdil_none
-	  && crug_ownership_enabled ())
+	  && (crug_ownership_enabled () || crug_borrow_enabled ()))
 	crug_check_function (fndecl, fnbody);
       if (nested && specs->declspec_il == cdil_none)
 	{
@@ -3808,13 +3826,15 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	      continue;
 	    }
 
-	  /* 'own' is a declaration specifier only before the type
+	  /* A Crug qualifier is a declaration specifier only before the type
 	     specifiers have been seen: once a type is present the word can
 	     only be a declarator, so 'int own;' declares a variable named
 	     'own' (ADR 0018 D2, amendment A-3).  */
 	  if (!seen_type && crug_qualifier_token_p (parser))
 	    {
-	      if (specs->crug_own_p)
+	      enum crug_qualifier_kind qual = crug_qualifier_token_kind (parser);
+
+	      if (specs->crug_qual != CRUG_QUAL_NONE)
 		error_at (name_token->location,
 			  "more than one Crug qualifier on one declarator "
 			  "[crug-TYPE-002]");
@@ -3822,7 +3842,8 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 		error_at (name_token->location,
 			  "%<_Atomic%> may not be combined with a Crug "
 			  "qualifier [crug-TYPE-004]");
-	      specs->crug_own_p = 1;
+	      else
+		specs->crug_qual = qual;
 	      c_parser_consume_token (parser);
 	      attrs_ok = true;
 	      continue;
@@ -10676,7 +10697,7 @@ c_parser_cast_expression (c_parser *parser, struct c_expr *after)
      would require a 3-token lookahead.  */
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_own_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)))
     {
       struct c_declspecs *scspecs;
       struct c_type_name *type_name;
@@ -10957,7 +10978,7 @@ c_parser_sizeof_or_countof_expression (c_parser *parser, enum rid rid)
     in_sizeof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_own_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)))
     {
       /* Either sizeof ( type-name ) or sizeof unary-expression
 	 starting with a compound literal.  */
@@ -11061,7 +11082,7 @@ c_parser_alignof_expression (c_parser *parser)
   in_alignof++;
   if (c_parser_next_token_is (parser, CPP_OPEN_PAREN)
       && (c_token_starts_compound_literal (c_parser_peek_2nd_token (parser))
-	  || crug_own_type_name_p (parser, 2)))
+	  || crug_qualifier_type_name_p (parser, 2)))
     {
       /* Either __alignof__ ( type-name ) or __alignof__
 	 unary-expression starting with a compound literal.  */
@@ -11927,17 +11948,16 @@ c_parser_postfix_expression (c_parser *parser)
 	case C_ID_ID:
 	  {
 	    tree id = c_parser_peek_token (parser)->value;
-	    if (crug_ownership_enabled ()
-		&& id != NULL_TREE
+	    enum crug_intrinsic kind;
+	    if (id != NULL_TREE
 		&& lookup_name (id) == NULL_TREE
 		&& c_parser_peek_2nd_token (parser)->type == CPP_OPEN_PAREN
-		&& crug_intrinsic_kind (id, NULL))
+		&& crug_intrinsic_kind (id, &kind)
+		&& crug_intrinsic_enabled (kind))
 	      {
 		location_t intr_loc = c_parser_peek_token (parser)->location;
-		enum crug_intrinsic kind;
 		struct c_expr arg0, arg1;
 		tree call;
-		crug_intrinsic_kind (id, &kind);
 		arg0.value = error_mark_node;
 		arg1.value = NULL_TREE;
 		c_parser_consume_token (parser);

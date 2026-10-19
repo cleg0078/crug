@@ -23,12 +23,24 @@
 /* True when -fcrug-ownership (or a flag that implies it) is active.  */
 extern bool crug_ownership_enabled (void);
 
+/* True when -fcrug-borrow (or a flag that implies it) is active.  */
+extern bool crug_borrow_enabled (void);
+
 /* Record DECL as owning for the current translation unit.  Reports a
    diagnostic and does not record it when the declarator cannot own.  */
 extern void crug_mark_owning_decl (tree decl, location_t loc);
 
 /* True when DECL was recorded as owning.  */
 extern bool crug_is_owning_decl (tree decl);
+
+/* Record DECL as a borrow binding.  IS_MUT selects an exclusive borrow.
+   Reports a diagnostic and does not record it when the declarator cannot
+   hold a borrow.  */
+extern void crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc);
+
+/* True when DECL is a borrow binding.  When IS_MUT is not NULL it receives
+   whether the borrow is exclusive.  */
+extern bool crug_is_borrow_decl (tree decl, bool *is_mut);
 
 /* The intrinsics that the C parser recognises in call position.  They are
    identifiers, never keywords, and every call is removed by the ownership
@@ -38,12 +50,19 @@ enum crug_intrinsic
   CRUG_INTR_MOVE,
   CRUG_INTR_ADOPT,
   CRUG_INTR_RELEASE,
-  CRUG_INTR_DROP
+  CRUG_INTR_DROP,
+  CRUG_INTR_BORROW,
+  CRUG_INTR_BORROW_MUT
 };
 
 /* Recognise ID as an intrinsic name.  Returns true and sets *KIND when it
-   is one; KIND may be NULL.  */
+   is one; KIND may be NULL.  Name recognition is independent of the feature
+   flags; crug_intrinsic_enabled decides whether the intrinsic may be
+   called.  */
 extern bool crug_intrinsic_kind (tree id, enum crug_intrinsic *kind);
+
+/* True when the feature set that owns KIND is active.  */
+extern bool crug_intrinsic_enabled (enum crug_intrinsic kind);
 
 /* Build a call to one of the intrinsics.  ARG1 is NULL except for adopt.  */
 extern tree crug_build_intrinsic_call (enum crug_intrinsic kind,

@@ -5799,8 +5799,12 @@ start_decl (struct c_declarator *declarator, struct c_declspecs *declspecs,
   if (!decl || decl == error_mark_node)
     return NULL_TREE;
 
-  if (declspecs->crug_own_p)
+  if (declspecs->crug_qual == CRUG_QUAL_OWN)
     crug_mark_owning_decl (decl, DECL_SOURCE_LOCATION (decl));
+  else if (declspecs->crug_qual == CRUG_QUAL_REF
+	   || declspecs->crug_qual == CRUG_QUAL_MUT)
+    crug_mark_borrow_decl (decl, declspecs->crug_qual == CRUG_QUAL_MUT,
+			   DECL_SOURCE_LOCATION (decl));
 
   old_decl = lookup_last_decl (decl);
 
@@ -6430,10 +6434,19 @@ push_parm_decl (const struct c_parm *parm, tree *expr)
   decl_attributes (&decl, attrs, 0);
 
   /* An 'own' parameter is owned by the callee: the callee destroys it on
-     every exit edge, after its own locals (ADR 0005, amendment A-1).  */
+     every exit edge, after its own locals (ADR 0005, amendment A-1).  A
+     'ref' or 'mut' parameter is a borrow: it is neither owned nor
+     destroyed, and the caller keeps responsibility for the referent.  */
   if (decl != NULL_TREE && TREE_CODE (decl) == PARM_DECL
-      && parm->specs != NULL && parm->specs->crug_own_p)
-    crug_mark_owning_decl (decl, parm->loc);
+      && parm->specs != NULL)
+    {
+      if (parm->specs->crug_qual == CRUG_QUAL_OWN)
+	crug_mark_owning_decl (decl, parm->loc);
+      else if (parm->specs->crug_qual == CRUG_QUAL_REF
+	       || parm->specs->crug_qual == CRUG_QUAL_MUT)
+	crug_mark_borrow_decl (decl, parm->specs->crug_qual == CRUG_QUAL_MUT,
+			       parm->loc);
+    }
 
   decl = pushdecl (decl);
 
@@ -9121,7 +9134,12 @@ grokfield (location_t loc,
   if (width)
     SET_DECL_C_BIT_FIELD (value);
 
-  if (declspecs->crug_own_p && value != error_mark_node)
+  if ((declspecs->crug_qual == CRUG_QUAL_REF
+       || declspecs->crug_qual == CRUG_QUAL_MUT)
+      && value != error_mark_node)
+    error_at (loc, "a borrowed member cannot be stored in a structure "
+	      "[crug-BORROW-007]");
+  else if (declspecs->crug_qual == CRUG_QUAL_OWN && value != error_mark_node)
     {
       if (width != NULL_TREE
 	  || DECL_NAME (value) == NULL_TREE
@@ -10832,6 +10850,17 @@ start_function (struct c_declspecs *declspecs, struct c_declarator *declarator,
     add_stmt (fold_convert (void_type_node, expr));
 
   loc = DECL_SOURCE_LOCATION (decl1);
+
+  /* A borrow is scoped to the lender's frame, so it cannot outlive the
+     function that creates it: 'ref' and 'mut' are rejected on a return
+     type (ADR 0018 D2 R2, RFC-0001 section 14).  A prototype declaration
+     is diagnosed by crug_mark_borrow_decl; a definition arrives here.  */
+  if (declspecs->crug_qual == CRUG_QUAL_REF
+      || declspecs->crug_qual == CRUG_QUAL_MUT)
+    {
+      error_at (loc, "a function cannot return a borrow [crug-BORROW-001]");
+      declspecs->crug_qual = CRUG_QUAL_NONE;
+    }
 
   /* A nested function is not global.  */
   if (current_function_decl != NULL_TREE)
