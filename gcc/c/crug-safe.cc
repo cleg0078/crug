@@ -37,9 +37,23 @@
 #include "crug-safe.h"
 #include "builtins.h"
 
+#include <map>
 #include <vector>
 
-/* One instantiation.  KIND is 0 for slice, 1 for option and 2 for result.
+struct crug_payload_enum_entry
+{
+  tree type;
+  tree tag_field;
+  tree union_field;
+  bool owns;
+  std::vector<tree> names;	/* IDENTIFIER_NODEs, declaration order.  */
+  std::vector<tree> payloads;	/* payload type, NULL_TREE for a unit.  */
+  std::vector<tree> fields;	/* union member, NULL_TREE for a unit.  */
+  std::vector<bool> owning;	/* the payload type-name was 'own'.  */
+};
+
+/* One instantiation.  KIND is 0 for slice, 1 for option, 2 for result and 3
+   for a payload enum.
    A and B are the type arguments.  TYPE is the record type; F1..F3 are its
    fields in declaration order (slice: ptr, len; option: tag, value;
    result: tag, union, and U is the union's own type, whose fields are
@@ -55,6 +69,8 @@ struct crug_safe_entry
   tree f3;
   tree f4;
   tree u;
+  /* The payload enum entry (KIND 3), NULL otherwise.  */
+  struct crug_payload_enum_entry *pe;
 };
 
 static std::vector<crug_safe_entry> *crug_safe_cache;
@@ -149,6 +165,7 @@ crug_slice_type (tree element, location_t loc)
   e.f3 = NULL_TREE;
   e.f4 = NULL_TREE;
   e.u = NULL_TREE;
+  e.pe = NULL;
   if (crug_safe_cache == NULL)
     crug_safe_cache = new std::vector<crug_safe_entry> ();
   crug_safe_cache->push_back (e);
@@ -182,6 +199,7 @@ crug_option_type (tree payload, location_t loc)
   e.f3 = NULL_TREE;
   e.f4 = NULL_TREE;
   e.u = NULL_TREE;
+  e.pe = NULL;
   if (crug_safe_cache == NULL)
     crug_safe_cache = new std::vector<crug_safe_entry> ();
   crug_safe_cache->push_back (e);
@@ -220,6 +238,7 @@ crug_result_type (tree ok_type, tree err_type, location_t loc)
   e.f3 = ok_field;
   e.f4 = err_field;
   e.u = union_type;
+  e.pe = NULL;
   if (crug_safe_cache == NULL)
     crug_safe_cache = new std::vector<crug_safe_entry> ();
   crug_safe_cache->push_back (e);
@@ -324,6 +343,35 @@ crug_component_ref (location_t loc, tree base, tree field)
   return ref;
 }
 
+/* Convert VALUE to a constructor element for FIELD.  The C front end decays
+   arrays and functions in initialisers through default_conversion, which is
+   local to c-typeck.cc, so do the two decays that matter here.  */
+
+static tree
+crug_ctor_value (tree field, tree value)
+{
+  tree type, vtype;
+
+  if (field == NULL_TREE || value == NULL_TREE || value == error_mark_node
+      || TREE_TYPE (value) == NULL_TREE)
+    return value;
+  type = TREE_TYPE (field);
+  if (!POINTER_TYPE_P (type))
+    return value;
+  vtype = TREE_TYPE (value);
+  if (TREE_CODE (vtype) == ARRAY_TYPE)
+    {
+      tree addr = build1 (ADDR_EXPR, build_pointer_type (TREE_TYPE (vtype)),
+			  build_array_ref (UNKNOWN_LOCATION, value,
+					   build_int_cst (size_type_node, 0)));
+      return convert (type, addr);
+    }
+  if (TREE_CODE (value) == FUNCTION_DECL)
+    return convert (type, build1 (ADDR_EXPR, build_pointer_type (vtype),
+				  value));
+  return value;
+}
+
 /* Build a CONSTRUCTOR for TYPE from two field/value pairs.  An elt whose
    FIELD is NULL_TREE is skipped.  */
 
@@ -333,9 +381,9 @@ crug_constructor (tree type, tree f1, tree v1, tree f2, tree v2)
   vec<constructor_elt, va_gc> *v = NULL;
 
   if (f1 != NULL_TREE)
-    CONSTRUCTOR_APPEND_ELT (v, f1, v1);
+    CONSTRUCTOR_APPEND_ELT (v, f1, crug_ctor_value (f1, v1));
   if (f2 != NULL_TREE)
-    CONSTRUCTOR_APPEND_ELT (v, f2, v2);
+    CONSTRUCTOR_APPEND_ELT (v, f2, crug_ctor_value (f2, v2));
   return build_constructor (type, v);
 }
 
@@ -408,6 +456,8 @@ crug_safe_tag_ref (location_t loc, tree base, tree type)
   struct crug_safe_entry *e = crug_lookup_entry (type);
   if (e == NULL)
     return error_mark_node;
+  if (e->kind == 3 && e->pe != NULL)
+    return crug_component_ref (loc, base, e->pe->tag_field);
   return crug_component_ref (loc, base, e->f1);
 }
 
@@ -431,6 +481,19 @@ crug_safe_payload_ref (location_t loc, tree base, tree type, int variant)
       if (u == error_mark_node)
 	return error_mark_node;
       field = variant == CRUG_VARIANT_OK ? e->f3 : e->f4;
+      return crug_component_ref (loc, u, field);
+    }
+  if (e->kind == 3 && e->pe != NULL)
+    {
+      tree u;
+      if (variant < 0 || variant >= (int) e->pe->fields.size ())
+	return NULL_TREE;
+      field = e->pe->fields[variant];
+      if (field == NULL_TREE)
+	return NULL_TREE;
+      u = crug_component_ref (loc, base, e->pe->union_field);
+      if (u == error_mark_node)
+	return error_mark_node;
       return crug_component_ref (loc, u, field);
     }
   return NULL_TREE;
@@ -520,3 +583,257 @@ crug_safe_slice_index (location_t loc, tree slice, tree index)
   SET_EXPR_LOCATION (checked_ptr, loc);
   return build_array_ref (loc, checked_ptr, idx);
 }
+
+/* Payload enums (ADR 0018 D8).
+
+   With -fcrug-adt, 'enum Message { Text (char *), Quit };' is represented as
+
+     struct { unsigned int tag; union { char *Text; } u; }
+
+   where the tag value of a variant is its index in declaration order.  A
+   unit variant initialises only the tag, so the payload bytes of an inactive
+   variant are zero: the representation has no niche optimisation, as
+   RFC-0001 section 25.3 requires.  The layout is recorded in ABI.md.  */
+
+struct crug_payload_variant_binding
+{
+  tree type;
+  int variant;
+};
+
+static std::map<tree, crug_payload_variant_binding> *crug_payload_variant_map;
+
+static struct crug_payload_enum_entry *
+crug_payload_enum_lookup (tree type)
+{
+  struct crug_safe_entry *e = crug_lookup_entry (type);
+  return e != NULL && e->kind == 3 ? e->pe : NULL;
+}
+
+tree
+crug_payload_enum_type (location_t loc, tree tag_name,
+			const struct crug_payload_variant_spec *variants,
+			int nvariants)
+{
+  struct crug_payload_enum_entry *pe = new crug_payload_enum_entry ();
+  struct crug_safe_entry e;
+  tree fields = NULL_TREE;
+  tree prev = NULL_TREE;
+  tree tag_field, union_field, union_type, type;
+
+  pe->type = NULL_TREE;
+  pe->tag_field = NULL_TREE;
+  pe->union_field = NULL_TREE;
+  pe->owns = false;
+
+  for (int i = 0; i < nvariants; i++)
+    {
+      pe->names.push_back (variants[i].name);
+      pe->payloads.push_back (variants[i].payload);
+      pe->owning.push_back (variants[i].owning);
+      if (variants[i].owning)
+	pe->owns = true;
+      if (variants[i].payload == NULL_TREE)
+	pe->fields.push_back (NULL_TREE);
+      else
+	{
+	  tree f = crug_make_field (loc,
+				    IDENTIFIER_POINTER (variants[i].name),
+				    variants[i].payload);
+	  pe->fields.push_back (f);
+	  if (prev != NULL_TREE)
+	    DECL_CHAIN (prev) = f;
+	  else
+	    fields = f;
+	  prev = f;
+	}
+    }
+
+  /* A definition always has at least one payload variant; the parser errors
+     on a variant with empty payload parentheses and such a variant is then
+     a unit one, so keep a placeholder member rather than building an empty
+     union.  */
+  if (fields == NULL_TREE)
+    fields = crug_make_field (loc, "crug_empty", char_type_node);
+
+  union_type = crug_build_aggregate (true, "payload", fields, loc);
+  tag_field = crug_make_field (loc, "tag", unsigned_type_node);
+  union_field = crug_make_field (loc, "u", union_type);
+  DECL_CHAIN (tag_field) = union_field;
+  type = crug_build_aggregate (false,
+			       tag_name != NULL_TREE
+			       ? IDENTIFIER_POINTER (tag_name)
+			       : "payload_enum",
+			       tag_field, loc);
+
+  /* A tagged C type carries its tag as TYPE_NAME and receives a stub
+     TYPE_DECL from c_pushtag; an anonymous payload enum keeps the generated
+     TYPE_DECL.  */
+  if (tag_name != NULL_TREE)
+    {
+      TYPE_NAME (type) = tag_name;
+      TYPE_STUB_DECL (type) = NULL_TREE;
+    }
+
+  pe->type = type;
+  pe->tag_field = tag_field;
+  pe->union_field = union_field;
+
+  e.kind = 3;
+  e.a = NULL_TREE;
+  e.b = NULL_TREE;
+  e.type = type;
+  e.f1 = tag_field;
+  e.f2 = union_field;
+  e.f3 = NULL_TREE;
+  e.f4 = NULL_TREE;
+  e.u = union_type;
+  e.pe = pe;
+  if (crug_safe_cache == NULL)
+    crug_safe_cache = new std::vector<crug_safe_entry> ();
+  crug_safe_cache->push_back (e);
+  return type;
+}
+
+bool
+crug_payload_enum_type_p (tree type)
+{
+  return crug_payload_enum_lookup (type) != NULL;
+}
+
+tree
+crug_payload_enum_tag_field (tree type)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  return pe != NULL ? pe->tag_field : NULL_TREE;
+}
+
+tree
+crug_payload_enum_union_field (tree type)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  return pe != NULL ? pe->union_field : NULL_TREE;
+}
+
+int
+crug_payload_enum_variant_count (tree type)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  return pe != NULL ? (int) pe->names.size () : 0;
+}
+
+bool
+crug_payload_enum_variant_has_payload (tree type, int variant)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  if (pe == NULL || variant < 0 || variant >= (int) pe->fields.size ())
+    return false;
+  return pe->fields[variant] != NULL_TREE;
+}
+
+bool
+crug_payload_enum_owns_p (tree type)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  return pe != NULL && pe->owns;
+}
+
+tree
+crug_payload_enum_payload_field (tree type, int variant)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  if (pe == NULL || variant < 0 || variant >= (int) pe->fields.size ())
+    return NULL_TREE;
+  return pe->fields[variant];
+}
+
+const char *
+crug_payload_enum_variant_name (tree type, int variant)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  if (pe == NULL || variant < 0 || variant >= (int) pe->names.size ())
+    return "";
+  return IDENTIFIER_POINTER (pe->names[variant]);
+}
+
+int
+crug_payload_enum_variant_by_name (tree type, const char *name)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  if (pe == NULL)
+    return -1;
+  for (size_t i = 0; i < pe->names.size (); i++)
+    if (strcmp (IDENTIFIER_POINTER (pe->names[i]), name) == 0)
+      return (int) i;
+  return -1;
+}
+
+tree
+crug_payload_enum_ctor (location_t loc, tree type, int variant, tree payload)
+{
+  struct crug_payload_enum_entry *pe = crug_payload_enum_lookup (type);
+  tree tag_field, union_field, union_type, ctor;
+
+  if (pe == NULL || variant < 0 || variant >= (int) pe->names.size ())
+    return error_mark_node;
+  tag_field = pe->tag_field;
+  union_field = pe->union_field;
+  union_type = TREE_TYPE (union_field);
+
+  if (pe->fields[variant] == NULL_TREE)
+    {
+      if (payload != NULL_TREE)
+	return error_mark_node;
+      ctor = crug_constructor (type, tag_field,
+			       build_int_cst (TREE_TYPE (tag_field), variant),
+			       NULL_TREE, NULL_TREE);
+    }
+  else
+    {
+      tree union_value;
+      if (payload == NULL_TREE)
+	return error_mark_node;
+      union_value = crug_constructor (union_type, pe->fields[variant],
+				      payload, NULL_TREE, NULL_TREE);
+      CONSTRUCTOR_NON_CONST (union_value) = 1;
+      ctor = crug_constructor (type, tag_field,
+			       build_int_cst (TREE_TYPE (tag_field), variant),
+			       union_field, union_value);
+    }
+  return crug_constructor_expr (loc, type, ctor);
+}
+
+void
+crug_payload_enum_bind_variant (tree variant_decl, tree type, int variant)
+{
+  struct crug_payload_variant_binding b;
+
+  if (crug_payload_variant_map == NULL)
+    crug_payload_variant_map
+      = new std::map<tree, crug_payload_variant_binding> ();
+  b.type = type;
+  b.variant = variant;
+  (*crug_payload_variant_map)[variant_decl] = b;
+}
+
+bool
+crug_payload_enum_variant_decl (tree variant_decl, tree *type, int *variant,
+				bool *has_payload)
+{
+  if (crug_payload_variant_map == NULL)
+    return false;
+  std::map<tree, crug_payload_variant_binding>::iterator it
+    = crug_payload_variant_map->find (variant_decl);
+  if (it == crug_payload_variant_map->end ())
+    return false;
+  if (type != NULL)
+    *type = it->second.type;
+  if (variant != NULL)
+    *variant = it->second.variant;
+  if (has_payload != NULL)
+    *has_payload
+      = crug_payload_enum_variant_has_payload (it->second.type,
+					       it->second.variant);
+  return true;
+}
+

@@ -65,6 +65,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/crug-common.h"
 #include "c-family/crug-ffi.h"
 #include "crug-ownership.h"
+#include "crug-safe.h"
 
 #include "tree-pretty-print.h"
 
@@ -4543,6 +4544,18 @@ c_check_switch_jump_warnings (struct c_spot_bindings *switch_bindings,
    location where the tag was defined.
    If the wrong kind of type is found, an error is reported.  */
 
+/* A Crug payload enum is stored as a record type under its enum tag
+   (ADR 0018 D8), so a reference to it is written 'enum NAME' but the bound
+   declaration is not an ENUMERAL_TYPE.  */
+
+static bool
+crug_tag_matches (tree type, enum tree_code code)
+{
+  if (TREE_CODE (type) == code)
+    return true;
+  return code == ENUMERAL_TYPE && crug_payload_enum_type_p (type);
+}
+
 static tree
 lookup_tag (enum tree_code code, tree name, bool thislevel_only,
 	    location_t *ploc)
@@ -4555,7 +4568,7 @@ lookup_tag (enum tree_code code, tree name, bool thislevel_only,
 
   /* We only care about whether it's in this level if
      thislevel_only was set or it might be a type clash.  */
-  if (thislevel_only || TREE_CODE (b->decl) != code)
+  if (thislevel_only || !crug_tag_matches (b->decl, code))
     {
       /* For our purposes, a tag in the external scope is the same as
 	 a tag in the file scope.  (Primarily relevant to Objective-C
@@ -4569,7 +4582,7 @@ lookup_tag (enum tree_code code, tree name, bool thislevel_only,
   if (thislevel_only && !thislevel)
     return NULL_TREE;
 
-  if (TREE_CODE (b->decl) != code)
+  if (!crug_tag_matches (b->decl, code))
     {
       /* Definition isn't the kind we were looking for.  */
       pending_invalid_xref = name;
@@ -4587,6 +4600,16 @@ lookup_tag (enum tree_code code, tree name, bool thislevel_only,
     *ploc = b->locus;
 
   return b->decl;
+}
+
+/* Look up the tag of this name in the current scope only.  Used before
+   defining a payload enum, whose tag denotes a record type and so cannot
+   complete a forward 'enum' reference (ADR 0018 D8).  */
+
+tree
+crug_lookup_current_tag (enum tree_code code, tree name, location_t *ploc)
+{
+  return lookup_tag (code, name, /*thislevel_only=*/true, ploc);
 }
 
 /* Return true if a definition exists for NAME with code CODE.  */
@@ -8860,6 +8883,17 @@ parser_xref_tag (location_t loc, enum tree_code code, tree name,
       tree vis = previous_tag (ref);
       if (vis)
 	ref = vis;
+    }
+
+  /* A payload enum bound under its enum tag answers an 'enum NAME'
+     reference even though the stored type is a record.  */
+  if (ref != NULL_TREE && code == ENUMERAL_TYPE
+      && TREE_CODE (ref) != ENUMERAL_TYPE && crug_payload_enum_type_p (ref))
+    {
+      decl_attributes (&ref, attrs, (int) ATTR_FLAG_TYPE_IN_PLACE);
+      ret.kind = (have_std_attrs ? ctsk_tagref_attrs : ctsk_tagref);
+      ret.spec = ref;
+      return ret;
     }
 
   /* If this is the right type of tag, return what we found.

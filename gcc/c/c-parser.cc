@@ -37,6 +37,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "config.h"
 #define INCLUDE_STRING
+#define INCLUDE_VECTOR
 #include "system.h"
 #include "coretypes.h"
 #include "target.h"
@@ -4295,6 +4296,207 @@ report_bad_enum_name (c_parser *parser)
   c_parser_error (parser, "expected identifier");
 }
 
+/* Crug payload enums (ADR 0018 D8).
+
+   With -fcrug-adt an enum whose body has at least one variant carrying a
+   parenthesised payload is a payload enum: a tagged record, not an integer
+   enum.  An enum without payloads stays an ordinary C enum, so enabling the
+   flag never changes the meaning of existing C.  */
+
+#define CRUG_PAYLOAD_ENUM_SCAN 4096
+
+/* True when the '{' that starts the current enum definition introduces a
+   payload variant: at the top level of the enumerator list a name is
+   followed by '('.  The scan is bounded, so a pathological body can never
+   make the parser read the whole file.  */
+
+static bool
+crug_payload_enum_body_p (c_parser *parser)
+{
+  unsigned int n = 2;		/* Token 1 is the '{'.  */
+  int depth = 0;
+  bool at_variant_start = true;
+
+  while (n <= CRUG_PAYLOAD_ENUM_SCAN)
+    {
+      c_token *token = c_parser_peek_nth_token_raw (parser, n);
+
+      if (token->type == CPP_EOF)
+	return false;
+      if (depth == 0 && at_variant_start)
+	{
+	  if (token->type == CPP_NAME
+	      && c_parser_peek_nth_token_raw (parser, n + 1)->type
+		 == CPP_OPEN_PAREN)
+	    return true;
+	  at_variant_start = false;
+	}
+      switch (token->type)
+	{
+	case CPP_OPEN_BRACE:
+	  if (depth == 0)
+	    return false;
+	  depth++;
+	  break;
+	case CPP_CLOSE_BRACE:
+	  if (depth == 0)
+	    return false;
+	  depth--;
+	  break;
+	case CPP_OPEN_PAREN:
+	case CPP_OPEN_SQUARE:
+	  depth++;
+	  break;
+	case CPP_CLOSE_PAREN:
+	case CPP_CLOSE_SQUARE:
+	  if (depth > 0)
+	    depth--;
+	  break;
+	case CPP_COMMA:
+	  if (depth == 0)
+	    at_variant_start = true;
+	  break;
+	default:
+	  break;
+	}
+      n++;
+    }
+  return false;
+}
+
+/* Parse the body of a payload enum and build its type.  The current token is
+   the opening '{'.  */
+
+static struct c_typespec
+crug_parse_payload_enum (c_parser *parser, location_t enum_loc, tree ident,
+			 location_t ident_loc)
+{
+  struct c_typespec ret;
+  std::vector<struct crug_payload_variant_spec> variants;
+  std::vector<location_t> variant_locs;
+  tree type;
+
+  ret.spec = error_mark_node;
+  ret.kind = ctsk_tagdef;
+  ret.expr = NULL_TREE;
+  ret.expr_const_operands = true;
+  ret.has_enum_type_specifier = false;
+
+  /* The tag of a payload enum denotes a record type, so it cannot complete a
+     forward 'enum NAME' reference; ask for the definition to come first.  */
+  if (ident != NULL_TREE
+      && crug_lookup_current_tag (ENUMERAL_TYPE, ident, NULL) != NULL_TREE)
+    error_at (ident_loc, "redefinition of %<enum %E%> as a payload enum; "
+	      "define the payload enum before any reference to its tag "
+	      "[crug-ADT-017]", ident);
+
+  c_parser_consume_token (parser);	/* '{' */
+  while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
+	 && !c_parser_next_token_is (parser, CPP_EOF))
+    {
+      struct crug_payload_variant_spec v;
+      tree name;
+      location_t vloc;
+
+      if (!c_parser_next_token_is (parser, CPP_NAME))
+	{
+	  report_bad_enum_name (parser);
+	  c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	  return ret;
+	}
+      name = c_parser_peek_token (parser)->value;
+      vloc = c_parser_peek_token (parser)->location;
+      c_parser_set_source_position_from_token (c_parser_peek_token (parser));
+      c_parser_consume_token (parser);
+
+      v.name = name;
+      v.payload = NULL_TREE;
+      v.owning = false;
+
+      if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
+	{
+	  location_t ploc = c_parser_peek_token (parser)->location;
+	  c_parser_consume_token (parser);
+	  if (c_parser_next_token_is (parser, CPP_CLOSE_PAREN))
+	    {
+	      error_at (ploc, "empty payload parentheses in a payload enum "
+			"[crug-ADT-001]");
+	      c_parser_consume_token (parser);
+	    }
+	  else
+	    {
+	      struct c_type_name *tn = c_parser_type_name (parser, false);
+	      if (tn != NULL)
+		{
+		  bool abstract_ok = false;
+
+		  if (tn->specs->crug_qual == CRUG_QUAL_OWN)
+		    v.owning = true;
+		  v.payload = groktypename (tn, NULL, &abstract_ok);
+		}
+	      if (v.payload == NULL_TREE)
+		v.payload = error_mark_node;
+	      /* A payload is exactly one type-name.  */
+	      if (c_parser_next_token_is (parser, CPP_COMMA))
+		{
+		  error_at (ploc, "a payload variant takes exactly one "
+			    "type-name [crug-ADT-002]");
+		  while (!c_parser_next_token_is (parser, CPP_CLOSE_PAREN)
+			 && !c_parser_next_token_is (parser, CPP_EOF))
+		    c_parser_consume_token (parser);
+		}
+	      if (!c_parser_require (parser, CPP_CLOSE_PAREN,
+				     "expected %<)%>"))
+		c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	    }
+	}
+      variants.push_back (v);
+      variant_locs.push_back (vloc);
+
+      if (c_parser_next_token_is (parser, CPP_COMMA))
+	{
+	  c_parser_consume_token (parser);
+	  continue;
+	}
+      break;
+    }
+
+  if (!c_parser_require (parser, CPP_CLOSE_BRACE, "expected %<}%>"))
+    c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+
+  if (variants.size () == 0)
+    {
+      error_at (enum_loc, "empty payload enum [crug-ADT-001]");
+      return ret;
+    }
+
+  type = crug_payload_enum_type (enum_loc, ident, variants.data (),
+				 variants.size ());
+  if (type == error_mark_node)
+    return ret;
+  ret.spec = type;
+
+  /* Bind the tag, so that 'enum Message m;' works, and one ordinary
+     identifier per variant, so that 'Text (s)' and the bare unit variant
+     'Quit' work.  A variant name is an ordinary identifier: a user function
+     with the same name is a C redefinition.  */
+  if (ident != NULL_TREE)
+    c_pushtag (ident_loc, ident, type);
+
+  for (size_t i = 0; i < variants.size (); i++)
+    {
+      tree decl = build_decl (variant_locs[i], CONST_DECL, variants[i].name,
+			      integer_type_node);
+
+      DECL_INITIAL (decl) = build_int_cst (integer_type_node, (int) i);
+      DECL_CONTEXT (decl) = type;
+      decl = pushdecl (decl);
+      crug_payload_enum_bind_variant (decl, type, (int) i);
+    }
+
+  return ret;
+}
+
 /* Parse an enum specifier (C90 6.5.2.2, C99 6.7.2.2, C11 6.7.2.2).
 
    enum-specifier:
@@ -4436,6 +4638,27 @@ c_parser_enum_specifier (c_parser *parser)
 	      fixed_underlying_type = ENUM_UNDERLYING_TYPE (ret.spec);
 	    }
 	}
+    }
+  /* A payload enum (ADR 0018 D8).  The flag never changes an enum without
+     payloads: that stays an ordinary C enum.  */
+  if (c_parser_next_token_is (parser, CPP_OPEN_BRACE)
+      && crug_feature_enabled (CRUG_FEAT_ADT)
+      && crug_payload_enum_body_p (parser))
+    {
+      if (fixed_underlying_type != NULL_TREE)
+	{
+	  error_at (enum_loc, "a payload enum cannot have a fixed underlying "
+		    "type [crug-ADT-016]");
+	  c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
+	}
+      else
+	return crug_parse_payload_enum (parser, enum_loc, ident, ident_loc);
+      ret.spec = error_mark_node;
+      ret.kind = ctsk_tagdef;
+      ret.expr = NULL_TREE;
+      ret.expr_const_operands = true;
+      ret.has_enum_type_specifier = false;
+      return ret;
     }
   if (c_parser_next_token_is (parser, CPP_OPEN_BRACE))
     {
@@ -12270,6 +12493,80 @@ c_parser_postfix_expression (c_parser *parser)
 		  }
 		set_c_expr_source_range (&expr, tok_range);
 		break;
+	      }
+	    /* A payload-enum variant constructs a value (ADR 0018 D8):
+	       the payload variant with 'Text (s)', the unit variant
+	       bare.  */
+	    if (crug_feature_enabled (CRUG_FEAT_ADT))
+	      {
+		tree vdecl = lookup_name (id);
+		tree ptype;
+		int pvariant;
+		bool has_payload;
+
+		if (vdecl != NULL_TREE
+		    && crug_payload_enum_variant_decl (vdecl, &ptype, &pvariant,
+						       &has_payload))
+		  {
+		    location_t vloc = c_parser_peek_token (parser)->location;
+		    const char *vname
+		      = crug_payload_enum_variant_name (ptype, pvariant);
+
+		    if (!has_payload)
+		      {
+			c_parser_consume_token (parser);
+			if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
+			  {
+			    error_at (vloc, "variant %qs does not take a "
+				      "payload [crug-ADT-004]", vname);
+			    c_parser_consume_token (parser);	/* '(' */
+			    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+						       NULL);
+			    if (c_parser_next_token_is (parser,
+							CPP_CLOSE_PAREN))
+			      c_parser_consume_token (parser);
+			    expr.value = error_mark_node;
+			  }
+			else
+			  expr.value
+			    = crug_payload_enum_ctor (vloc, ptype, pvariant,
+						      NULL_TREE);
+		      }
+		    else if (c_parser_peek_2nd_token (parser)->type
+			     != CPP_OPEN_PAREN)
+		      {
+			error_at (vloc, "variant %qs expects a payload "
+				  "[crug-ADT-003]", vname);
+			c_parser_consume_token (parser);
+			expr.value = error_mark_node;
+		      }
+		    else
+		      {
+			struct c_expr payload;
+
+			c_parser_consume_token (parser);
+			if (!c_parser_require (parser, CPP_OPEN_PAREN,
+					       "expected %<(%>"))
+			  {
+			    expr.value = error_mark_node;
+			    break;
+			  }
+			payload = c_parser_expr_no_commas (parser, NULL);
+			if (c_parser_next_token_is (parser, CPP_COMMA))
+			  error_at (vloc, "variant %qs takes exactly one "
+				    "payload [crug-ADT-002]", vname);
+			c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
+						   "expected %<)%>");
+			if (payload.value == error_mark_node)
+			  expr.value = error_mark_node;
+			else
+			  expr.value
+			    = crug_payload_enum_ctor (vloc, ptype, pvariant,
+						      payload.value);
+		      }
+		    set_c_expr_source_range (&expr, tok_range);
+		    break;
+		  }
 	      }
 	    c_parser_consume_token (parser);
 	    expr.value = build_external_ref (loc, id,
@@ -31952,6 +32249,12 @@ crug_ctor_payload_type (tree sum, int variant)
 {
   tree field;
 
+  if (crug_payload_enum_type_p (sum))
+    {
+      field = crug_payload_enum_payload_field (sum, variant);
+      return field == NULL_TREE ? error_mark_node : TREE_TYPE (field);
+    }
+
   /* The variant numbers differ between option and result (none/err are 0,
      some/ok are 1), so dispatch on the sum type first.  */
   if (crug_option_type_p (sum))
@@ -32069,6 +32372,8 @@ struct crug_match_arm
 static int
 crug_match_variant (tree sum, const char *name)
 {
+  if (crug_payload_enum_type_p (sum))
+    return crug_payload_enum_variant_by_name (sum, name);
   if (crug_option_type_p (sum))
     {
       if (strcmp (name, "none") == 0)
@@ -32088,6 +32393,8 @@ crug_match_variant (tree sum, const char *name)
 static const char *
 crug_variant_name (tree sum, int variant)
 {
+  if (crug_payload_enum_type_p (sum))
+    return crug_payload_enum_variant_name (sum, variant);
   if (crug_option_type_p (sum))
     return variant == CRUG_VARIANT_NONE ? "none" : "some";
   return variant == CRUG_VARIANT_ERR ? "err" : "ok";
@@ -32123,13 +32430,12 @@ crug_parse_match (c_parser *parser)
   tree scrutinee;
   tree stype;
   tree tag;
-  bool is_option;
+  bool is_payload_enum;
   bool bad_pattern = false;
   bool wildcard = false;
-  bool too_many = false;
-  int seen = 0;
-  int narm = 0;
-  struct crug_match_arm arms[4];
+  int nvariants = 2;
+  std::vector<bool> seen;
+  std::vector<struct crug_match_arm> arms;
 
   c_parser_consume_token (parser);	/* 'match' */
   if (!c_parser_require (parser, CPP_OPEN_PAREN, "expected %<(%>"))
@@ -32147,17 +32453,20 @@ crug_parse_match (c_parser *parser)
   if (stype != NULL_TREE && stype != error_mark_node)
     stype = TYPE_MAIN_VARIANT (stype);
 
-  is_option = stype != NULL_TREE && stype != error_mark_node
-    && crug_option_type_p (stype);
-  if (!is_option
+  is_payload_enum = stype != NULL_TREE && stype != error_mark_node
+    && crug_payload_enum_type_p (stype);
+  if (!is_payload_enum
       && (stype == NULL_TREE || stype == error_mark_node
-	  || !crug_result_type_p (stype)))
+	  || (!crug_option_type_p (stype) && !crug_result_type_p (stype))))
     {
-      error_at (loc, "%<match%> needs an option or result value "
-		"[crug-ADT-013]");
+      error_at (loc, "%<match%> needs an option, result or payload enum "
+		"value [crug-ADT-013]");
       crug_skip_match_body (parser);
       return error_mark_node;
     }
+  if (is_payload_enum)
+    nvariants = crug_payload_enum_variant_count (stype);
+  seen.assign (nvariants, false);
 
   tree outer = c_begin_compound_stmt (true);
   tree tmp = build_decl (loc, VAR_DECL, NULL_TREE, stype);
@@ -32220,13 +32529,13 @@ crug_parse_match (c_parser *parser)
 	  else
 	    {
 	      c_parser_consume_token (parser);
-	      if (seen & (1 << variant))
+	      if (seen[variant])
 		{
 		  error_at (aloc, "duplicate arm for %qs [crug-ADT-012]",
 			    crug_variant_name (stype, variant));
 		  bad_pattern = true;
 		}
-	      seen |= 1 << variant;
+	      seen[variant] = true;
 	    }
 	}
       else
@@ -32257,12 +32566,11 @@ crug_parse_match (c_parser *parser)
 	    ;			/* keep going; the next token is diagnosed */
 	  if (this_wildcard)
 	    error_at (aloc, "%<_%> does not take a payload [crug-ADT-010]");
-	  else if (variant < 0)
-	    ;
-	  else if (crug_option_type_p (stype)
-		   && variant == CRUG_VARIANT_NONE)
-	    error_at (aloc, "%<none%> does not take a payload "
-		      "[crug-ADT-004]");
+	  else if (variant >= 0
+		   && crug_safe_payload_ref (loc, tmp, stype, variant)
+		      == NULL_TREE)
+	    error_at (aloc, "variant %qs does not take a payload "
+		      "[crug-ADT-004]", crug_variant_name (stype, variant));
 	}
 
       /* '=>' is two tokens, '=' and '>'.  */
@@ -32283,8 +32591,15 @@ crug_parse_match (c_parser *parser)
       if (bind_name != NULL_TREE)
 	{
 	  tree comp = c_begin_compound_stmt (true);
-	  tree var = build_decl (bind_loc, VAR_DECL, bind_name,
-				 crug_ctor_payload_type (stype, variant));
+	  tree bind_type = crug_ctor_payload_type (stype, variant);
+	  tree var;
+
+	  /* A pattern that does not take a payload has already been
+	     diagnosed; give the binding a harmless type so that the built
+	     tree stays valid.  */
+	  if (bind_type == error_mark_node)
+	    bind_type = integer_type_node;
+	  var = build_decl (bind_loc, VAR_DECL, bind_name, bind_type);
 	  DECL_CONTEXT (var) = current_function_decl;
 	  DECL_SOURCE_LOCATION (var) = bind_loc;
 	  TREE_USED (var) = 1;
@@ -32330,14 +32645,16 @@ crug_parse_match (c_parser *parser)
       if (!this_wildcard && variant >= 0 && tag != error_mark_node)
 	{
 	  /* Build the comparison directly: build_binary_op would wrap it in
-	     a C_MAYBE_CONST_EXPR, which generic gimplify cannot handle.  */
+	     a C_MAYBE_CONST_EXPR, which generic gimplify cannot handle.
+	     The tag of an option or result is a _Bool (0 for the first
+	     variant, 1 for the second); the tag of a payload enum is the
+	     variant index.  */
 	  arm.cond = build2 (EQ_EXPR, boolean_type_node, tag,
-			     build_int_cst (boolean_type_node, variant != 0));
+			     build_int_cst (TREE_TYPE (tag),
+					    is_payload_enum ? variant
+					    : (variant != 0)));
 	}
-      if (narm < 4)
-	arms[narm++] = arm;
-      else
-	too_many = true;
+      arms.push_back (arm);
     }
 
   if (c_parser_next_token_is (parser, CPP_CLOSE_BRACE))
@@ -32345,35 +32662,21 @@ crug_parse_match (c_parser *parser)
   else
     c_parser_error (parser, "expected %<}%>");
 
-  if (too_many)
-    error_at (loc, "too many match arms [crug-ADT-010]");
-
-  if (!wildcard && !bad_pattern && stype != NULL_TREE)
-    {
-      const char *missing = NULL;
-      if (is_option)
+  if (!wildcard && !bad_pattern && stype != NULL_TREE
+      && stype != error_mark_node)
+    for (int v = 0; v < nvariants; v++)
+      if (!seen[v])
 	{
-	  if (!(seen & (1 << CRUG_VARIANT_NONE)))
-	    missing = "none";
-	  else if (!(seen & (1 << CRUG_VARIANT_SOME)))
-	    missing = "some";
+	  error_at (loc, "non-exhaustive %<match%>: no arm for %qs; add that "
+		    "arm or a %<_%> arm [crug-ADT-011]",
+		    crug_variant_name (stype, v));
+	  break;
 	}
-      else
-	{
-	  if (!(seen & (1 << CRUG_VARIANT_ERR)))
-	    missing = "err";
-	  else if (!(seen & (1 << CRUG_VARIANT_OK)))
-	    missing = "ok";
-	}
-      if (missing != NULL)
-	error_at (loc, "non-exhaustive %<match%>: no arm for %qs; add that "
-		  "arm or a %<_%> arm [crug-ADT-011]", missing);
-    }
 
   /* Lower to 'if (tag == variant) body else ...', built from the last arm
      backwards so the first arm is tested first.  */
   tree chain = build_empty_stmt (loc);
-  for (int i = narm; i-- > 0; )
+  for (size_t i = arms.size (); i-- > 0; )
     {
       if (arms[i].wildcard)
 	{

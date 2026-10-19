@@ -95,4 +95,51 @@ extern tree crug_safe_slice_index (location_t loc, tree slice, tree index);
 /* True when TYPE is one of the Crug-native core types.  */
 extern bool crug_safe_type_p (tree type);
 
+/* A payload enum (ADR 0018 D8): 'enum Message { Text (char *), Quit };'.
+   One variant of its definition, while the body is parsed.  */
+struct crug_payload_variant_spec
+{
+  tree name;		/* the variant name, an IDENTIFIER_NODE.  */
+  tree payload;		/* the payload type, NULL_TREE for a unit variant.  */
+  bool owning;		/* the payload type-name was written 'own'.  */
+};
+
+/* Build the record type that represents a payload enum.  TAG_NAME is the
+   enum tag, or NULL_TREE for an anonymous definition.  The variants are in
+   declaration order; the tag value of a variant is its index.  */
+extern tree crug_payload_enum_type (location_t loc, tree tag_name,
+				    const struct crug_payload_variant_spec
+				    *variants, int nvariants);
+
+extern bool crug_payload_enum_type_p (tree type);
+extern tree crug_payload_enum_tag_field (tree type);
+extern tree crug_payload_enum_union_field (tree type);
+extern int crug_payload_enum_variant_count (tree type);
+extern bool crug_payload_enum_variant_has_payload (tree type, int variant);
+extern bool crug_payload_enum_owns_p (tree type);
+extern tree crug_payload_enum_payload_field (tree type, int variant);
+extern const char *crug_payload_enum_variant_name (tree type, int variant);
+extern int crug_payload_enum_variant_by_name (tree type, const char *name);
+
+/* Construct a value of variant VARIANT of the payload enum TYPE.  PAYLOAD is
+   NULL_TREE for a unit variant.  */
+extern tree crug_payload_enum_ctor (location_t loc, tree type, int variant,
+				    tree payload);
+
+/* Record that VARIANT_DECL, the CONST_DECL bound for the variant name, names
+   variant VARIANT of the payload enum TYPE.  */
+extern void crug_payload_enum_bind_variant (tree variant_decl, tree type,
+					    int variant);
+
+/* If VARIANT_DECL is a payload-enum variant, fill in TYPE, VARIANT and
+   HAS_PAYLOAD and return true.  */
+extern bool crug_payload_enum_variant_decl (tree variant_decl, tree *type,
+					    int *variant, bool *has_payload);
+
+/* The tag of this name declared in the current scope, or NULL_TREE.  A
+   payload enum cannot complete a forward 'enum' reference, because its tag
+   denotes a record type (ADR 0018 D8).  */
+extern tree crug_lookup_current_tag (enum tree_code code, tree name,
+				     location_t *ploc);
+
 #endif /* GCC_CRUG_SAFE_H */
