@@ -4,6 +4,28 @@ Small programs to try the current compiler.  They are self-contained: none of
 them needs the test harness, and each one names the command that builds it in
 its first comment.
 
+One command builds them all:
+
+    make examples
+
+It compiles every accepted program into `build/examples/` (the binary names are
+the ones in the table below), links the runtime examples against the libcrug
+Linux objects, and compiles the two rejected programs with `-fsyntax-only` to
+check that they still fail with `[crug-UAM-001]` and `[crug-BORROW-002]`.  The
+per-example commands in the table stay authoritative, because the flags are the
+point of each one; `make examples` is how you get them all at once.
+
+The source directory is selectable, so the same command builds your own
+programs:
+
+    make examples EXAMPLES=path/to/programs OUT=build/examples-mine
+
+A file whose basename is one of the examples in the table keeps that example's
+flags and binary name; every other `.c` file is compiled as a plain program
+with no `-fcrug-*` flag and linked with its basename, so the directory has to
+hold runnable programs (each one needs a `main`).  Known rejected programs are
+checked only when they are present.
+
 | file | what it shows | build and run |
 | --- | --- | --- |
 | `01-hello.c` | plain C through `crugc`, no flag | `./gcc/crugc -O2 examples/01-hello.c -o build/hello && ./build/hello` |

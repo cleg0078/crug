@@ -306,6 +306,17 @@ crugc: ## print the in-tree driver and its version
 	@printf '%s\n' 'gcc/crugc'
 	@gcc/crugc --version | head -n 1
 
+##@ Examples
+
+# The directory `make examples` reads.  Override it to build any other tree of
+# examples with the same command: a file whose basename is one of the examples/
+# programs keeps its documented flags, and any other program is compiled with
+# no -fcrug-* flag.
+EXAMPLES ?= examples
+
+examples: ## build the examples/ programs into build/examples/ (EXAMPLES=<dir> selects another source directory)
+	@EXAMPLES_DIR="$(EXAMPLES)" scripts/build-examples.sh
+
 ##@ Maintenance
 
 status: ## show where the build stands
@@ -348,6 +359,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
-	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS \
+	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS examples \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

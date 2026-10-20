@@ -287,7 +287,10 @@ transfer, close, fan-in); `docs/crug/CHANNELS.md` describes them.
 `make check-SEND_SYNC` runs 14 `Send`/`Sync` dg cases plus the raw-pointer,
 thread-affinity and FFI-annotation pairs; `docs/crug/SEND-SYNC.md` describes them.
 Runnable programs that need no harness live in
-[examples/](examples/README.md), one per Phase 4-17 feature.
+[examples/](examples/README.md), one per Phase 4-17 feature; `make examples`
+builds them all into `build/examples/` and checks that the two rejected ones
+still fail with their documented diagnostic code, and `make examples
+EXAMPLES=<dir>` runs the same build over another directory of programs.
 See [NOTICE](NOTICE) for the licensing consequence of deriving from GCC.
 
 ## Licence
