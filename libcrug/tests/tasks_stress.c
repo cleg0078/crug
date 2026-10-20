@@ -64,7 +64,16 @@ main (void)
   int ok;
 
   if (getenv ("CRUG_TASKS_STACK") == NULL)
-    setenv ("CRUG_TASKS_STACK", "32768", 0);
+    {
+      /* setenv is POSIX; the Windows C library spells it _putenv_s and has
+         no setenv at all, so the stress program sets the small stack the way
+         each host allows.  */
+#if defined(_WIN32)
+      _putenv_s ("CRUG_TASKS_STACK", "32768");
+#else
+      setenv ("CRUG_TASKS_STACK", "32768", 0);
+#endif
+    }
 
   for (i = 0; i < count; i++)
     {

@@ -234,11 +234,22 @@ case_clock_monotonic (crug_pal_reporter reporter, void *ctx)
 {
   uint64_t first = crug_pal_clock_monotonic_ns ();
   uint64_t second = crug_pal_clock_monotonic_ns ();
+  uint64_t after;
 
+  /* Two back-to-back readings may land in the same clock tick on a backend
+     whose tick is coarser than the call, so the contract is that the clock
+     never decreases and that it advances across a sleep.  A clock that
+     silently freezes for a millisecond is still a contract violation.  */
   if (second < first)
-    fail (reporter, ctx, "clock-monotonic", "the clock went backwards");
-  else if (second == first)
-    fail (reporter, ctx, "clock-monotonic", "two readings did not advance");
+    {
+      fail (reporter, ctx, "clock-monotonic", "the clock went backwards");
+      return;
+    }
+  crug_pal_sleep_ns (1000000u);
+  after = crug_pal_clock_monotonic_ns ();
+  if (after <= second)
+    fail (reporter, ctx, "clock-monotonic",
+          "the clock did not advance across a millisecond");
   else
     pass (reporter, ctx, "clock-monotonic");
 }

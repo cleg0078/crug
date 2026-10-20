@@ -10,7 +10,7 @@
                 has no futex and its ulock is private, so the PAL keeps the
                 predicate authoritative and signals the bucket of the address
      memory     mmap, mprotect and munmap
-     clock      clock_gettime (CLOCK_MONOTONIC)
+     clock      mach_absolute_time through the mach timebase
      sleep      nanosleep
 
    The hashed wait is correct, not fast: a wake signals every waiter in the
@@ -22,6 +22,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <mach/mach_time.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -285,13 +286,19 @@ crug_pal_memory_release (void *ptr, size_t size)
 uint64_t
 crug_pal_clock_monotonic_ns (void)
 {
-  struct timespec ts;
-  if (clock_gettime (CLOCK_MONOTONIC, &ts) != 0)
-    {
-      darwin_error = CRUG_PAL_ESYS;
-      return 0;
-    }
-  return (uint64_t) ts.tv_sec * 1000000000u + (uint64_t) ts.tv_nsec;
+  static mach_timebase_info_data_t timebase;
+  uint64_t ticks;
+
+  /* clock_gettime (CLOCK_MONOTONIC) on Darwin can serve two back-to-back
+     readings from one tick, which is coarser than the nanosecond resolution
+     the PAL promises.  mach_absolute_time keeps counting across a sleep and
+     ticks at 24 MHz on Apple silicon (41.67 ns), the finest monotonic reading
+     the system offers without a timer.  The timebase is filled in once; a
+     zero denominator cannot be a real timebase.  */
+  if (timebase.denom == 0)
+    (void) mach_timebase_info (&timebase);
+  ticks = mach_absolute_time ();
+  return (uint64_t) ((ticks * timebase.numer) / timebase.denom);
 }
 
 void

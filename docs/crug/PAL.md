@@ -100,7 +100,7 @@ part of the frozen contract: they may be appended to, never renumbered.
 | wait/wake | records the call, never blocks (the predicate is still inspected) | `SYS_futex` with the private wait/wake operations | `WaitOnAddress`/`WakeByAddress*`, resolved by `GetProcAddress`, Sleep polling fallback | hashed mutex/condition buckets (Darwin has no futex) |
 | memory | `malloc`/`free`; commit is a no-op | `mmap` `PROT_NONE`, `mprotect`, `munmap` | `VirtualAlloc` (reserve commits eagerly), `VirtualProtect`, `VirtualFree` | `mmap` `PROT_NONE`, `mprotect`, `munmap` |
 | guard pages | declined (`false`) | `mprotect(PROT_NONE)`, proven by a faulting child | `VirtualProtect(PAGE_NOACCESS)` | `mprotect(PROT_NONE)` |
-| clock | synthetic, advances 1 µs per reading and by the requested amount on sleep | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `clock_gettime(CLOCK_MONOTONIC)` |
+| clock | synthetic, advances 1 µs per reading and by the requested amount on sleep | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `mach_absolute_time` and the mach timebase |
 | sleep | advances the synthetic clock | `clock_nanosleep(CLOCK_MONOTONIC)`, retried on interruption | `Sleep` | `nanosleep` |
 | error slot | thread-local | thread-local | thread-local | thread-local |
 
@@ -124,7 +124,7 @@ twelve cases, all written against the header:
 | `wait-returns-when-changed` | a satisfied predicate does not block |
 | `memory-reserve-commit-release` | committed bytes survive, including the last one |
 | `memory-guard` | a claimed guard page is reported, or the capability is declined |
-| `clock-monotonic` | two readings advance and never go backwards |
+| `clock-monotonic` | readings never go backwards, and the clock advances across a 1 ms sleep (two back-to-back readings may share a tick) |
 | `sleep-duration` | a 2 ms sleep does not return early |
 | `error-mapping` | a zero-size reservation is `EINVAL` and a success clears the slot |
 | `shutdown-idempotent` | two shutdowns are defined behaviour |

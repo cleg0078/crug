@@ -76,7 +76,7 @@ A local AArch64 run without a native machine uses qemu user emulation; the CI
 | commit | `mprotect(PROT_READ|PROT_WRITE)` | committed in reserve; commit keeps the bytes | `mprotect(PROT_READ|PROT_WRITE)` |
 | guard page | `mprotect(PROT_NONE)` | `VirtualProtect(PAGE_NOACCESS)` | `mprotect(PROT_NONE)` |
 | release | `munmap` | `VirtualFree(MEM_RELEASE)` | `munmap` |
-| monotonic clock | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `clock_gettime(CLOCK_MONOTONIC)` |
+| monotonic clock | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `mach_absolute_time` and the mach timebase (nanosecond readings; the timebase ticks at 24 MHz on Apple silicon) |
 | sleep | `clock_nanosleep` | `Sleep` | `nanosleep` |
 
 Two consequences worth knowing:

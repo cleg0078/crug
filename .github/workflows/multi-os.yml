@@ -35,7 +35,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential gcc-aarch64-linux-gnu qemu-user-static
+            build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            qemu-user-static
       - name: Run the multi-OS suite on this host
         run: make check-MULTI_OS
       - name: Cross-build and run the AArch64 port under qemu
