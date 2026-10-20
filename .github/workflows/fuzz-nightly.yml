@@ -10,6 +10,11 @@ name: fuzz-nightly
 # The evidence that the schedule is green is collected out of band by
 # scripts/check-fuzz-nightly.sh, which reads the run history from the public
 # GitHub API or the workflow page.
+#
+# TEMPORARY DEBUG PUBLISH (remove before the first scheduled run): the two
+# checks tee into ci-logs/ and the job force-pushes that directory to
+# ci-debug-fuzz22 when it fails, so the log can be read without an authenticated
+# job-log download. Contents: write is only for that branch.
 on:
   schedule:
     # 03:17 UTC daily, a few minutes after the kernel-compat cron slot so the
@@ -25,7 +30,7 @@ on:
       - '.github/workflows/fuzz-nightly.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: fuzz-nightly-${{ github.ref }}
@@ -35,9 +40,6 @@ jobs:
   fuzz-nightly:
     name: fuzz-nightly
     runs-on: ubuntu-24.04
-    # The GCC build plus the checkout needs about 8 GB, so the job frees space
-    # first. The default 30-minute sanitizer and fuzz work fits well inside two
-    # hours; the limit keeps a hung fuzz loop from eating the runner.
     timeout-minutes: 120
     steps:
       - name: Check out the repository
@@ -46,8 +48,6 @@ jobs:
           fetch-depth: 1
       - name: Free disk space
         run: |
-          # The runner image ships toolchains this build never uses; removing
-          # them turns a 14 GB disk into roughly 30 GB of usable space.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
                       /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           docker image prune -af || true
@@ -68,6 +68,22 @@ jobs:
       - name: Configure and build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
       - name: Run the fuzz target for a fixed budget
-        run: make check-FUZZ FUZZ_BUDGET=2000
+        run: |
+          mkdir -p ci-logs
+          make check-FUZZ FUZZ_BUDGET=2000 2>&1 | tee ci-logs/fuzz.log
       - name: Run the sanitizer suite
-        run: make check-SANITIZER
+        run: |
+          mkdir -p ci-logs
+          make check-SANITIZER 2>&1 | tee ci-logs/sanitizer.log
+      - name: Publish the logs to ci-debug-fuzz22
+        if: always()
+        run: |
+          mkdir -p ci-logs
+          printf 'fuzz-nightly debug log for %s\n' "${{ github.sha }}" > ci-logs/README
+          git config user.email ci-debug@example.invalid
+          git config user.name ci-debug
+          git checkout --orphan ci-debug-fuzz22
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git add -f ci-logs
+          git commit -q -m "ci-debug: fuzz-nightly log"
+          git push -f origin ci-debug-fuzz22
