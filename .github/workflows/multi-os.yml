@@ -1,0 +1,91 @@
+name: multi-os
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multi-os-${{ github.ref }}
+  cancel-in-progress: true
+
+# Phase 18 proves that one scheduler core runs on four hosts (ADR 0012).  Each
+# job runs the same command, make check-MULTI_OS, and the last line of its log
+# names the platform, the PAL contract count, the task suite count and the
+# number of plain-C channel programs.  The linux-x86_64 job also cross-builds
+# the AArch64 port and runs it under qemu; the gate's second check
+# (scripts/check-multi-os-ports.sh) is what a developer runs locally for the
+# same two ports, so a red cross job and a red local script mean the same thing.
+jobs:
+  linux-x86_64:
+    name: linux-x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install the runtime toolchain, the AArch64 cross compiler and qemu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-aarch64-linux-gnu qemu-user-static
+      - name: Run the multi-OS suite on this host
+        run: make check-MULTI_OS
+      - name: Cross-build and run the AArch64 port under qemu
+        run: make check-MULTI_OS TARGET=aarch64-linux
+
+  linux-aarch64:
+    name: linux-aarch64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install the runtime toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential
+      - name: Run the multi-OS suite on this host
+        run: make check-MULTI_OS
+
+  windows-x86_64:
+    name: windows-x86_64
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install the MinGW-w64 toolchain and make
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: make mingw-w64-x86_64-gcc
+      - name: Run the multi-OS suite on this host
+        run: make -C libcrug check-MULTI_OS CC=gcc
+
+  macos-arm64:
+    name: macos-arm64
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Run the multi-OS suite on this host
+        run: make -C libcrug check-MULTI_OS

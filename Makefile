@@ -290,6 +290,9 @@ check-PAL: ## run the Phase 13 PAL contract checks on both backends
 	scripts/check-pal.sh
 	scripts/lint-no-os-apis.sh libcrug/core
 
+check-MULTI_OS: ## run the Phase 18 multi-OS runtime checks (TARGET=aarch64-linux for AArch64)
+	$(MAKE) -C libcrug check-MULTI_OS TARGET=$(TARGET)
+
 fork-delta: ## print the fork delta against the pinned GCC vendor tag
 	scripts/fork-delta.sh
 
@@ -345,6 +348,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
-	check-SEND_SYNC check-SEND_SYNC_DG \
+	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

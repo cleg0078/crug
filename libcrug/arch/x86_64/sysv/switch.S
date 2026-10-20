@@ -18,11 +18,21 @@
    function entered by a call instruction expects.
 */
 
-	.text
-	.globl	crug_ctx_switch
-	.type	crug_ctx_switch, @function
+#if defined(__APPLE__)
+#define SYM(x) _##x
+#define TEXT_SECTION .section __TEXT,__text,regular,pure_instructions
+#else
+#define SYM(x) x
+#define TEXT_SECTION .text
+#endif
+
+	TEXT_SECTION
+	.globl	SYM(crug_ctx_switch)
+#ifndef __APPLE__
+	.type	SYM(crug_ctx_switch), @function
+#endif
 	.align	16
-crug_ctx_switch:
+SYM(crug_ctx_switch):
 	.cfi_startproc
 	pushq	%rbx
 	pushq	%rbp
@@ -46,6 +56,8 @@ crug_ctx_switch:
 	popq	%rbx
 	ret
 	.cfi_endproc
-	.size	crug_ctx_switch, .-crug_ctx_switch
+#ifndef __APPLE__
+	.size	SYM(crug_ctx_switch), .-SYM(crug_ctx_switch)
 
 	.section	.note.GNU-stack, "", @progbits
+#endif
