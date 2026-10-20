@@ -3,7 +3,9 @@
 **Status:** Measured on 2026-10-20 for M21. The thresholds this document is
 measured against are ratified in `docs/crug/RELEASE-POLICY.md` Section 2; the
 numbers are evidence, not policy. Generated report for any run:
-`bench/results/<date>.md` (gitignored).
+`bench/results/<date>.md` (gitignored). The Phase 21 gate passes 6/6 at
+`690dd8f` (logs under `docs/crug/gates/phase-21/690dd8f/`); the numbers
+below are from that run.
 
 The goal is narrow and falsifiable: prove that Crug constructs **cost nothing**
 over the C a project would have written, that **plain C compiles exactly as

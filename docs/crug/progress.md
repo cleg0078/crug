@@ -457,8 +457,9 @@ not language overhead). The measured results and method are in the new
 [docs/crug/PERFORMANCE.md](PERFORMANCE.md), `make check-PERFORMANCE` writes
 `bench/results/<date>.md`, and the Phase 21 gate (amendment A-24) runs six
 runnable checks: the four harness modes, the kernel codegen comparison and the
-single command that runs all five. It is archived under
-`docs/crug/gates/phase-21/`.
+single command that runs all five. It passes 6/6 at `690dd8f` (logs under
+`docs/crug/gates/phase-21/690dd8f/`), so M21 is awarded. The closing push
+(`7bbc705`) is green: `multi-os` run 14 and `kernel-compat` run 27 both succeeded.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
