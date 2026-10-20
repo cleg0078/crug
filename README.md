@@ -172,6 +172,25 @@ counts identical for all 438. The thresholds are ratified in
 [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) and the measured
 results and method are in [docs/crug/PERFORMANCE.md](docs/crug/PERFORMANCE.md);
 `make check-PERFORMANCE` runs all five checks and writes the report.
+Phase 22 hardens what the earlier phases built. `make check-FUZZ` runs six
+harnesses: four compiler targets (parser, ownership, borrow and `.crugffi`,
+1,200 mutated inputs at the default budget) and two runtime harnesses (2,000
+scheduler sequences and 20,000 channel runs), all with zero crashes, zero
+timeouts and zero new findings. `make check-SANITIZER` runs ASan, UBSan and
+LeakSanitizer over the task, scope and channel suites and a ThreadSanitizer arm
+over an OS-thread channel exchange; the fiber-switch exception is
+[ADR 0028](docs/crug/adr/0028-tsan-fiber-exception.md) (proposed).
+`scripts/check-p0-open.sh` and `scripts/check-regressions.sh` enforce the
+defect ledger: no open P0, and every fixed P0/P1 names an existing regression
+path. `.github/workflows/fuzz-nightly.yml` runs the same checks nightly at the
+larger budget, and `scripts/check-fuzz-nightly.sh` counts 30 consecutive
+successful scheduled runs; that window is calendar time, so the Phase 22 gate
+stays honest about whether it has been met. The harnesses already earned their
+keep: the compiler target found K-002, an internal compiler error when a parse
+error left `error_mark_node` as a function body, now fixed and pinned by
+`gcc/testsuite/crug.dg/ownership/error-mark-body.c`. The budgets and thresholds
+are ratified in [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md)
+section 3 and the operator's guide is [docs/crug/FUZZING.md](docs/crug/FUZZING.md).
 See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -340,7 +359,11 @@ pristine parity, recorded baseline, concurrency and channels, kernel codegen)
 and writes `bench/results/<date>.md`; `make pristine-xgcc` builds the unmodified
 reference compiler it compares against, and
 [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) owns every number the
-qualification enforces.
+qualification enforces. `make check-FUZZ` runs the six Phase 22 harnesses and
+`make check-SANITIZER` runs the sanitizer arms
+([docs/crug/FUZZING.md](docs/crug/FUZZING.md) is the operator's guide);
+`scripts/check-p0-open.sh` and `scripts/check-regressions.sh` enforce the defect
+ledger, and `scripts/check-fuzz-nightly.sh` reports the nightly window.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.

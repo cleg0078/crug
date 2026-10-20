@@ -1,12 +1,13 @@
 # Release Policy
 
-**Status:** Ratified for M21 on 2026-10-20. This file owns the numbers every
-gate cites; a threshold that is not written here cannot adjudicate a gate.
+**Status:** Ratified for M21 and M22 on 2026-10-20. This file owns the numbers
+every gate cites; a threshold that is not written here cannot adjudicate a gate.
 
-The policy has two jobs. It fixes the **performance qualification thresholds**
-(Section 2) that Phase 21 and the Phase 25 release candidate enforce, and it
-fixes the **release-candidate quality thresholds** (Section 3) that Phase 25
-and 1.0 are adjudicated against. Versioning and compatibility promises are not
+The policy has three jobs. It fixes the **performance qualification thresholds**
+(Section 2) that Phase 21 and the Phase 25 release candidate enforce, the
+**security and reliability budgets** (Section 3) that Phase 22 enforces, and
+the **release-candidate quality thresholds** (Section 4) that Phase 25 and 1.0
+are adjudicated against. Versioning and compatibility promises are not
 duplicated here: they belong to `docs/crug/COMPATIBILITY-POLICY.md` (Phase 23).
 
 ## 1. How a threshold is ratified
@@ -15,8 +16,8 @@ duplicated here: they belong to `docs/crug/COMPATIBILITY-POLICY.md` (Phase 23).
 - A number changes only by an amendment row in Section 5, and the gate that
   cites it is re-run and archived at the new commit.
 - The evidence behind each number is measured, not asserted: it lives in
-  `docs/crug/PERFORMANCE.md` for Section 2 and in
-  `docs/crug/KNOWN-ISSUES.md` for Section 3.
+  `docs/crug/PERFORMANCE.md` for Section 2, in the fuzz and sanitizer logs under
+  `build/` for Section 3, and in `docs/crug/KNOWN-ISSUES.md` for Section 4.
 - A threshold guards against a regression; it is not a target to optimise
   against. "Measured faster than the band requires" is not a release claim.
 
@@ -122,7 +123,79 @@ built by the wrapped GCC driver.
   checked-in narrative is `docs/crug/PERFORMANCE.md`.
 - `make check-PERFORMANCE` runs all five checks and writes the report.
 
-## 3. Release-candidate thresholds (M23)
+## 3. Security and reliability qualification (M22)
+
+### 3.1 Fuzz harnesses: zero tolerance
+
+`make check-FUZZ` runs six harnesses: four compiler targets under
+`fuzz/compiler` (the contextual parser, ownership state transitions, the borrow
+checker, the `.crugffi` parser) and two runtime harnesses under `fuzz/runtime`
+(the scheduler queue and the channel state machine).
+
+- **Default budget:** 300 mutated compiler inputs per target (`FUZZ_BUDGET`),
+  and the runtime defaults declared by `fuzz/runtime/run.sh` (2000 scheduler
+  sequences and 20000 channel runs, `FUZZ_RUNS`). The nightly workflow raises
+  the compiler budget to 2000.
+- **Threshold:** 0 crashes, 0 timeouts, 0 internal compiler errors and 0 new
+  findings. A finding is any artifact written under the findings directory; it
+  must be triaged into `docs/crug/KNOWN-ISSUES.md` with a severity from
+  roadmap section 3 before the gate can be green again.
+- **Corpora:** seeds are committed under `fuzz/compiler/corpus/`; artifacts are
+  build output. A crash artifact is never committed as a seed until it is
+  triaged and fixed.
+- **Determinism:** the compiler harness re-runs to the same inputs from a fixed
+  `--seed`; a flaky harness is a defect in the harness, not evidence.
+
+### 3.2 Sanitizers
+
+`make check-SANITIZER` runs the task, scope and channel suites plus the stress
+programs under AddressSanitizer and UndefinedBehaviorSanitizer with
+abort-on-error and leak detection, and a ThreadSanitizer arm over an OS-thread
+channel exchange.
+
+- **Threshold:** no ASan, UBSan, LSan or TSan report. Suppressing a report
+  through a sanitizer option is not allowed; narrowing the arm is.
+- **TSan and fibers:** the v1 context switch is not annotated with TSan's fiber
+  API, so TSan is applied only where no stack switch occurs. The exception is
+  recorded in `docs/crug/adr/0028-tsan-fiber-exception.md`; a future
+  fiber-hook increment must remove the exception, not widen it.
+
+### 3.3 Nightly window
+
+`scripts/check-fuzz-nightly.sh --window 30` reads the runs of
+`.github/workflows/fuzz-nightly.yml` (event `schedule`) and requires 30
+consecutive successful scheduled runs.
+
+- The window is the count of consecutive `success` scheduled runs immediately
+  before the newest scheduled run; a failed or in-progress scheduled run resets
+  it.
+- A push-triggered run is useful evidence but does not count toward the window.
+- Data unavailability (rate limit, no runs yet) is exit 2 from the checker and
+  is not evidence of success.
+- The period is the weakest defensible window; roadmap section 26 leaves it to
+  release management, so 30 days is the ratified choice.
+
+### 3.4 Defect ledger
+
+`scripts/check-p0-open.sh` and `scripts/check-regressions.sh` enforce:
+
+- **0 open P0** entries in every scope (roadmap section 3 severities).
+- **Every fixed P0/P1 entry names an existing regression path**; the checker
+  fails when the path is missing, and `--run` executes the path when it is
+  executable. A fix without a regression test is not fixed.
+- A new defect found by fuzzing, a sanitizer run or a stress run is added to
+  the ledger before its fix lands; the severity decides what blocks the gate.
+
+### 3.5 Method
+
+- Reference host: Linux x86-64, 20 logical CPUs; compiler `gcc/crugc`;
+  runtime built from `libcrug/`.
+- Logs: `build/fuzz/compiler.log`, `build/fuzz/runtime.log`,
+  `build/libcrug-sanitizer/`; findings under `build/fuzz/findings/`.
+- Commands: `make check-FUZZ`, `make check-SANITIZER`; the nightly workflow runs
+  the same two commands with the larger budget.
+
+## 4. Release-candidate thresholds (M23)
 
 The Phase 25 gate takes these numbers from this section:
 
@@ -131,8 +204,8 @@ The Phase 25 gate takes these numbers from this section:
   waiver row in `docs/crug/KNOWN-ISSUES.md` naming the affected scope and
   the reason it is acceptable; for **1.0 the number is 0**. No waiver
   mechanism exists for 1.0.
-- **Fuzz window:** the Phase 22 harnesses run green for 30 consecutive days
-  (ratified in the Phase 22 gate).
+- **Fuzz window:** the Phase 22 harnesses run green for 30 consecutive scheduled
+  days (Section 3.3).
 - **Kernel:** full primary build and boot smoke green at the RC commit
   (Phase 19 stages K5 and K6).
 - **Ports and performance:** `make check-MULTI_OS`, `make check-FFI` and
@@ -141,15 +214,16 @@ The Phase 25 gate takes these numbers from this section:
 `scripts/count-open-p1.sh --max=2` is the Phase 25 command; the script takes
 the number from this section and fails when an open P1 has no waiver row.
 
-## 4. Compatibility promises
+## 5. Compatibility promises
 
 Versioning (language, Crug ABI, `.crugffi`, libcrug ABI), deprecation and
 the supported platforms are defined by `docs/crug/COMPATIBILITY-POLICY.md`
 (Phase 23). This policy does not restate them; it only fixes the numbers that
 the qualification gates enforce.
 
-## 5. Amendments
+## 6. Amendments
 
 | amendment | date | change | why |
 |---|---|---|---|
 | A-1 | 2026-10-20 | Initial ratification for M21 and the M23 quality thresholds. The dispatch gate compares against pthread-per-task, not against the allocation-free pool; the pool ratio is recorded. | An allocation-free pool is not the C baseline a project starts from, and a 64 KiB stack per task is a design decision of the runtime (ADR 0008), not an overhead of the language. The zero-cost claims are gated exactly; the pool ratio is evidence for future stack-pooling work. |
+| A-2 | 2026-10-20 | Ratified the M22 fuzz budgets (300 compiler inputs per target, 2000 sequence/20000 channel-run runtime defaults, 2000 inputs nightly), the sanitizer scope and the 30-consecutive-scheduled-run nightly window. | Phase 22 is the first phase whose evidence is statistical rather than a fixed command output: a budget makes the run reproducible, and a window makes "continuously running" falsifiable. The window length is release management's call (roadmap section 26) and 30 days is the weakest defensible choice. |

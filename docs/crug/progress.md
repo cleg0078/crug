@@ -460,6 +460,30 @@ runnable checks: the four harness modes, the kernel codegen comparison and the
 single command that runs all five. It passes 6/6 at `690dd8f` (logs under
 `docs/crug/gates/phase-21/690dd8f/`), so M21 is awarded. The closing push
 (`7bbc705`) is green: `multi-os` run 14 and `kernel-compat` run 27 both succeeded.
+Phase 22 turns "it fails safely" into evidence. Six harnesses live under
+`fuzz/`: four compiler targets (`parser`, `ownership`, `borrow`, `ffi`) mutate
+committed seeds and classify crashes, timeouts and internal compiler errors,
+and two runtime harnesses exercise the scheduler, scopes and channels against
+oracle counters and a ring-buffer model. `make check-FUZZ` runs all six (1,200
+mutated compiler inputs at the default budget, 2,000 scheduler sequences and
+20,000 channel runs) and `make check-SANITIZER` runs ASan, UBSan and
+LeakSanitizer over the task, scope and channel suites plus a ThreadSanitizer arm
+over an OS-thread channel exchange. The harnesses immediately earned their
+keep: the compiler target found K-002, an internal compiler error when a parse
+error left `error_mark_node` as a function body, which is fixed and pinned by
+`gcc/testsuite/crug.dg/ownership/error-mark-body.c`. `scripts/check-p0-open.sh`
+and `scripts/check-regressions.sh` enforce the defect ledger (no open P0, and
+every fixed P0/P1 names an existing regression path), and
+`.github/workflows/fuzz-nightly.yml` runs the same checks nightly at the larger
+budget; `scripts/check-fuzz-nightly.sh` counts 30 consecutive successful
+scheduled runs. That window needs calendar time, so the Phase 22 gate reports
+its true count instead of claiming it met. The budgets and thresholds are
+ratified in [docs/crug/RELEASE-POLICY.md](RELEASE-POLICY.md) section 3
+(amendment A-2), the TSan exception is recorded in
+[docs/crug/adr/0028-tsan-fiber-exception.md](adr/0028-tsan-fiber-exception.md)
+(Proposed), and [docs/crug/FUZZING.md](FUZZING.md) is the operator's guide. The
+Phase 22 gate (amendment A-25) runs four runnable checks: the fuzz suite, the
+sanitizer suite, the two ledger checkers and the nightly-window checker.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -543,6 +567,7 @@ superseding ADR and owner ratification.
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
 | The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 | The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
+| "It fails safely" was an assertion: nothing fuzzed the front end, no sanitizer result was gated, and the P0/P1 ledger had no checker | six harnesses under `fuzz/` (parser, ownership, borrow and `.crugffi` targets; scheduler and channel state machines), `make check-FUZZ`, `make check-SANITIZER` (ASan/UBSan/LSan plus a TSan OS-thread arm), `scripts/check-p0-open.sh`, `scripts/check-regressions.sh`, `.github/workflows/fuzz-nightly.yml`, `scripts/check-fuzz-nightly.sh`, `docs/crug/FUZZING.md`, ADR 0028 (Proposed), RELEASE-POLICY section 3 (amendment A-2); the compiler harness found and closed K-002; phase-22 gate A-25 |
 
 ## Still open
 
@@ -579,18 +604,24 @@ superseding ADR and owner ratification.
 | -  | The zero-cost matrix covers four constructs (`own` with drop, `move`, `ref`, `mut`); `scope`, `chan`, payload enums and `match` are measured only indirectly through the concurrency and kernel arms, and a new construct must add a pair under `bench/zero-cost/` | a later performance increment; the matrix is the extension point |
 | -  | Dispatch and memory are compared against pthread-per-task with the allocation-free pool recorded only: Crug stays about 14x slower than the pool because every task reserves and commits a 64 KiB guarded stack, and stack pooling is future work needing its own ADR | ADR 0008 and RELEASE-POLICY.md amendment A-1 |
 | -  | The kernel codegen arm compares objects and disassembly only: no runtime speed measurement of the booted kernel is made, so `PERFORMANCE.md` does not claim kernel throughput | a later phase with a kernel benchmark harness |
+| -  | The 30-nightly-run reliability window is calendar time, not code: the `fuzz-nightly` workflow has not yet been scheduled for 30 days, so the Phase 22 gate reports "window not met" (exit 1/2) and stays red until the runs accumulate | `.github/workflows/fuzz-nightly.yml` on `main` plus calendar time (cron `17 3 * * *`); RELEASE-POLICY section 3.3 |
+| -  | The compiler fuzz harness is mutational, not grammar-aware: it has no coverage measurement, an 8 KiB input cap, a 10 s timeout, and adding or renaming a seed changes the deterministic mutant stream | a later fuzzing increment; `fuzz/compiler/README.md` documents the corpus contract |
+| -  | ThreadSanitizer cannot see the fiber switch: task-stack races, task-to-task happens-before, the scheduler queue and scope state are covered by ASan+UBSan only, and `libcrug/core/chan.c` keeps one `malloc`ed receive buffer per thread with no release entry point | ADR 0028 (Proposed) and its `__tsan_create_fiber`/`__tsan_switch_to_fiber` exit criteria; a fiber-hook increment |
+| -  | The fuzz and sanitizer arms run on Linux x86-64 only and are not part of `make check-MULTI_OS`, so a Windows- or Darwin-specific runtime bug would not be seen by `make check-FUZZ` | a later qualification increment that runs the runtime harnesses on the other ports |
 
 ## Next actions, in dependency order
 
-1. **Open Phase 22 (security and reliability qualification)**: the Phase 21 gate
-   (amendment A-24) runs the four harness modes, the kernel codegen comparison
-   and the single command that runs all five, and the phase is archived under
-   `docs/crug/gates/phase-21/`. Phase 22's deliverable is evidence that the
-   compiler and the runtime fail safely: fuzz harnesses for the parser,
-   ownership, borrow, `.crugffi`, scheduler and channel state machine, ASan/UBSan
-   (and TSan where it is valid) runs, the P0/P1 ledger checks and a nightly CI
-   window; `docs/crug/KNOWN-ISSUES.md` already carries the ledger format those
-   gates read.
+1. **Open Phase 23 (documentation and compatibility policy)**: the Phase 22
+   machinery is in place (six harnesses, the sanitizer suite, the two ledger
+   checkers and the nightly workflow) and its four gate checks are writable; the
+   nightly window accumulates in the background and `scripts/check-fuzz-nightly.sh`
+   reports its true count. Phase 23's deliverable is the frozen document set and a
+   written compatibility policy: the nineteen documents `docs/crug/$f.md` that
+   Phase 23's gate names, `scripts/check-docs.sh` for the required sections, and
+   `docs/crug/COMPATIBILITY-POLICY.md` covering the nine items (language
+   versioning, Crug ABI versioning, `.crugffi` versioning, libcrug ABI policy,
+   feature deprecation, GCC baseline policy, supported platforms, supported C
+   dialects, kernel support policy).
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status
