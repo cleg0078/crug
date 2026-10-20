@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# Temporary workflow: it runs the same commands as multi-os.yml on the same
+# runners and publishes the logs to ci-debug-<os> branches, because the job
+# logs of the multi-os workflow need an authenticated API token this host does
+# not have.  Delete this file once the multi-os run is green.
+
 jobs:
   probe:
     strategy:
@@ -17,22 +22,28 @@ jobs:
         include:
           - os: linux-x86_64
             runner: ubuntu-24.04
+            shell: bash
           - os: windows-x86_64
             runner: windows-2022
+            shell: msys2 {0}
           - os: macos-arm64
             runner: macos-14
+            shell: bash
     name: probe-${{ matrix.os }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - name: Toolchain (ubuntu)
         if: matrix.os == 'linux-x86_64'
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential gcc-aarch64-linux-gnu qemu-user-static
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            qemu-user-static
       - name: Toolchain (msys2)
         if: matrix.os == 'windows-x86_64'
         uses: msys2/setup-msys2@v2
@@ -40,24 +51,48 @@ jobs:
           msystem: MINGW64
           update: false
           install: make mingw-w64-x86_64-gcc
-      - name: Run the command and capture both streams
-        continue-on-error: true
+      - name: Toolchain (macos)
+        if: matrix.os == 'macos-arm64'
         shell: bash
         run: |
+          xcode-select -p || true
+          cc --version | head -1
+      - name: Run the commands and capture both streams
+        shell: ${{ matrix.shell }}
+        run: |
           mkdir -p ci-logs
-          if [ "${{ matrix.os }}" = "linux-x86_64" ]; then
-            { make check-MULTI_OS TARGET=aarch64-linux; } > "ci-logs/${{ matrix.os }}.log" 2>&1
-          elif [ "${{ matrix.os }}" = "windows-x86_64" ]; then
-            export PATH="/c/msys64/mingw64/bin:$PATH"
-            { make -C libcrug check-MULTI_OS CC=gcc; } > "ci-logs/${{ matrix.os }}.log" 2>&1
-          else
-            { make -C libcrug check-MULTI_OS; } > "ci-logs/${{ matrix.os }}.log" 2>&1
-          fi
-          echo "rc=$?" >> "ci-logs/${{ matrix.os }}.log"
-          head -80 "ci-logs/${{ matrix.os }}.log"
+          log="ci-logs/${{ matrix.os }}.log"
+          : > "$log"
+          case "${{ matrix.os }}" in
+            linux-x86_64)
+              {
+                echo "== make check-MULTI_OS"
+                make check-MULTI_OS
+                echo "rc=$?"
+                echo "== make check-MULTI_OS TARGET=aarch64-linux"
+                make check-MULTI_OS TARGET=aarch64-linux
+                echo "rc=$?"
+              } >> "$log" 2>&1
+              ;;
+            windows-x86_64)
+              {
+                echo "== make -C libcrug check-MULTI_OS CC=gcc"
+                make -C libcrug check-MULTI_OS CC=gcc
+                echo "rc=$?"
+              } >> "$log" 2>&1
+              ;;
+            *)
+              {
+                echo "== make -C libcrug check-MULTI_OS"
+                make -C libcrug check-MULTI_OS
+                echo "rc=$?"
+              } >> "$log" 2>&1
+              ;;
+          esac
+          grep -aE 'FAIL|error|Error|rc=|multi-os:' "$log" | tail -40 || true
       - name: Publish the log on a branch
         if: always()
-        shell: bash
+        shell: ${{ matrix.shell }}
         run: |
           git config user.name "ci-debug"
           git config user.email "ci-debug@localhost"
