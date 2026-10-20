@@ -19,6 +19,7 @@
 
 # CRUG test and benchmark artefacts.
 /out/
+__pycache__/
 /gcc/testsuite/crug.dg/**/*.exe
 /bench/results/
 *.crug-ownership

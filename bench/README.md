@@ -35,6 +35,38 @@ go to `build/bench/` and results to `bench/results/`; both are gitignored.
 Only `bench/baseline.json` (the recorded plain-C object digests and timings)
 is committed.
 
+## Phase 21 qualification
+
+```
+bench/run.py --zero-cost --check       # Crug construct vs plain-C twin
+bench/run.py --pristine --check        # object parity with unmodified GCC 16.2
+bench/run.py --plain-c --check         # no drift against bench/baseline.json
+bench/run.py --concurrency --check     # tasks, memory per task, channels
+bench/run.py --kernel --check          # kernel corpus codegen
+bench/run.py --performance --check     # all five, report in bench/results/<date>.md
+```
+
+- **Zero cost** (`bench/zero-cost/<case>/{crug.c,plain.c}`): `own-drop`,
+  `move`, `ref-param` and `mut-param`, each compiled at `-O0`/`-O2`/`-O3` from
+  the same basename. The driver requires an identical optimised tree dump and
+  an identical instruction stream (local labels and temporary numbers are
+  canonicalised); `-fdump-tree-gimple` is deliberately not used, because its
+  initial dump differs cosmetically for a lowered drop.
+- **Pristine parity** builds the unmodified tarball compiler with
+  `make pristine-xgcc` (configure and build in `build/pristine-obj`) and
+  requires the objects of `corpus/*.c` and `bench/kernels/*.c` to be byte
+  identical. This is the only non-tautological plain-C comparison: the phase-1
+  `diff-cc.sh` compares two builds of the same fork.
+- **Concurrency and channels** live in `bench/concurrency/run.py` and
+  `bench/channels/`; the arms are pthread-per-task, an allocation-free C
+  thread pool and the Crug runtime.
+- **Kernel codegen** is `scripts/check-kernel-perf.sh` over the 438-object
+  corpus of `kernel/KERNEL-CORPUS.md`; the one allowed difference
+  (`init/version-timestamp.o`) is explained in `kernel/object-diff-allow.txt`.
+- The numbers these modes enforce are ratified in
+  `docs/crug/RELEASE-POLICY.md` Section 2; the measured results and the
+  methodology are in `docs/crug/PERFORMANCE.md`.
+
 ## Rules
 
 - Each input records its provenance and licence in `bench/NOTICE`; per-input
