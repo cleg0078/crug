@@ -1,0 +1,6 @@
+phase-22 #3 rc=0
+cmd: ./scripts/check-p0-open.sh && ./scripts/check-regressions.sh
+expected: exit 0, printing `check-p0-open: 0 open P0 (0 fixed P0/P1 without a regression id)` and `check-regressions: <n> fixed P0/P1 entr(ies), 0 without a regression test` (every fixed P0/P1 entry in `docs/crug/KNOWN-ISSUES.md` names an existing regression path, per RELEASE-POLICY 3.4; `<n>` is the number of fixed P0/P1 entries, two today: K-001 and K-002).
+---
+check-p0-open: 0 open P0 (0 fixed P0/P1 without a regression id)
+check-regressions: 2 fixed P0/P1 entr(ies), 0 without a regression test

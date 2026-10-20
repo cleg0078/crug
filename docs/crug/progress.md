@@ -483,7 +483,13 @@ ratified in [docs/crug/RELEASE-POLICY.md](RELEASE-POLICY.md) section 3
 [docs/crug/adr/0028-tsan-fiber-exception.md](adr/0028-tsan-fiber-exception.md)
 (Proposed), and [docs/crug/FUZZING.md](FUZZING.md) is the operator's guide. The
 Phase 22 gate (amendment A-25) runs four runnable checks: the fuzz suite, the
-sanitizer suite, the two ledger checkers and the nightly-window checker.
+sanitizer suite, the two ledger checkers and the nightly-window checker. The
+pre-closure run at `d791347` passes checks 1-3 and fails check 4 as expected:
+the `fuzz-nightly` workflow was only just pushed, so the checker reports "the
+workflow has no scheduled runs yet" (exit 2, which is not evidence of success).
+Its logs are archived under `docs/crug/gates/phase-22/d791347/` and marked as a
+pre-closure run; M22 is not awarded until 30 consecutive scheduled runs
+accumulate (RELEASE-POLICY 3.3) and a closure run is archived.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that

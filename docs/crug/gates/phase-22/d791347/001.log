@@ -1,0 +1,18 @@
+phase-22 #1 rc=0
+cmd: make check-FUZZ
+expected: exit 0, printing `fuzz: 6 harness(es), 0 crash(es), 0 timeout(s), 0 new finding(s)` and `fuzz: OK` (four compiler targets plus the scheduler and channel-state-machine harnesses; default 300 inputs per compiler target, runtime defaults per RELEASE-POLICY 3.1).
+---
+scripts/check-fuzz.sh
+fuzz: budget: 300 compiler input(s) per target, runtime budget from FUZZ_RUNS
+fuzz: parser: 300 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ownership: 300 input(s), 0 crash(es), 0 timeout(s)
+fuzz: borrow: 300 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ffi: 300 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: 4 harness(es), 1200 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: OK
+runtime-fuzz: scheduler: 2000 sequence(s), 0 failure(s), 0 crash(es) [1s]
+runtime-fuzz: channel: 20000 run(s), 0 crash(es) [23s]
+runtime-fuzz: 2 harness(es), scheduler 2000 run(s), channel 20000 run(s), 0 crash(es)
+runtime-fuzz: OK
+fuzz: 6 harness(es), 0 crash(es), 0 timeout(s), 0 new finding(s)
+fuzz: OK

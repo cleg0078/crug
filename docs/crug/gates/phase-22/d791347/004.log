@@ -1,0 +1,5 @@
+phase-22 #4 rc=2
+cmd: ./scripts/check-fuzz-nightly.sh
+expected: exit 0, printing `fuzz-nightly: 30 consecutive scheduled success(es), window 30` (RELEASE-POLICY 3.3; exit 1 means the window is not met and exit 2 means the data is unavailable, and neither is evidence of success).
+---
+check-fuzz-nightly: api: the workflow has no scheduled runs yet

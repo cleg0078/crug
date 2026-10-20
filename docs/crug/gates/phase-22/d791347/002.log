@@ -1,0 +1,18 @@
+phase-22 #2 rc=0
+cmd: make check-SANITIZER
+expected: exit 0, printing `sanitizer: ASan and UBSan clean over tasks/scopes/channels; TSan clean on the OS-thread channel arm; fiber exception recorded in ADR 0028` (arm 1 is `scripts/check-tasks-sanitizer.sh`, arm 2 is ASan+UBSan over the channel suite and an OS-thread channel+PAL stress program, arm 3 is clang TSan over the same stress with no fiber switch; the exception is `docs/crug/adr/0028-tsan-fiber-exception.md`, per RELEASE-POLICY 3.2).
+---
+scripts/check-sanitizer.sh
+sanitizer: tasks arm: sh scripts/check-tasks-sanitizer.sh
+tasks: 17 checks, 0 failed, workers 4, completed 125, yielded 24, queue peak 21
+tasks-stress: tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=7
+scope-stress: tasks=3000 entered=200 left=200 leaked task group state: 0
+tasks-sanitizer: ASan and UBSan clean over the suite, 100000 tasks and 200 scopes
+sanitizer: tasks arm clean [2s]
+sanitizer: chan-basic: channels-basic: sent=4 received=4 sum=10
+sanitizer: chan-select: channels-select: got=7 polls=2
+sanitizer: chan-handoff: channels-handoff: handoffs=5 sum=15
+sanitizer: san-stress: sanitizer-stress: os-threads=5 sent=800 received=800 sum=2000079600 ok
+sanitizer: tsan-os-thread-channel: sanitizer-stress: os-threads=5 sent=800 received=800 sum=2000079600 ok
+sanitizer: total 3s
+sanitizer: ASan and UBSan clean over tasks/scopes/channels; TSan clean on the OS-thread channel arm; fiber exception recorded in ADR 0028
