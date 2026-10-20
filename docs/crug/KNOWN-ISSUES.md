@@ -5,7 +5,7 @@
 **Owner:** CRUG project owner (compiler lead). Gate adjudicator: `scripts/check-p0-open.sh`.
 **Derived from:** `spec/CRUG_PRODUCTION_ROADMAP.md` sections 3 and 35.3 (severity
 definitions and stop conditions), `spec/CRUG_MASTER_SPEC_EN.md` section 56 and
-`docs/crug/EXIT-GATES.md` (phases 19, 24 and 25 read this ledger).
+`docs/crug/EXIT-GATES.md` (phases 19, 22, 24 and 25 read this ledger).
 
 The gate documents ask for "0 open P0" without defining where a P0 is recorded.
 This file is that record. It is deliberately small: an entry is added when a
@@ -44,10 +44,21 @@ consumes.
 <!-- ledger:begin -->
 # id    severity scope   status regression                          summary
 K-001   P0       runtime fixed  scripts/check-multi-os-ports.sh        a task kept a stale cached _Thread_local address when it resumed on another worker (Phase 18, ADR 0009 A-1)
+K-002   P1       compiler fixed gcc/testsuite/crug.dg/ownership/error-mark-body.c  a parse error left error_mark_node as the function body and crug_check_function called BIND_EXPR_BODY on it (ICE, found by the Phase 22 fuzz harness)
 <!-- ledger:end -->
 ```
 
 ## 3. Closed entries
+
+- **K-002** (P1, compiler, fixed in Phase 22): a function definition that fails
+  to parse (for example `int f (void) * x { return 0; }`) can leave
+  `error_mark_node` as the body, and the ownership pass called
+  `BIND_EXPR_BODY` on it: `tree check: expected bind_expr, have error_mark in
+  crug_check_function`. The fuzz harness found it as 46 crashes across the
+  parser, ownership and borrow targets. Fixed by returning early from
+  `crug_check_function` when the body is `error_mark_node`; the regression is
+  `gcc/testsuite/crug.dg/ownership/error-mark-body.c`, and the fuzz harness must
+  stay at 0 crashes for the fix to count.
 
 - **K-001** (P0, runtime, fixed in Phase 18): the scheduler migrated a task
   between worker threads; a C frame resumed elsewhere still held the address of

@@ -4488,7 +4488,9 @@ lower_intrinsic_cb (tree *tp, int *walk_subtrees, void *data)
 void
 crug_check_function (tree fndecl, tree body, bool has_scope)
 {
-  if (fndecl == NULL_TREE || body == NULL_TREE)
+  /* A parse error can leave error_mark_node as the body; there is no
+     statement tree to analyse, and BIND_EXPR_BODY on it is an ICE.  */
+  if (fndecl == NULL_TREE || body == NULL_TREE || body == error_mark_node)
     return;
   /* A function with a 'scope' statement is analysed even when only
      -fcrug-goroutines is on: the scope's wait has to be placed at every exit
