@@ -3,6 +3,8 @@ cmd: make -C libcrug check-PAL PAL=fake
 expected: exit 0: the same twelve-case contract passes with no operating system at all, so the contract, not the backend, is what the suite tests.
 ---
 make: Entering directory '/home/cleg/MyDev/crug/libcrug'
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"fake"' -c -o build/fake/task.o core/task.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"fake"' -o build/fake/pal-contract tests/pal_contract_main.c build/fake/pal_contract.o build/fake/task.o build/fake/chan.o build/fake/switch.o build/fake/stack.o build/fake/pal_fake.o 
 case version-and-names: ok
 case thread-create-join: ok
 case thread-rejects-null-entry: ok

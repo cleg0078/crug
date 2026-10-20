@@ -1,0 +1,33 @@
+phase-18 #1 rc=0
+cmd: make check-MULTI_OS
+expected: exit 0 on this host: one `make` target runs the twelve-case PAL contract, the task suite, the stress run and three plain-C channel programs, and prints `multi-os: <os>/<arch> pal-contract 12 cases, tasks 17 checks, 3 channel program(s)`.
+---
+make -C libcrug check-MULTI_OS TARGET=
+make[1]: Entering directory '/home/cleg/MyDev/crug/libcrug'
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -c -o build/linux/task.o core/task.c
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o build/linux/pal-contract tests/pal_contract_main.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o build/linux/tasks-test tests/tasks_main.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o ../build/tasks-stress tests/tasks_stress.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o build/linux/chan-basic tests/runtime/chan_basic.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o build/linux/chan-handoff tests/runtime/chan_handoff.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+cc -O2 -g -std=c11 -Wall -Wextra -Werror -Ipal/include -Icore -Iarch/x86_64/sysv -DCRUG_PAL_BACKEND='"linux"' -o build/linux/chan-select tests/runtime/chan_select.c build/linux/pal_contract.o build/linux/task.o build/linux/chan.o build/linux/switch.o build/linux/stack.o build/linux/pal_linux.o -pthread
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: ok
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[linux]: 12 cases, 0 failed, 0 skipped
+tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 2
+tasks-stress: tasks=10000 completed=10000 checksums=10000 lost=0 corrupt=0 workers=8 queue_peak=3
+channels-basic: sent=4 received=4 sum=10
+channels-handoff: handoffs=5 sum=15
+channels-select: got=7 polls=2
+multi-os: Linux/x86_64/sysv pal-contract 12 cases, tasks 17 checks, 3 channel program(s)
+make[1]: Leaving directory '/home/cleg/MyDev/crug/libcrug'

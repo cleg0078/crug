@@ -2,15 +2,15 @@ phase-18 #2 rc=0
 cmd: scripts/check-multi-os-ports.sh
 expected: exit 0: the Linux AArch64 port and the Windows x86-64 port are built and executed (AArch64 under qemu in `crug-arm64-build`, Windows cross-built with `x86_64-w64-mingw32-gcc` and run under Wine), each asserting `tasks: 17 checks, 0 failed` at 2, 4 and 8 workers plus the three channel lines; the script names every skipped port and exits 2 when no port could run, so a silent pass is impossible.
 ---
-tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 5
+tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 2
 multi-os: Linux/aarch64 pal-contract 12 cases, tasks 17 checks, 3 channel program(s)
-tasks: 17 checks, 0 failed, workers 2, completed 125, yielded 24, queue peak 9
+tasks: 17 checks, 0 failed, workers 2, completed 125, yielded 24, queue peak 6
 tasks: 17 checks, 0 failed, workers 4, completed 125, yielded 24, queue peak 2
-tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 3
+tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 5
 multi-os-ports: aarch64 PASS (Linux AArch64 PAL + AAPCS64 switch, 2/4/8 workers)
 pal-contract[windows]: 12 cases, 0 failed, 0 skipped
-tasks: 17 checks, 0 failed, workers 2, completed 125, yielded 24, queue peak 70
-tasks: 17 checks, 0 failed, workers 4, completed 125, yielded 24, queue peak 54
+tasks: 17 checks, 0 failed, workers 2, completed 125, yielded 24, queue peak 76
+tasks: 17 checks, 0 failed, workers 4, completed 125, yielded 24, queue peak 6
 tasks: 17 checks, 0 failed, workers 8, completed 125, yielded 24, queue peak 3
 channels-basic: sent=4 received=4 sum=10
 channels-handoff: handoffs=5 sum=15
