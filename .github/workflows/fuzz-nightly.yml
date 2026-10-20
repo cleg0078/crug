@@ -30,7 +30,7 @@ on:
       - '.github/workflows/fuzz-nightly.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: fuzz-nightly-${{ github.ref }}
@@ -65,25 +65,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd \
             clang
+          # clang's sanitizer and libFuzzer runtimes live in a separate
+          # package; install the one that matches the installed clang.
+          clang_major=$(clang -dumpversion | cut -d. -f1)
+          sudo apt-get install -y --no-install-recommends \
+            "libclang-rt-${clang_major}-dev"
+          ls "/usr/lib/llvm-${clang_major}/lib/clang/${clang_major}/lib/linux/" \
+            | grep -E 'libclang_rt\.(tsan|fuzzer)-x86_64\.a'
+      - name: Relax ASLR entropy for ThreadSanitizer
+        run: |
+          # clang 18 TSan cannot map its shadow with 32-bit mmap entropy on
+          # ubuntu-24.04 runners; 28 bits is the documented workaround.
+          if [ -w /proc/sys/vm/mmap_rnd_bits ]; then
+            echo 28 | sudo tee /proc/sys/vm/mmap_rnd_bits
+          fi
       - name: Configure and build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
       - name: Run the fuzz target for a fixed budget
-        run: |
-          mkdir -p ci-logs
-          make check-FUZZ FUZZ_BUDGET=2000 2>&1 | tee ci-logs/fuzz.log
+        run: make check-FUZZ FUZZ_BUDGET=2000
       - name: Run the sanitizer suite
-        run: |
-          mkdir -p ci-logs
-          make check-SANITIZER 2>&1 | tee ci-logs/sanitizer.log
-      - name: Publish the logs to ci-debug-fuzz22
-        if: always()
-        run: |
-          mkdir -p ci-logs
-          printf 'fuzz-nightly debug log for %s\n' "${{ github.sha }}" > ci-logs/README
-          git config user.email ci-debug@example.invalid
-          git config user.name ci-debug
-          git checkout --orphan ci-debug-fuzz22
-          git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f ci-logs
-          git commit -q -m "ci-debug: fuzz-nightly log"
-          git push -f origin ci-debug-fuzz22
+        run: make check-SANITIZER

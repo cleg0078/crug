@@ -150,6 +150,12 @@ is recorded in ADR 0028.
 space, build dependencies), runs `make baseline JOBS=$(nproc)`, then
 `make check-FUZZ FUZZ_BUDGET=2000` and `make check-SANITIZER`.
 
+The job installs `libclang-rt-<major>-dev` next to `clang`: Ubuntu's `clang`
+package does not pull compiler-rt, so without it `-fsanitize=thread` and
+`-fsanitize=fuzzer` fail to link (the scripts exit 2, a missing tool, not a
+report). It also lowers `vm.mmap_rnd_bits` to 28, because clang 18's TSan cannot
+map its shadow with the 32-bit mmap entropy of an ubuntu-24.04 runner.
+
 `scripts/check-fuzz-nightly.sh --window 30` counts the consecutive successful
 scheduled runs immediately before the newest scheduled run and prints
 `fuzz-nightly: N consecutive scheduled success(es), window 30, earliest ...,
