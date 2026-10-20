@@ -1,5 +1,6 @@
 # CRUG Project Status
 
+Status: living snapshot, updated after every phase.
 Last updated: 2026-10-20
 
 ## Where the project stands
@@ -498,6 +499,24 @@ both pass. The workflow now installs clang's
 compiler-rt package and lowers `vm.mmap_rnd_bits` for TSan so a runner without
 those does not fail on a missing sanitizer runtime. The first scheduled run is
 03:17 UTC.
+Phase 23 freezes the documentation set. The manifest
+[docs/crug/REQUIRED-DOC-SECTIONS.md](REQUIRED-DOC-SECTIONS.md) lists 43 documents
+and the `## ` sections each one must carry (a page without a row is itself a
+violation); `scripts/check-docs.sh` (run by
+`make check-DOCS`) enforces the manifest, a title, a `Status:` line and a
+paragraph-level rule that no document presents a roadmap §32 post-1.0 feature as
+present. Eleven documents were missing and are written in this phase - the
+language reference (LANGUAGE, GRAMMAR, BORROWING, UNSAFE), the boundary and
+runtime references (C-FFI, CONCURRENCY, FREESTANDING) and the practitioner pages
+(TESTING, COMPILER-INTERNALS, MIGRATION) - so the set now covers the implemented
+surface exactly once instead of spreading it over ADRs and phase notes.
+[docs/crug/COMPATIBILITY-POLICY.md](COMPATIBILITY-POLICY.md) states the promises the
+set implies: language versioning, the Crug-native and libcrug ABIs, `.crugffi`
+versioning, deprecation, the GCC baseline, the supported platform matrix, the
+supported C dialects and the kernel support policy, each pointing at the phase or
+ADR that owns the number. The Phase 23 gate (amendment A-26) runs three commands:
+the nineteen-document existence loop, `make check-DOCS`, and a loop that requires
+all nine compatibility items.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -581,6 +600,7 @@ superseding ADR and owner ratification.
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
 | The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 | The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
+| The documentation tree had 30 ad-hoc pages, eleven of the documents the gate names did not exist, and no page's section list was written down, so a page could be empty, drift, or promise a post-1.0 feature as present | `docs/crug/REQUIRED-DOC-SECTIONS.md` (43 rows), `scripts/check-docs.sh` + `make check-DOCS` (title, `Status:`, the required sections, the every-page-is-listed rule and the paragraph-level post-1.0 claim scan), eleven new pages (LANGUAGE, GRAMMAR, BORROWING, UNSAFE, C-FFI, CONCURRENCY, FREESTANDING, TESTING, COMPILER-INTERNALS, MIGRATION) and `COMPATIBILITY-POLICY.md`; phase-23 gate A-26 |
 | "It fails safely" was an assertion: nothing fuzzed the front end, no sanitizer result was gated, and the P0/P1 ledger had no checker | six harnesses under `fuzz/` (parser, ownership, borrow and `.crugffi` targets; scheduler and channel state machines), `make check-FUZZ`, `make check-SANITIZER` (ASan/UBSan/LSan plus a TSan OS-thread arm), `scripts/check-p0-open.sh`, `scripts/check-regressions.sh`, `.github/workflows/fuzz-nightly.yml`, `scripts/check-fuzz-nightly.sh`, `docs/crug/FUZZING.md`, ADR 0028 (Proposed), RELEASE-POLICY section 3 (amendment A-2); the compiler harness found and closed K-002; phase-22 gate A-25 |
 
 ## Still open
@@ -622,20 +642,23 @@ superseding ADR and owner ratification.
 | -  | The compiler fuzz harness is mutational, not grammar-aware: it has no coverage measurement, an 8 KiB input cap, a 10 s timeout, and adding or renaming a seed changes the deterministic mutant stream | a later fuzzing increment; `fuzz/compiler/README.md` documents the corpus contract |
 | -  | ThreadSanitizer cannot see the fiber switch: task-stack races, task-to-task happens-before, the scheduler queue and scope state are covered by ASan+UBSan only, and `libcrug/core/chan.c` keeps one `malloc`ed receive buffer per thread with no release entry point | ADR 0028 (Proposed) and its `__tsan_create_fiber`/`__tsan_switch_to_fiber` exit criteria; a fiber-hook increment |
 | -  | The fuzz and sanitizer arms run on Linux x86-64 only and are not part of `make check-MULTI_OS`, so a Windows- or Darwin-specific runtime bug would not be seen by `make check-FUZZ` | a later qualification increment that runs the runtime harnesses on the other ports |
+| -  | The docs checker enforces structure, not truth: a wrong sentence under the right heading with a `Status:` line passes, so accuracy still rests on the phase review | prose review in every phase; `docs/crug/REQUIRED-DOC-SECTIONS.md` section 4 |
+| -  | The documentation set is Markdown-only: no man pages, no generated HTML site and no `--help`-to-docs pipeline, and the ADRs remain the only decision record | a later documentation increment; `TOOLING.md` covers the tool-facing contract only |
+| -  | `COMPATIBILITY-POLICY.md` states promises, not mechanisms: there is no `__CRUG_LANGUAGE_VERSION__`, no `-std=crug*` value and no deprecation machinery yet, and `crugc --version` does not print the three versions | ADR 0013 and Phase 24/25 (the version-reporting gate line) |
+
 
 ## Next actions, in dependency order
 
-1. **Open Phase 23 (documentation and compatibility policy)**: the Phase 22
-   machinery is in place (six harnesses, the sanitizer suite, the two ledger
-   checkers and the nightly workflow) and its four gate checks are writable; the
-   nightly window accumulates in the background and `scripts/check-fuzz-nightly.sh`
-   reports its true count. Phase 23's deliverable is the frozen document set and a
-   written compatibility policy: the nineteen documents `docs/crug/$f.md` that
-   Phase 23's gate names, `scripts/check-docs.sh` for the required sections, and
-   `docs/crug/COMPATIBILITY-POLICY.md` covering the nine items (language
-   versioning, Crug ABI versioning, `.crugffi` versioning, libcrug ABI policy,
-   feature deprecation, GCC baseline policy, supported platforms, supported C
-   dialects, kernel support policy).
+1. **Open Phase 24 (packaging and distribution)**: Phase 23 froze the document set
+   and wrote the compatibility policy, so the tree now says what it promises. Phase
+   24 delivers the installable artifact: a container image `crug/pkg:<version>`
+   whose `crugc --version` prints the compiler, language and runtime ABI versions
+   separately, the three sample programs built and run from that image,
+   `SHA256SUMS` and an SPDX SBOM with the license notices, a
+   `docs/crug/BUILD-INSTRUCTIONS.md` and a complete `CHANGELOG.md`, plus the
+   checksum/SBOM process ADR the gate's prerequisite names. The version macros
+   `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` are part
+   of that work (they are still open in `progress.md`).
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status

@@ -305,6 +305,9 @@ check-DIAGNOSTICS: ## check the Phase 20 diagnostic goldens and the SARIF contra
 check-docs-examples: ## compile and run the examples quoted in docs/crug/MIGRATION-EXAMPLES.md
 	scripts/check-docs-examples.sh
 
+check-DOCS: ## check the documentation set against docs/crug/REQUIRED-DOC-SECTIONS.md
+	scripts/check-docs.sh
+
 ##@ Performance
 
 pristine-xgcc: ## build the unmodified GCC 16.2 compiler used for the codegen parity check
@@ -388,7 +391,7 @@ distclean: ## remove build/ and sources/ entirely
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
-	check-DIAGNOSTICS check-docs-examples pristine-xgcc check-PERFORMANCE \
+	check-DIAGNOSTICS check-docs-examples check-DOCS pristine-xgcc check-PERFORMANCE \
 	check-FUZZ check-SANITIZER \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

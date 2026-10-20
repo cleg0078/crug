@@ -144,8 +144,15 @@ D2 does not say who owns a parameter marked `own`. A-1 fixes it: the callee owns
 it, and destroys it on every exit after its own locals (locals first, then
 parameters, each class in reverse declaration order). The caller is not checked:
 it may pass a value it still owns, and it may pass a temporary. That gap is
-deliberate (call-site checking is a later phase) and is recorded in
-`DROP.md` section 8.
+deliberate (call-site checking arrived with Phase 8, and only under
+`-fcrug-strict`) and is recorded in `DROP.md` section 8.
+
+**Implementation note (Phase 23).** The parameter starts `OWNED` with no
+destructor (`gcc/c/crug-ownership.cc`, `crug_check_function`): the compiler
+never invents one for a parameter, so nothing is destroyed unless the callee
+transfers the value into an owned declaration that has a destructor. A
+parameter that is neither adopted nor released warns `crug-OWN-007` and emits
+no call. `DROP.md` section 4 states the rule as implemented.
 
 ### A-2 - Destructor metadata lives in the analysis environment only
 
@@ -212,8 +219,8 @@ promoted to errors by `-fcrug-strict`); always-error diagnostics print the code
 with no option annotation, because GCC's `error_at` takes no option argument.
 Finally, D1's dump option is spelled `-fcrug-dump=drop` (not
 `-fdump-tree-crug-drop`), and `-fcrug-kernel` rejects `-fcrug-ownership` and
-`-fcrug-borrow` until Phase 19: drop lowering inside the kernel is a decision
-that the kernel ADRs (0016, 0017) have not made yet, and shipping a drop
-sequence with an unexpected call at kernel build time is exactly the risk that
-phase's gate exists to prevent.
+`-fcrug-borrow`. A-7 left that conflict open for the kernel ADRs; Phase 19
+answered it: kernel code carries no ownership analysis and no drop lowering in
+v1 (ADR 0017 D1), so the rejection is policy, not a phase that is still
+coming.
 

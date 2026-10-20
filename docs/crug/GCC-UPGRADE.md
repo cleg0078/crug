@@ -10,11 +10,13 @@ still GCC 16.2.0.
 Moving to a newer GCC is a **rebase of a small patch**, not a rewrite, as long as
 GCC's C front end keeps its shape:
 
-- The fork modifies **9 upstream files with 32 hunks** (+495/-6 lines). Those are
+- The fork modifies **9 upstream files with 32 hunks** (+495/-6 lines) as measured on 2026-10-19; the 2026-10-21 re-measurement is **10 files with 63 hunks** (+2,812/-41, section 2.3). Those are
   the only files that can produce rebase conflicts.
-- Everything else Crug adds lives in **7 new sources (5,021 lines)** plus the
-  testsuite, docs, scripts and examples; a new GCC tree does not touch those
-  files, so they replay without conflicts.
+- Everything else Crug adds lives in new sources that no GCC tree contains: **7
+  files (5,021 lines)** on 2026-10-19, **17 files (8,989 lines)** at the
+  2026-10-21 re-measurement (section 2.3), plus the testsuite, docs, scripts and
+  examples; a new GCC tree does not touch those files, so they replay without
+  conflicts.
 - Measured against GCC master on 2026-10-19: **31 of 32 hunks apply with
   byte-identical context**, the single drift is a mechanical
   `BOOL_BITFIELD` -> `bool` change in `struct c_declspecs`, and all 23
@@ -30,7 +32,7 @@ Consequences:
 
 The expensive part is **verification**, not porting: a full ```make check-c``` run
 takes about two hours, the phase gates about an hour, and a from-scratch build
-30-60 minutes. The 5,000 lines of Crug code use ordinary tree/parser APIs and do
+30-60 minutes. The ~9,000 lines of Crug code use ordinary tree/parser APIs and do
 not need to be rewritten for a GCC version change.
 
 ## 2. The two deltas
@@ -71,6 +73,20 @@ Two of the hunks are trivial build plumbing (`Makefile.in`,
 Plus **175 new testsuite files** under `gcc/testsuite/crug.dg/` and everything
 outside `gcc/` (docs, spec, scripts, examples, corpus). Those move with the
 fork and never conflict.
+
+### 2.3 The 2026-10-21 re-measurement
+
+Phases 10-22 added code to the upstream-owned files, so the numbers in 2.1 and
+2.2 describe the tree at commit a4ebd41 (2026-10-19), not the current one.
+`scripts/fork-delta.sh` at `7b7f8db` measures **10 upstream files, 63 hunks,
++2,812/-41** and **17 new sources, 8,989 lines** plus 405 testsuite files. The
+extra upstream file is `gcc/diagnostics/sarif-sink.cc`, which Phase 20 changes so
+a Crug rule's code becomes the SARIF `ruleId`. The qualitative claims above
+stand: the delta is still textual insertion into a small set of front-end
+files. The exact hunk counts, the 31-of-32 replay figure and the effort
+estimates must be re-measured with `scripts/verify-upgrade.sh` before a re-pin,
+which is what ADR 0022 requires anyway. This section records the drift instead
+of rewriting section 2.1, so the original study stays auditable.
 
 ## 3. Porting map
 

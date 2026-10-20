@@ -88,9 +88,13 @@ kind, applied, confidence, reason, evidence (`file`/`line`/`text`) and,
 for applied entries, the transformation. Runs print:
 
 `
-file.c:12:5: own confidence=1.00 free -> drop [applied]
-file.c:20:5: raw confidence=0.00 the release at line 22 is on a conditional path
+file.c:12:5: own confidence=1.00 single malloc from the allocation catalogue released once by free on a straight-line path [not applied]
+file.c:20:5: raw confidence=0.00 the release at line 22 is on a conditional path [not applied]
 `
+
+`--analyze` prints one line per candidate and never applies an edit, so every
+line ends `[not applied]`; a report written by `--safe` marks the entries it
+transformed with `applied: true` and records the transformation.
 
 ## 5. Sidecars (`.crugffi`)
 

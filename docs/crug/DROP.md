@@ -72,12 +72,18 @@ hidden state that ADR 0003 D5 forbids.
 3. **Movement.** `move (p)` transfers the value and its destructor to the new
    owner; the source becomes `MOVED` and is not destroyed.
 4. **Parameters.** An owning parameter (`own T *p` in a definition) is owned
-   by the callee (ADR 0005 amendment A-1). It is destroyed on every callee
-   exit, after the local objects. Call sites are not yet checked: passing an
-   owning pointer to a function does **not** transfer ownership, so the caller
-   still destroys it. A function that takes ownership must document its
-   parameter as `own`, and callers must `move` into it once call-site checking
-   exists.
+   by the callee for checking purposes and starts `OWNED` with no destructor:
+   the callee is responsible for releasing the value, and the compiler never
+   invents a destructor for a parameter. The parameter acquires one only when
+   the callee transfers it into an owned declaration
+   (`own char *q = adopt (p, free);`) or releases it; a parameter that is
+   neither adopted nor released warns `crug-OWN-007` and no call is emitted.
+   An owned local that has a destructor is destroyed on every callee exit,
+   after the other locals (ADR 0005 A-1). Call sites are checked only under
+   `-fcrug-strict` (Phase 8): passing an owned value to an `own` parameter
+   requires `move ()` (`crug-OWN-011`), and passing it to a callee with no
+   ownership contract is `crug-OWN-012`; outside strict mode the caller keeps
+   ownership and destroys the value.
 
 A value that is still owned at the end of its scope with an *unknown*
 destructor is reported by `-Wcrug-unadopted-own` (on by default, an error
@@ -202,13 +208,15 @@ Codes that are always errors carry no `-Wcrug-` annotation in the message:
 - No unions containing owning members (`crug-OWN-009`).
 - Arrays of owning pointers are tracked as one place; per-element destruction
   is a later refinement.
-- Call sites are not checked: a function that returns an owning pointer
-  (`own T *f (void)`) is recorded, but its result is not treated as owned yet,
-  and passing an owned pointer does not transfer ownership.
+- Call sites are checked only under `-fcrug-strict`: a function that returns
+  an owning pointer (`own T *f (void)`) is recorded, but its result is not
+  treated as owned yet, and outside strict mode passing an owned pointer does
+  not transfer ownership.
 - No interprocedural analysis, no drop elision, no NLL.
 - `setjmp`/`longjmp`: warning only.
-- `-fcrug-kernel` cannot be combined with `-fcrug-ownership`: kernel-mode
-  drop lowering is Phase 19.
+- `-fcrug-kernel` cannot be combined with `-fcrug-ownership`: kernel code is
+  plain GNU C in v1, with no ownership analysis and no drop lowering
+  (ADR 0017).
 - ASAN objects are not instrumented; the check catches leaks and invalid
   frees through the runtime interceptors.
 - Exit-code-based tests rely on the driver finding the just-built compiler;

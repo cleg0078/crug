@@ -1,5 +1,7 @@
 # Ownership-aware optimization
 
+Status: Phase 11 implemented and measured, 2026-10-20.
+
 Phase 11 gives the optimizer one fact that only an ownership system can prove:
 a `mut` parameter is an exclusive borrow, and an `own` parameter is the
 only owner of its value. Both are compiled as if the parameter said

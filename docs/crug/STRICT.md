@@ -99,8 +99,9 @@ would leak. Write `own T *p = adopt (raw, dtor);`, not `adopt (raw, dtor);`.
 - It does not add a UB sanitizer or any runtime instrumentation.
 - It does not give the optimizer facts: `own`, `ref` and `mut` still imply no
   `noalias` (ADR 0003 D8, Phase 11).
-- It does not restrict the kernel mode; `-fcrug-kernel` rejects `-fcrug-ownership`
-  (and therefore `-fcrug-strict`) until Phase 19 (ADR 0005 A-7).
+- It does not restrict the kernel mode; `-fcrug-kernel` rejects
+  `-fcrug-ownership` (and therefore `-fcrug-strict`) permanently for v1:
+  kernel code carries no ownership analysis or drop lowering (ADR 0017).
 
 ## 6. Diagnostics
 

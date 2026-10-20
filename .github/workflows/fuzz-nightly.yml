@@ -11,10 +11,6 @@ name: fuzz-nightly
 # scripts/check-fuzz-nightly.sh, which reads the run history from the public
 # GitHub API or the workflow page.
 #
-# TEMPORARY DEBUG PUBLISH (remove before the first scheduled run): the two
-# checks tee into ci-logs/ and the job force-pushes that directory to
-# ci-debug-fuzz22 when it fails, so the log can be read without an authenticated
-# job-log download. Contents: write is only for that branch.
 on:
   schedule:
     # 03:17 UTC daily, a few minutes after the kernel-compat cron slot so the

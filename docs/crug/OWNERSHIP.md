@@ -135,7 +135,7 @@ argument to -fcrug-dump=`), and the option changes no object code.
 | partial moves (`move (s.field)`); rejected with `crug-UAM-006` | post-MVP, ADR 0004 D4 |
 | termination on `exit`, `abort` or a signal (no destructor runs, documented in DROP.md section 5) | intentional |
 | `setjmp`/`longjmp` destructor elision (warned with `crug-DROP-003`, not repaired) | post-MVP |
-| kernel-mode ownership restrictions (`-fcrug-kernel` rejects `-fcrug-ownership` until Phase 19) | Phase 19 (optional) |
+| kernel-mode ownership (`-fcrug-kernel` rejects `-fcrug-ownership`; kernel code carries no ownership analysis or drop lowering in v1, ADR 0017) | v1 non-goal; a future increment needs a superseding ADR |
 | `-Wcrug-ffi-ownership` and the FFI-side warnings | Phase 9 |
 
 Consequences worth knowing: an owning aggregate is non-copyable, so

@@ -3,6 +3,8 @@
 **Status:** Phase 2 closed on 2026-10-19 at commit `78c759b`. All four gate checks
 pass and are archived (section 7), including a `kernel-compat` check run that
 concluded success on that commit and its status as a required check on `main`.
+Sections 2 and 3 were amended in Phase 23 to describe the mode as Phases 3 and 19
+left it; the Phase 2 gate evidence below is unchanged.
 
 **Closes:** M2 — Linux-kernel/GNU-C baseline, and the evidence basis for conformance
 `class K0` (RFC-0001 section 7.2). Phase 2 does **not** claim K0: Phase 19 now
@@ -15,7 +17,8 @@ claims only the compile-level baseline.
 Phase 2 makes GNU C as used by the Linux kernel a measured property of this
 compiler instead of an assumption. It adds:
 
-- `-fcrug-kernel`, accepted by the driver and deliberately without effect;
+- `-fcrug-kernel`, a mode that adds no runtime and removes the concurrency and
+  ownership productions (section 2);
 - a named kernel-style corpus at `gcc/testsuite/crug.dg/kernel/`;
 - `scripts/test-kernel-compat.sh`, which reports one PASS/FAIL line per work item
   of roadmap section 7 (21 lines in total; the `-nostdlib` item also compiles the
@@ -29,25 +32,33 @@ section 33), or tune any `-O` level.
 
 ## 2. `-fcrug-kernel`
 
-The option is declared in `gcc/common.opt` as `Common Ignore`: accepted by the
-driver and by every front end, and ignored. That declaration is the whole
-implementation:
+The option is declared in `gcc/common.opt` as `Common Var(crug_flag_kernel)`:
+accepted by the driver and by every front end, and it sets one bit in the
+feature mask the C family computes from the command line
+(`gcc/c-family/crug-common.cc`). That bit does three things and nothing else:
 
-- the driver accepts it, so command lines written for the kernel profile parse;
-- every front end accepts it too. A `Driver`-only declaration was tried first and
-  failed: the driver forwards `-f` options to `cc1`, which then reported
-  `command-line option '-fcrug-kernel' is valid for the driver but not for C`.
-  `Common` is what makes the option legal along the whole pipeline;
-- `Ignore` means it sets no variable, so it changes no C semantics, emits no
-  predefined macro, and adds no runtime;
-- a value form such as `-fcrug-kernel=1` is rejected, because the option takes no
-  argument (the runner checks this);
-- the objects built with and without the flag are byte-identical (the runner
-  checks this too).
+- it defines `__CRUG_KERNEL__` (together with `__CRUG__` and
+  `__CRUG_COMPILER__`), so a kernel translation unit can see that the profile is
+  on;
+- it rejects the productions the profile removes: `-fcrug-goroutines`,
+  `-fcrug-channels` and `-fcrug-modern` on the same command line are an error,
+  because kernel mode removes `go`, `scope`, `chan` and `select`; and
+  `-fcrug-ownership` or `-fcrug-borrow` is an error too, because kernel-mode
+  drop lowering remains a Phase 5 non-goal (ADR 0017);
+- it adds no code, no runtime and no ownership analysis, so an object built with
+  `-fcrug-kernel` is byte-identical to the same object built without it
+  (`scripts/check-kernel-objects.sh` and the Phase 19 object diff).
 
-Phase 3 gives the flag meaning. Until then a build that passes Phase 2 is the
-pre-fork GCC behaviour plus nothing, which is exactly what makes later kernel
-regressions attributable.
+A value form such as `-fcrug-kernel=1` is rejected, because the option takes no
+argument (the runner checks this).
+
+Phase 2 originally declared the option as `Common Ignore`; Phase 3 turned it into
+a real mode. The `Common` declaration is what makes the option legal along the
+whole pipeline: a `Driver`-only declaration was tried first and failed, because
+the driver forwards `-f` options to `cc1`, which then reported
+`command-line option '-fcrug-kernel' is valid for the driver but not for C`.
+The byte-identity property survived the change because the mode only removes
+features and defines a macro.
 
 ## 3. The corpus
 
@@ -77,7 +88,8 @@ reviewable diff. They include no libc header and call no libc function.
 | `no-runtime.c` | object-level runtime scan (item 21) |
 
 Corpus rules: kernel style (tabs, no hosted headers, no constructors), one file per
-work item, x86_64 as the primary target (AArch64 joins in Phase 8), and every file
+work item, x86_64 as the primary target (Phase 19 adds a pinned fifteen-object
+AArch64 compile-only subset, `kernel/KERNEL-CORPUS.md`), and every file
 must compile at the flags in section 5. Compile-only is deliberate: kernel objects
 are linked by the kernel build, not by a user-space driver.
 

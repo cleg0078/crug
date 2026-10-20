@@ -191,6 +191,24 @@ error left `error_mark_node` as a function body, now fixed and pinned by
 `gcc/testsuite/crug.dg/ownership/error-mark-body.c`. The budgets and thresholds
 are ratified in [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md)
 section 3 and the operator's guide is [docs/crug/FUZZING.md](docs/crug/FUZZING.md).
+Phase 23 freezes the documentation set. The manifest
+[docs/crug/REQUIRED-DOC-SECTIONS.md](docs/crug/REQUIRED-DOC-SECTIONS.md) names the
+43 documents and the sections each one must carry, and `make check-DOCS` (run by
+`scripts/check-docs.sh`) fails on a missing document, a missing title or
+`Status:` line, a missing section, or a paragraph that presents a roadmap §32
+post-1.0 feature as present. The eleven pages that were missing are written: the
+language reference ([LANGUAGE.md](docs/crug/LANGUAGE.md),
+[GRAMMAR.md](docs/crug/GRAMMAR.md), [BORROWING.md](docs/crug/BORROWING.md),
+[UNSAFE.md](docs/crug/UNSAFE.md)), the boundary and runtime references
+([C-FFI.md](docs/crug/C-FFI.md), [CONCURRENCY.md](docs/crug/CONCURRENCY.md),
+[FREESTANDING.md](docs/crug/FREESTANDING.md)) and the practitioner pages
+([TESTING.md](docs/crug/TESTING.md),
+[COMPILER-INTERNALS.md](docs/crug/COMPILER-INTERNALS.md),
+[MIGRATION.md](docs/crug/MIGRATION.md)).
+[docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md) states the
+promises the set implies - language, ABI, `.crugffi` and libcrug versioning,
+deprecation, the GCC baseline, platforms, C dialects and the kernel policy - and
+each item points at the phase or ADR that owns its number.
 See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -364,6 +382,12 @@ qualification enforces. `make check-FUZZ` runs the six Phase 22 harnesses and
 ([docs/crug/FUZZING.md](docs/crug/FUZZING.md) is the operator's guide);
 `scripts/check-p0-open.sh` and `scripts/check-regressions.sh` enforce the defect
 ledger, and `scripts/check-fuzz-nightly.sh` reports the nightly window.
+`make check-DOCS` checks the 43-document set against
+[docs/crug/REQUIRED-DOC-SECTIONS.md](docs/crug/REQUIRED-DOC-SECTIONS.md): each
+document exists with a title, a `Status:` line and its required sections, and no
+document presents a post-1.0 roadmap feature as present
+(`scripts/check-docs.sh`); [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md)
+states the compatibility promises the set implies.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.

@@ -39,7 +39,7 @@ closure is computed in one place (`gcc/c-family/crug-common.cc`).
 | `-fcrug-ffi=<file>` | reads one `.crugffi` sidecar; repeatable, merged in command-line order (`FFI.md`) | `-fcrug-ownership` |
 | `-fcrug-ffi-discover` | turns the FFI layer on without naming a file, so sidecars next to quoted includes (and in `CRUG_FFI_PATH`) are discovered | `-fcrug-ownership` |
 | `-fcrug-modern` | everything above | all eight flags |
-| `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` until Phase 19 |
+| `-fcrug-kernel` | no production; kernel mode | excludes `-fcrug-goroutines`, `-fcrug-channels`, `-fcrug-modern`; rejects `-fcrug-ownership` and `-fcrug-borrow` for v1: kernel code is plain GNU C with no ownership analysis or drop lowering (ADR 0017) |
 
 `Three more options live in `gcc/c-family/c.opt`, because they are C-family
 decisions rather than driver-wide switches, and are handled in
