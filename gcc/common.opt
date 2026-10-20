@@ -1387,7 +1387,7 @@ with -fcrug-goroutines, -fcrug-channels or -fcrug-modern is an error.
 
 fcrug-dump=
 Common Joined RejectNegative Var(crug_dump_kind)
--fcrug-dump=<kind>	Write a Crug dump; <kind> is a comma-separated list of 'ownership', 'drop' and 'borrow'.
+-fcrug-dump=<kind>	Write a Crug dump; <kind> is a comma-separated list of 'ownership', 'drop', 'borrow' and 'alias'.
 
 fcse-follow-jumps
 Common Var(flag_cse_follow_jumps) Optimization

@@ -79,8 +79,8 @@ crug_apply_option_closure (void)
 	 into freestanding code would claim a runtime it does not have.  */
       if (features & (CRUG_FEAT_OWNERSHIP | CRUG_FEAT_BORROW))
 	error ("%<-fcrug-kernel%> cannot be combined with %<-fcrug-ownership%> "
-	       "or %<-fcrug-borrow%>; kernel-mode drop lowering arrives in "
-	       "phase 19");
+	       "or %<-fcrug-borrow%>; kernel-mode drop lowering is a Phase 5 "
+	       "non-goal (ADR 0017)");
     }
 
   /* -fcrug-dump= takes a comma-separated list of dump kinds.  */
