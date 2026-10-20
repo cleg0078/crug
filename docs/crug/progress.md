@@ -17,7 +17,11 @@ switch); Phase 15 adds `scope`, the task group that owns its children and joins
 them on every exit, and from Phase 16 channels (`chan T`, `channel`, `send`,
 `recv`, `close`) and `select`, so the concurrency surface of the roadmap
 exists, and from Phase 17 the static `Send`/`Sync` rules that decide what
-may cross a worker or channel boundary at all; the Phase 10 safe
+may cross a worker or channel boundary at all. Phase 18 ports that runtime to
+four hosts - Linux x86-64 and AArch64, Windows x86-64 and macOS arm64 - from
+one core: one PAL backend per operating system, one context switch per ABI
+(ADR 0012), a task pinned to the worker that first runs it, and one CI job per
+host, so the portability promise is measured instead of stated; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
@@ -286,7 +290,7 @@ while corrupted (ADR 0008). The context switch is 30 instructions under
 `libcrug/arch/x86_64/sysv/`: it saves the six callee-saved integer registers,
 the return address, and the MXCSR/x87 control words, matches `rsp % 16 == 8` at
 entry, and treats XMM/YMM/ZMM as caller-saved (ADR 0013). Measured:
-`make check-GOROUTINES` prints `goroutines: 27 compiler test(s), 5 task
+`make check-GOROUTINES` prints `goroutines: 28 compiler test(s), 5 task
 program(s), 100000 tasks on 4 worker threads, 0 failure(s)`; the stress run
 prints `tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0
 workers=4 queue_peak=4` while `strace` counts 4 thread-creating calls;
@@ -442,6 +446,7 @@ superseding ADR and owner ratification.
 | A task could not pass a value to another task, so the concurrency surface stopped at spawn/yield/scope | `chan T`, `channel`, `send`, `recv`, `close` and `select` in `gcc/c/crug-chan.cc`, `gcc/c/c-parser.cc` and `libcrug/core/chan.c`; CONC-017..023; 40 dg cases and seven channel programs, `scripts/check-channels.sh`, `make check-CHANNELS`; frozen `chan` ABI row; `docs/crug/CHANNELS.md`; ADR 0025; phase-16 gate A-19 |
 | A value could cross a task or channel boundary unchecked, so the ownership model appeared to bless data races | `gcc/c/crug-send-sync.cc` (`Send`/`Sync` inference, thread affinity, FFI widening), CONC-024..027, ten dg cases, `scripts/check-send-sync.sh`, `make check-SEND_SYNC`; `docs/crug/SEND-SYNC.md`; ADR 0026; phase-17 gate A-20 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
+| The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1); phase-18 gate A-21 |
 
 ## Still open
 
@@ -462,7 +467,11 @@ superseding ADR and owner ratification.
 | -  | A `scope` waits cooperatively and has no cancellation, no error aggregation and no detached child: a child that never returns hangs the scope, and a waiting scope burns scheduler turns because there is no parked WAITING state in v1 | ADR 0024 D3 and D7; cancellation and error propagation are a later RFC (CRUG-RFC-0003), a parked-waiter state is future work |
 | -  | A scoped borrow is whole-object only and must name a value declared at the scope's own block depth or shallower; reborrowing a field, borrowing an element and borrowing through a call are refused or unchecked as in Phase 7 | ADR 0024 D4; place-level borrows are a later phase |
 | -  | The `Send`/`Sync` inference is structural and only an FFI sidecar can widen it: aggregate ownership is untracked, so a struct with an `own` field still counts as `Send` and copying it can double-free; there are no dynamic checks and no memory-ordering model | ADR 0026 D6 and D8; an ownership increment for aggregates |
-| -  | PAL v1 has no I/O poller and no second OS backend: the poller is deferred by the phase-13 non-goal (RFC-0001 section 32) and a Windows/Darwin/BSD/bare-metal backend is Phase 18 | ADR 0011 D2 and D9; a v1.1 amendment when an I/O phase needs the poller |
+| -  | PAL v1 has no I/O poller: the poller is deferred by the phase-13 non-goal (RFC-0001 section 32) | ADR 0011 D2 and D9; a v1.1 amendment when an I/O phase needs the poller |
+| -  | The v1 matrix is Linux (x86-64 and AArch64), Windows x86-64 and macOS arm64; BSD is a post-1.0 policy decision, and bare-metal and RISC-V are not in v1 | ADR 0012 D2; a later phase or RFC |
+| -  | The Windows port does not swap the TEB stack bounds, and the runtime never grows a stack, so v1 is safe by construction; a growable stack must add the swap | ADR 0012 D9; a later stack-growth phase |
+| -  | The Windows and Darwin backends have no native test host in this development tree: Windows is cross-built and run under Wine, macOS only through the `macos-arm64` CI job, and the `windows-2022`/`macos-14` jobs have not run yet | the first `multi-os` CI run |
+| -  | A task is pinned to the worker that first ran it, so there is no work stealing: an idle worker cannot take work from a busy one | ADR 0009 amendment A-1; a scheduler design that re-establishes cached `_Thread_local` addresses |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
@@ -470,18 +479,21 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Push Phase 17 and open Phase 18 (multi-OS runtime)**: the Phase 17 gate
-   (amendment A-20) runs seven runnable checks and passes 7/7 at `42669c5`, so M17 is awarded and the static
-   crossing rules (`Send`, `Sync`, thread affinity, `CONC-024` to
-   `CONC-027`) now cover tasks and channels. Phase 18 adds the second OS
-   backend and the poller that PAL v1 deferred.
+1. **Open Phase 19 (Linux kernel build qualification)**: the Phase 18 gate
+   (amendment A-21) runs six runnable checks and passes 6/6 at the commit that
+   closes it, so M18 is awarded and one `make check-MULTI_OS` is now the command
+   every host port must pass. Phase 18 did not add the I/O poller - that stays
+   deferred by RFC-0001 section 32 - so the next phase is the kernel corpus, not
+   a poller. Its first deliverable is `kernel/KERNEL-CORPUS.md` on top of the
+   pinned Linux 6.18.57 tree; `-fcrug-kernel` currently rejects
+   `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
+   lowering.
 2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
    policy, the baseline upgrade policy and the two borrow policies are implemented
    and measured but still carry Status Proposed.
-3. **Write the Phase-19 kernel compile corpus** (`kernel/KERNEL-CORPUS.md`) on top
-   of the pinned Linux 6.18.57 tree. `-fcrug-kernel` currently rejects
-   `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
-   lowering.
+3. **Add the `multi-os` jobs to the required checks on `main`** once the first
+   `multi-os` run is green: branch protection currently requires only
+   `kernel-compat`, so a port can regress without blocking a merge.
 
 ## Working rules
 

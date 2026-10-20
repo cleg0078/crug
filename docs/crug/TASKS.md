@@ -18,7 +18,7 @@ a scope owns the tasks spawned inside it and waits for them.
 |---|---|
 | tasks per process | unbounded (100000 in the stress gate) |
 | workers | `min (usable processors, 8)`, clamped 1..64; `CRUG_TASKS_WORKERS` |
-| ready queue | one global FIFO, atomic spin lock, no stealing, no priorities |
+| ready queue | one global FIFO for tasks that have never run, plus one small per-worker FIFO for a task that yields; atomic spin lock, no stealing, no priorities; a task never leaves its worker (ADR 0009 A-1) |
 | scheduling | cooperative: until the entry returns or `yield ()` |
 | task stack | one private fixed stack, default 64 KiB; `CRUG_TASKS_STACK` |
 | stack guard | one 4096-byte guard page at the low end, canary at the first committed word |
@@ -30,6 +30,15 @@ a scope owns the tasks spawned inside it and waits for them.
 A goroutine is a stackful fiber, never an operating-system thread
 (MASTER_SPEC section 25.1). The M:N ratio is the whole point: `strace` shows
 four thread-creating calls for 100000 tasks (gate check 3).
+
+A task is **pinned** to the worker that first runs it (ADR 0009 amendment A-1).
+The switch restores only the callee-saved registers, and a C compiler may keep
+the address of a `_Thread_local` object in one of them (MinGW caches the
+`__emutls_get_address` result; the SysV port keeps a thread-pointer-relative
+address), so a task resumed on another worker could read the previous worker's
+storage. The Windows and AArch64 ports found exactly that failure: with two or
+more workers the runtime's own `current_task` came back NULL or pointed at
+another task, and the fix is the per-worker queue, not a different switch.
 
 ## 2. Interface
 
@@ -81,10 +90,19 @@ report 0 references to `pthread_`, `epoll`, `futex`, `clone`,
 `CreateThread`, `kqueue`, `WaitOnAddress`, `mmap`, `clock_gettime` and
 the rest of the list; it is phase-14 gate check 6.
 
+The same core builds on every host of the Phase 18 matrix (Linux x86-64, Linux
+AArch64, Windows x86-64, macOS ARM64) because the OS is a directory
+(`libcrug/pal/<os>`) and the CPU is another (`libcrug/arch/<arch>/<abi>`);
+see `docs/crug/PORTABILITY.md` and ADR 0012. A port changes no scheduler code,
+no counter and no signature in this document.
+
 ## 6. Limits, stated not discovered
 
 - **No preemption.** A task that never yields and never returns starves its
   worker, not the process.
+- **No work stealing.** A task stays on the worker that first ran it, so an
+  idle worker cannot take work from a busy one (ADR 0009 A-1). This is the
+  price of keeping C `_Thread_local` addresses valid across a `yield ()`.
 - **No cancellation.** Shutdown runs tasks, it does not kill them. A scope
   whose child never returns hangs in `crug_scope_leave`.
 - **No growable stacks.** A task that needs more than `CRUG_TASKS_STACK`
@@ -105,7 +123,7 @@ the rest of the list; it is phase-14 gate check 6.
 
 | Check | Result |
 |---|---|
-| `make check-GOROUTINES` | `goroutines: 27 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
+| `make check-GOROUTINES` | `goroutines: 28 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
 | `make check-SCOPE` | `scope: 23 compiler test(s), 8 group program(s), 0 leaked group(s), 0 failure(s)` |
 | `GOROUTINES_STRESS=1 ./build/tasks-stress` | `tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=4` |
 | `strace -f -e trace=clone,clone3 ... ./build/tasks-stress` | 4 matches with `CRUG_TASKS_WORKERS=4` |

@@ -113,7 +113,18 @@ cannot leave its thread - see [docs/crug/SEND-SYNC.md](docs/crug/SEND-SYNC.md)
 and [ADR 0026](docs/crug/adr/0026-send-sync.md). The checks ride on the
 goroutine and channel flags, report `CONC-024` to `CONC-027`, and the only
 widening is a `.crugffi` `send sync` annotation. The Phase 17 gate passes
-7/7 at `42669c5` (logs under `docs/crug/gates/phase-17/42669c5/`). See
+7/7 at `42669c5` (logs under `docs/crug/gates/phase-17/42669c5/`).
+Phase 18 makes the runtime portable: the same scheduler core, channel runtime
+and task runtime build and run on Linux x86-64, Linux AArch64, Windows x86-64
+and macOS ARM64, because the OS and the CPU are two separate directories
+(`libcrug/pal/<os>` and `libcrug/arch/<arch>/<abi>`) and the core names no OS
+primitive and no platform ifdef. Every backend links the same twelve-case PAL
+contract and the same `make check-MULTI_OS` command (contract, task suite and
+three plain-C channel programs) runs on every host; Windows and Darwin have
+their own wait/wake mappings and the Microsoft x64 and AAPCS64 context switches
+save their own callee-saved sets - see
+[docs/crug/PORTABILITY.md](docs/crug/PORTABILITY.md) and
+[ADR 0012](docs/crug/adr/0012-os-backend-policy.md). See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -197,6 +208,9 @@ procedure and a 31-check acceptance matrix, governed by
 - `Send`/`Sync` checks at task and channel boundaries: a raw pointer cannot be
   captured or sent, a scoped shared borrow needs `Sync`, and a thread-affine
   FFI handle stays on its thread (Phase 17, ADR 0026).
+- A portable runtime: one scheduler core on Linux x86-64, Linux AArch64,
+  Windows x86-64 and macOS ARM64, with the OS and CPU kept as two independent
+  axes and one PAL contract suite every backend must pass (Phase 18, ADR 0012).
 - `-fcrug-kernel` for freestanding use with no hidden runtime at all.
 
 ## Building
@@ -257,6 +271,11 @@ them. `make check-PAL` builds and runs the twelve-case PAL contract suite on
 both backends, `scripts/check-pal.sh` asserts backend parity and that the fake
 backend links no system symbol, and `scripts/lint-no-os-apis.sh libcrug/core`
 asserts that the core names no OS primitive; `docs/crug/PAL.md` describes them.
+`make check-MULTI_OS` runs the contract, the task suite and three plain-C
+channel programs under one command on the current host (and with
+`TARGET=aarch64-linux` the AArch64 port); the Windows port cross-builds with
+`x86_64-w64-mingw32-gcc` and `.github/workflows/multi-os.yml` runs the matrix
+on Linux, Windows and macOS runners; `docs/crug/PORTABILITY.md` describes it.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.

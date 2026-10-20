@@ -149,6 +149,10 @@ void crug_chan_stats_get (struct crug_chan_stats *out);
 
 - A receive returns a pointer to a per-thread buffer that is valid until the
   next receive on that thread; the compiler copies the element out immediately.
+- This surface is part of runtime ABI version 1 and is OS- and
+  architecture-independent (Phase 18, ADR 0012): the same `chan.c` builds on
+  Linux x86-64, Linux AArch64, Windows x86-64 and macOS ARM64, and only the PAL
+  wait/wake mapping differs.
 - `crug_chan_recv_ready` is true when a receive would not block: a value is
   queued or the channel is closed. A closed channel is not "ready to send":
   a send on it is a fatal runtime error.

@@ -101,7 +101,11 @@ depend on a guessed layout for any of these types.
   `struct crug_chan_stats` field set are the versioned surface. Both extensions
   are additive: a program with no `scope` or channel never references them. The
   runtime ABI version is independent of the Crug-native type ABI version 1 above
-  and of the PAL contract version (ADR 0011 D8).
+  and of the PAL contract version (ADR 0011 D8). It is also independent of the
+  operating system and the architecture: Phase 18 (ADR 0012) provides the same
+  signatures on Linux x86-64, Linux AArch64, Windows x86-64 and macOS ARM64, so
+  a program that links the runtime does not know which backend it got, and a
+  port adds a backend without changing this surface.
 - The `chan T` row is frozen: a channel is one pointer whatever the element
   type is, asserted by `gcc/testsuite/crug.dg/channels/chan-layout.c`; the
   element size is a run-time argument, so no element layout enters the ABI.
@@ -137,3 +141,4 @@ depend on a guessed layout for any of these types.
 | 2026-10-19 | Phase 15 added the task-group calls to runtime ABI version 1 additively (`crug_scope_enter`, `crug_scope_leave`, `crug_task_spawn_scoped`, `struct crug_scope_stats`; ADR 0024): existing signatures are unchanged, a program with no `scope` does not reference them, and no C-level type row changed. |
 | 2026-10-19 | Phase 16 froze the `chan T` row (ADR 0025): a channel is one opaque pointer whatever the element type is, asserted by `crug.dg/channels/chan-layout.c`, so the Crug-native ABI version 1 now covers five rows; `libcrug/core/chan.h` extends runtime ABI version 1 additively and no existing signature changed. |
 | 2026-10-20 | Phase 17 recorded that Send/Sync are compile-time properties only (ADR 0026): no type, layout, calling-convention or symbol row changed, so the Crug-native and runtime ABI versions stay 1. |
+| 2026-10-20 | Phase 18 ported the runtime to Windows x86-64 and macOS ARM64 and proved Linux AArch64 (ADR 0012): the PAL contract and the runtime ABI are OS- and architecture-independent, no signature, type or layout changed, and both ABI versions stay 1. |

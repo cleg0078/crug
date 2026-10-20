@@ -93,16 +93,16 @@ part of the frozen contract: they may be appended to, never renumbered.
 
 ## 4. Backends
 
-| | fake (`PAL=fake`) | linux (`PAL=linux`) |
-|---|---|---|
-| threads | records the entry, runs it inside `join` | POSIX threads, one system thread per handle |
-| cpu count | 1 | `sysconf(_SC_NPROCESSORS_ONLN)` |
-| wait/wake | records the call, never blocks (the predicate is still inspected) | `SYS_futex` with the private wait/wake operations |
-| memory | `malloc`/`free`; commit is a no-op | `mmap` `PROT_NONE`, `mprotect`, `munmap` |
-| guard pages | declined (`false`) | `mprotect(PROT_NONE)`, proven by a faulting child |
-| clock | synthetic, advances 1 µs per reading and by the requested amount on sleep | `clock_gettime(CLOCK_MONOTONIC)` |
-| sleep | advances the synthetic clock | `clock_nanosleep(CLOCK_MONOTONIC)`, retried on interruption |
-| error slot | thread-local | thread-local |
+| | fake (`PAL=fake`) | linux (`PAL=linux`) | windows (`PAL=windows`) | darwin (`PAL=darwin`) |
+|---|---|---|---|---|
+| threads | records the entry, runs it inside `join` | POSIX threads, one system thread per handle | `CreateThread`, joined with `WaitForSingleObject` | POSIX threads |
+| cpu count | 1 | `sysconf(_SC_NPROCESSORS_ONLN)` | `GetSystemInfo` | `sysconf(_SC_NPROCESSORS_ONLN)` |
+| wait/wake | records the call, never blocks (the predicate is still inspected) | `SYS_futex` with the private wait/wake operations | `WaitOnAddress`/`WakeByAddress*`, resolved by `GetProcAddress`, Sleep polling fallback | hashed mutex/condition buckets (Darwin has no futex) |
+| memory | `malloc`/`free`; commit is a no-op | `mmap` `PROT_NONE`, `mprotect`, `munmap` | `VirtualAlloc` (reserve commits eagerly), `VirtualProtect`, `VirtualFree` | `mmap` `PROT_NONE`, `mprotect`, `munmap` |
+| guard pages | declined (`false`) | `mprotect(PROT_NONE)`, proven by a faulting child | `VirtualProtect(PAGE_NOACCESS)` | `mprotect(PROT_NONE)` |
+| clock | synthetic, advances 1 µs per reading and by the requested amount on sleep | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `clock_gettime(CLOCK_MONOTONIC)` |
+| sleep | advances the synthetic clock | `clock_nanosleep(CLOCK_MONOTONIC)`, retried on interruption | `Sleep` | `nanosleep` |
+| error slot | thread-local | thread-local | thread-local | thread-local |
 
 The fake backend is a *contract* backend, not a concurrency model: it exists so
 the core and the suite can be built where no POSIX layer exists, and so the
@@ -132,10 +132,16 @@ twelve cases, all written against the header:
 Measured on this host (2026-10-19):
 
 ```text
-pal-contract[fake]:  12 cases, 0 failed, 1 skipped   (memory-guard)
-pal-contract[linux]: 12 cases, 0 failed, 0 skipped
+pal-contract[fake]:    12 cases, 0 failed, 1 skipped   (memory-guard)
+pal-contract[linux]:   12 cases, 0 failed, 0 skipped
+pal-contract[windows]: 12 cases, 0 failed, 0 skipped   (wine on Linux, Phase 18)
 guard-fault: SIGSEGV on the guarded page as claimed
 ```
+
+Phase 18 added the Windows and Darwin backends and the AArch64 and Microsoft x64
+context switches; every backend links the same `core/pal_contract.c` unchanged
+(ADR 0012 D4). `docs/crug/PORTABILITY.md` records the host matrix, the mappings
+and the CI jobs.
 
 Two checks make the pair a contract rather than two scripts:
 
@@ -178,7 +184,9 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
   "no pollers/io_uring (post-1.0, section 32)". A poller interface is the first
   candidate for a v1.1 addition, when an I/O phase needs it; adding it now
   would freeze an interface with no client.
-- No Windows, Darwin, FreeBSD or bare-metal backend (P18).
+- No FreeBSD or bare-metal backend: Phase 18 added Windows x86-64
+  (`pal/windows`) and macOS ARM64 (`pal/darwin`) and proof on Linux AArch64
+  (ADR 0012 D2); BSD and bare metal are later ports.
 - No task, scheduler, channel or scope API: Phases 14 to 16 added the
   scheduler, task groups and channels as *consumers* (section 2), not as PAL
   entry points, and they remain clients of v1.
@@ -196,7 +204,11 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
 | `scripts/check-pal.sh` | exit 0; same 12 case names on both backends, no unexpected skip, no system symbols in the fake object |
 | `scripts/lint-no-os-apis.sh libcrug/core` | exit 0; 0 references |
 | `grep -R 'asm' libcrug/core` | no line |
+| `make -C libcrug check-MULTI_OS` | exit 0; contract, tasks and three plain-C channel programs under one command (Phase 18) |
+| `make -C libcrug check-MULTI_OS TARGET=aarch64-linux` | exit 0; the Linux AArch64 port and the AAPCS64 switch |
+| `make -C libcrug PAL=windows CC=x86_64-w64-mingw32-gcc ...` | the Windows backend and the Microsoft x64 switch cross-build |
 | `make check-C_COMPAT` | unchanged: adding libcrug changes no compiler output |
 
 The Phase 13 gate in `EXIT-GATES.md` runs these as checks 1-7; amendment A-16
-records the rewrite.
+records the rewrite. The Phase 18 gate adds the multi-OS checks; amendment A-21
+records that rewrite.
