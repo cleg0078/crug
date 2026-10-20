@@ -38,8 +38,9 @@ without the runtime knowing about ownership.
 
 ### D2 - The guard page is at the low end, and declining it is not an error
 
-The reservation is `guard + stack` bytes: a 4096-byte guard page at the low
-address, then the committed stack. A downward-growing stack runs off the bottom
+The reservation is `guard + stack` bytes: a guard page at the low address,
+then the committed stack (see A-1: the guard is one PAL page, not always
+4096 bytes). A downward-growing stack runs off the bottom
 into the guard, which the Linux backend maps `PROT_NONE`; the process dies with
 `SIGSEGV` instead of corrupting the neighbouring task. `crug_pal_memory_protect_guard`
 is a capability: the fake backend declines it and the contract suite reports a
@@ -104,3 +105,17 @@ UBSan and is a phase-14 gate check.
   service" a design question before there is a measurement that needs the pool.
 - **Detect overflow with a compiler-inserted stack probe.** Rejected: it costs
   code in every function for a case the guard page already covers.
+
+## Amendments
+
+### A-1 (2026-10-20): the guard is one PAL page, not always 4096 bytes
+
+D2 assumed a 4096-byte page. The macOS port showed why that assumption cannot
+live in the scheduler: Apple silicon uses 16 KiB pages, so `reserve + 4096` is
+not page-aligned and `mprotect` (or `VirtualProtect`) refuses the range; every
+task spawn aborted with "cannot commit a task stack". PAL v1.1 added
+`crug_pal_page_size` (ADR 0011 A-1), and the scheduler now takes the guard as
+`max (crug_pal_page_size (), 4096)` and rounds the stack size up to it before
+reserving `guard + stack`. D2's "4096-byte guard page" therefore reads "one
+PAL guard page"; the canary, the no-growth rule and the decline-is-not-an-error
+rule are unchanged.

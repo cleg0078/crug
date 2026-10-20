@@ -20,8 +20,8 @@ a scope owns the tasks spawned inside it and waits for them.
 | workers | `min (usable processors, 8)`, clamped 1..64; `CRUG_TASKS_WORKERS` |
 | ready queue | one global FIFO for tasks that have never run, plus one small per-worker FIFO for a task that yields; atomic spin lock, no stealing, no priorities; a task never leaves its worker (ADR 0009 A-1) |
 | scheduling | cooperative: until the entry returns or `yield ()` |
-| task stack | one private fixed stack, default 64 KiB; `CRUG_TASKS_STACK` |
-| stack guard | one 4096-byte guard page at the low end, canary at the first committed word |
+| task stack | one private fixed stack, default 64 KiB, rounded up to a page; `CRUG_TASKS_STACK` |
+| stack guard | one PAL guard page at the low end (`crug_pal_page_size ()`: 4096 bytes on x86-64, 16384 on Apple silicon; ADR 0008 A-1), canary at the first committed word |
 | preemption | none |
 | cancellation | none |
 | task ids | 1..N per process, 0 on the main thread |

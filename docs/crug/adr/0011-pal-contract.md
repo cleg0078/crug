@@ -141,3 +141,29 @@ changed. The PAL version is not the runtime ABI version (RFC-0001 section 37).
 - **Put the contract suite in `libcrug/tests/`.** Rejected: the suite is part of
   what "the core compiles against the fake PAL" means, and the gate says the
   core compiles against the fake PAL.
+
+## Amendments
+
+### A-1 (2026-10-20): v1.1 adds `crug_pal_page_size`
+
+Phase 18 ported the runtime to macOS ARM64, where the page size is 16 KiB. The
+scheduler had placed the guard at a fixed 4096 bytes, so `reserve + 4096` was
+not page-aligned and `mprotect` returned `EINVAL`; every task spawn aborted
+with "cannot commit a task stack". A backend cannot promise aligned memory
+operations without exposing its granularity, so v1.1 adds one query:
+
+```c
+size_t crug_pal_page_size (void);
+```
+
+It returns the granularity of `memory_reserve`, `memory_commit` and
+`memory_protect_guard`: a power of two, at least 4096. The fake backend returns
+4096, Linux and Darwin `sysconf (_SC_PAGESIZE)` (with a 4096 fallback), and
+Windows `GetSystemInfo`'s `dwPageSize`. `CRUG_PAL_VERSION_MINOR` is 1 and
+`CRUG_PAL_ABI_VERSION` is `(1 << 16) | 1`; D8's additive rule is what this
+amendment uses, and no existing signature or behaviour changed.
+
+The suite still has twelve cases: `memory-reserve-commit-release` now asserts
+that the page size is a power of two of at least 4096 and reserves
+`page * 256` bytes, so the contract is tested rather than described. The
+Consequences above read thirteen functions from v1.1 on.

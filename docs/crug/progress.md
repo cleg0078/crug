@@ -20,8 +20,8 @@ exists, and from Phase 17 the static `Send`/`Sync` rules that decide what
 may cross a worker or channel boundary at all. Phase 18 ports that runtime to
 four hosts - Linux x86-64 and AArch64, Windows x86-64 and macOS arm64 - from
 one core: one PAL backend per operating system, one context switch per ABI
-(ADR 0012), a task pinned to the worker that first runs it, and one CI job per
-host, so the portability promise is measured instead of stated; the Phase 10 safe
+(ADR 0012), a task pinned to the worker that first runs it, the PAL's page size
+(v1.1) as the guard-page and stack-rounding unit, and one CI job per host, so the portability promise is measured instead of stated; the Phase 10 safe
 types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
@@ -284,8 +284,9 @@ M tasks over N workers (`min (processors, 8)`, `CRUG_TASKS_WORKERS`, capped at
 64) on one FIFO ready queue guarded by an atomic spin lock, with cooperative
 scheduling (return or `yield ()`), one `wait_u32` epoch for the workers, and
 idempotent shutdown (ADR 0009). Each task's stack is a PAL reservation of
-`CRUG_TASKS_STACK` bytes (default 64 KiB) with a 4096-byte guard page at the low
-end and a canary in the first committed word; it is never grown and never reused
+`CRUG_TASKS_STACK` bytes (default 64 KiB, rounded up to a PAL page) with one
+guard page at the low end (`crug_pal_page_size ()`, 16 KiB on Apple silicon) and
+a canary in the first committed word; it is never grown and never reused
 while corrupted (ADR 0008). The context switch is 30 instructions under
 `libcrug/arch/x86_64/sysv/`: it saves the six callee-saved integer registers,
 the return address, and the MXCSR/x87 control words, matches `rsp % 16 == 8` at
@@ -446,7 +447,7 @@ superseding ADR and owner ratification.
 | A task could not pass a value to another task, so the concurrency surface stopped at spawn/yield/scope | `chan T`, `channel`, `send`, `recv`, `close` and `select` in `gcc/c/crug-chan.cc`, `gcc/c/c-parser.cc` and `libcrug/core/chan.c`; CONC-017..023; 40 dg cases and seven channel programs, `scripts/check-channels.sh`, `make check-CHANNELS`; frozen `chan` ABI row; `docs/crug/CHANNELS.md`; ADR 0025; phase-16 gate A-19 |
 | A value could cross a task or channel boundary unchecked, so the ownership model appeared to bless data races | `gcc/c/crug-send-sync.cc` (`Send`/`Sync` inference, thread affinity, FFI widening), CONC-024..027, ten dg cases, `scripts/check-send-sync.sh`, `make check-SEND_SYNC`; `docs/crug/SEND-SYNC.md`; ADR 0026; phase-17 gate A-20 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
-| The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1); phase-18 gate A-21 |
+| The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); phase-18 gate A-21 |
 
 ## Still open
 

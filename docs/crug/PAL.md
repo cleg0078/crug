@@ -1,6 +1,7 @@
 # PAL — the Platform Abstraction Layer
 
-Status: **v1 frozen** (2026-10-19, ADR 0011). The contract is
+Status: **v1.1** (v1 frozen 2026-10-19 by ADR 0011; v1.1 added
+`crug_pal_page_size` on 2026-10-20, ADR 0011 A-1). The contract is
 `libcrug/pal/include/crug_pal.h`; the suite that proves a backend honours it
 is `libcrug/core/pal_contract.c`; the Phase 13 gate runs both backends.
 
@@ -28,13 +29,14 @@ cheap, and a stale comment is how the boundary erodes.
 `libcrug/arch/` holds architecture and ABI dependent context switching. It is
 empty in Phase 13; Phase 14 adds the x86-64 System V switch there.
 
-## 2. PAL v1 surface
+## 2. PAL surface (v1.1)
 
 The header is normative; this table is the map.
 
 | Area | Entry point | Contract |
 |---|---|---|
-| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `(1 << 16) | 0` today |
+| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `1`, `1`, `(1 << 16) \| 1` today |
+| page size | `size_t crug_pal_page_size (void)` | the granularity of reserve/commit/protect_guard: a power of two, at least 4096 (v1.1) |
 | status | `int crug_pal_thread_create (crug_pal_thread **out, void (*entry)(void *), void *arg)` | 0 on success, non-zero on failure, reason in `crug_pal_last_error()` |
 | threads | `void crug_pal_thread_join (crug_pal_thread *thread)` | waits for the entry to finish and releases the handle |
 | threads | `uint32_t crug_pal_cpu_count (void)` | at least 1 |
@@ -65,8 +67,9 @@ reader will want to change:
 The first client is the scheduler (Phase 14, `docs/crug/TASKS.md`): it starts
 its workers with `thread_create`, blocks them in `wait_u32` on the scheduler
 epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
-`memory_reserve`/`memory_commit` with a 4 KiB guard page from
-`memory_protect_guard`, and reads the clock for its statistics. The contract
+`memory_reserve`/`memory_commit` with a guard page of one
+`crug_pal_page_size ()` at the low end from `memory_protect_guard`, and reads
+the clock for its statistics. The contract
 suite covers exactly those calls, so a runtime linked against a new backend is
 tested by the same twelve cases as the fake one. A task group (Phase 15,
 `SCOPE.md`) adds no PAL call of its own: a waiter uses `wait_u32` on the group's
@@ -116,13 +119,13 @@ twelve cases, all written against the header:
 
 | Case | Proves |
 |---|---|
-| `version-and-names` | the suite and the backend agree on 1.0 and every error class has a spelling |
+| `version-and-names` | the suite and the backend agree on 1.1, and every error class has a spelling |
 | `thread-create-join` | the entry has run before `join` returns, and the handle is not NULL |
 | `thread-rejects-null-entry` | a NULL entry fails with `CRUG_PAL_EINVAL` |
 | `cpu-count` | the count is plausible (1..65536) |
 | `wait-wake` | a waiter that has not observed the wake is released by `wake_all` |
 | `wait-returns-when-changed` | a satisfied predicate does not block |
-| `memory-reserve-commit-release` | committed bytes survive, including the last one |
+| `memory-reserve-commit-release` | the page size is a power of two of at least 4096, and committed bytes survive, including the last one |
 | `memory-guard` | a claimed guard page is reported, or the capability is declined |
 | `clock-monotonic` | readings never go backwards, and the clock advances across a 1 ms sleep (two back-to-back readings may share a tick) |
 | `sleep-duration` | a 2 ms sleep does not return early |
@@ -168,8 +171,10 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
 
 ## 7. Versioning
 
-- **v1 is frozen.** The signatures, the error values and the semantics in this
-  document are the contract that the Phase 13 gate adjudicates.
+- **v1 is frozen; v1.1 is additive.** The v1 signatures, error values and
+  semantics in this document are the contract that the Phase 13 gate
+  adjudicates. v1.1 (2026-10-20) added `crug_pal_page_size` and nothing else
+  (ADR 0011 A-1), which is exactly the additive path this section describes.
 - An additive change (a new entry point, a new error class at the end) bumps
   `CRUG_PAL_VERSION_MINOR` and needs an ADR amendment; existing behaviour may
   not change.

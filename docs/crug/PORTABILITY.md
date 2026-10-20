@@ -74,6 +74,7 @@ A local AArch64 run without a native machine uses qemu user emulation; the CI
 | wait/wake | `SYS_futex` (private wait/wake), ENOSYS falls back to 1 ms sleeps | `WaitOnAddress` / `WakeByAddressSingle` / `WakeByAddressAll`, resolved by `GetProcAddress`, Sleep polling fallback | hashed table of mutex/condition variable buckets, commit under the bucket lock |
 | reserve memory | `mmap(PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS)` | `VirtualAlloc(MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE)` (eager) | `mmap(PROT_NONE, MAP_PRIVATE|MAP_ANON)` |
 | commit | `mprotect(PROT_READ|PROT_WRITE)` | committed in reserve; commit keeps the bytes | `mprotect(PROT_READ|PROT_WRITE)` |
+| page size | `sysconf(_SC_PAGESIZE)` | `GetSystemInfo` `dwPageSize` | `sysconf(_SC_PAGESIZE)` |
 | guard page | `mprotect(PROT_NONE)` | `VirtualProtect(PAGE_NOACCESS)` | `mprotect(PROT_NONE)` |
 | release | `munmap` | `VirtualFree(MEM_RELEASE)` | `munmap` |
 | monotonic clock | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `mach_absolute_time` and the mach timebase (nanosecond readings; the timebase ticks at 24 MHz on Apple silicon) |
@@ -87,6 +88,11 @@ Two consequences worth knowing:
 - Darwin has no futex, so wait/wake is a hashed mutex/condition table. The
   predicate stays authoritative, so a spurious wakeup costs a loop turn, and a
   wake of an address that is not waiting is a no-op.
+- Memory operations are page-granular, and the page is not the same size
+  everywhere: Apple silicon uses 16 KiB. The scheduler reads
+  `crug_pal_page_size ()` (PAL v1.1) for its guard page and rounds the stack to
+  it, because `reserve + 4096` is not page-aligned on such a host and
+  `mprotect` refuses the range; the macOS job found exactly that.
 
 ## 5. Context switches
 
@@ -122,9 +128,9 @@ The same sources define every backend:
 
 - `libcrug/core/pal_contract.c` - twelve cases written against
   `<crug_pal.h>` only: version and error spelling, thread create/join, NULL
-  entry, CPU count, wait/wake with a predicate, memory reserve/commit/release,
-  guard pages (a backend may decline), monotonic clock, sleep, error mapping,
-  idempotent shutdown.
+  entry, CPU count, wait/wake with a predicate, memory reserve/commit/release
+  (and the page size: a power of two of at least 4096), guard pages (a backend
+  may decline), monotonic clock, sleep, error mapping, idempotent shutdown.
 - `libcrug/tests/runtime/` - three plain-C channel programs and the task
   suite, which use `task.h` / `chan.h` and the PAL.
 - `make check-MULTI_OS` - the one command CI runs on every host; it ends with
