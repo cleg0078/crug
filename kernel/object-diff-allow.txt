@@ -1,0 +1,11 @@
+# Object-level differences between the crugc kernel build and the GCC driver it
+# wraps, for scripts/kernel-object-diff.sh.
+#
+# Format: <object path> <one-line explanation>
+# Every line excuses exactly one object of the pinned corpus in
+# kernel/KERNEL-CORPUS.md. Comments and blank lines are ignored.
+#
+# Empty on purpose: the launcher adds no flag for plain C, so the pinned corpus
+# compiles byte for byte like GCC 16.2.0. Add a line only together with the
+# change that makes the difference intentional.
+init/version-timestamp.o  embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times (the rest of the corpus is byte-identical)
