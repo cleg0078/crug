@@ -22,13 +22,10 @@ jobs:
         include:
           - os: linux-x86_64
             runner: ubuntu-24.04
-            shell: bash
           - os: windows-x86_64
             runner: windows-2022
-            shell: msys2 {0}
           - os: macos-arm64
             runner: macos-14
-            shell: bash
     name: probe-${{ matrix.os }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -38,7 +35,6 @@ jobs:
           fetch-depth: 1
       - name: Toolchain (ubuntu)
         if: matrix.os == 'linux-x86_64'
-        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -53,12 +49,11 @@ jobs:
           install: make mingw-w64-x86_64-gcc
       - name: Toolchain (macos)
         if: matrix.os == 'macos-arm64'
-        shell: bash
         run: |
           xcode-select -p || true
           cc --version | head -1
       - name: Run the commands and capture both streams
-        shell: ${{ matrix.shell }}
+        shell: bash
         run: |
           mkdir -p ci-logs
           log="ci-logs/${{ matrix.os }}.log"
@@ -75,6 +70,7 @@ jobs:
               } >> "$log" 2>&1
               ;;
             windows-x86_64)
+              export PATH="/c/msys64/mingw64/bin:$PATH"
               {
                 echo "== make -C libcrug check-MULTI_OS CC=gcc"
                 make -C libcrug check-MULTI_OS CC=gcc
@@ -92,7 +88,7 @@ jobs:
           grep -aE 'FAIL|error|Error|rc=|multi-os:' "$log" | tail -40 || true
       - name: Publish the log on a branch
         if: always()
-        shell: ${{ matrix.shell }}
+        shell: bash
         run: |
           git config user.name "ci-debug"
           git config user.email "ci-debug@localhost"
