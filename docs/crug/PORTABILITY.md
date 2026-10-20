@@ -148,9 +148,11 @@ The same sources define every backend:
 | `windows-x86_64` | `windows-2022` + MSYS2 MinGW-w64 | `make -C libcrug check-MULTI_OS CC=gcc` |
 | `macos-arm64` | `macos-14` | `make -C libcrug check-MULTI_OS` |
 
-The Windows and macOS jobs are meant to be required checks on `main`; that is
-an owner action in branch protection. Until it is set, the phase gate records a
-green run of the workflow as evidence, and this page names the gap.
+The workflow is green at `b964c75` (run 39354431681, four jobs), and that run
+is the phase gate's evidence for the hosts this tree cannot execute. The jobs
+are not yet required checks on `main` - branch protection requires only
+`kernel-compat` - so the remaining step is an owner action, and this page names
+the gap.
 
 ## 8. Where platform code may live
 

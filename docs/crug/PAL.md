@@ -132,12 +132,14 @@ twelve cases, all written against the header:
 | `error-mapping` | a zero-size reservation is `EINVAL` and a success clears the slot |
 | `shutdown-idempotent` | two shutdowns are defined behaviour |
 
-Measured on this host (2026-10-19):
+Measured (2026-10-20; Wine, qemu and the macOS CI job where noted):
 
 ```text
-pal-contract[fake]:    12 cases, 0 failed, 1 skipped   (memory-guard)
-pal-contract[linux]:   12 cases, 0 failed, 0 skipped
-pal-contract[windows]: 12 cases, 0 failed, 0 skipped   (wine on Linux, Phase 18)
+pal-contract[fake]:         12 cases, 0 failed, 1 skipped   (memory-guard)
+pal-contract[linux]:        12 cases, 0 failed, 0 skipped
+pal-contract[linux-aarch64]: 12 cases, 0 failed, 0 skipped  (qemu, Phase 18)
+pal-contract[windows]:      12 cases, 0 failed, 0 skipped   (wine on Linux, Phase 18)
+pal-contract[darwin]:       12 cases, 0 failed, 0 skipped   (macos-14 CI job, Phase 18)
 guard-fault: SIGSEGV on the guarded page as claimed
 ```
 
