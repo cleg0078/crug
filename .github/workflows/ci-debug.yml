@@ -21,8 +21,8 @@ jobs:
             runner: windows-2022
           - os: macos-arm64
             runner: macos-14
-    name: probe-${ matrix.os }
-    runs-on: ${ matrix.runner }
+    name: probe-${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -45,23 +45,23 @@ jobs:
         shell: bash
         run: |
           mkdir -p ci-logs
-          if [ "${ matrix.os }" = "linux-x86_64" ]; then
-            { make check-MULTI_OS TARGET=aarch64-linux; } > "ci-logs/${ matrix.os }.log" 2>&1
-          elif [ "${ matrix.os }" = "windows-x86_64" ]; then
+          if [ "${{ matrix.os }}" = "linux-x86_64" ]; then
+            { make check-MULTI_OS TARGET=aarch64-linux; } > "ci-logs/${{ matrix.os }}.log" 2>&1
+          elif [ "${{ matrix.os }}" = "windows-x86_64" ]; then
             export PATH="/c/msys64/mingw64/bin:$PATH"
-            { make -C libcrug check-MULTI_OS CC=gcc; } > "ci-logs/${ matrix.os }.log" 2>&1
+            { make -C libcrug check-MULTI_OS CC=gcc; } > "ci-logs/${{ matrix.os }}.log" 2>&1
           else
-            { make -C libcrug check-MULTI_OS; } > "ci-logs/${ matrix.os }.log" 2>&1
+            { make -C libcrug check-MULTI_OS; } > "ci-logs/${{ matrix.os }}.log" 2>&1
           fi
-          echo "rc=$?" >> "ci-logs/${ matrix.os }.log"
-          head -80 "ci-logs/${ matrix.os }.log"
+          echo "rc=$?" >> "ci-logs/${{ matrix.os }}.log"
+          head -80 "ci-logs/${{ matrix.os }}.log"
       - name: Publish the log on a branch
         if: always()
         shell: bash
         run: |
           git config user.name "ci-debug"
           git config user.email "ci-debug@localhost"
-          git checkout -B "ci-debug-${ matrix.os }"
+          git checkout -B "ci-debug-${{ matrix.os }}"
           git add -f ci-logs
-          git commit -m "ci-debug: ${ matrix.os } [skip ci]" || true
-          git push --force "https://x-access-token:${ secrets.GITHUB_TOKEN }}@github.com/${ github.repository }}.git" "HEAD:refs/heads/ci-debug-${ matrix.os }"
+          git commit -m "ci-debug: ${{ matrix.os }} [skip ci]" || true
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/ci-debug-${{ matrix.os }}"
