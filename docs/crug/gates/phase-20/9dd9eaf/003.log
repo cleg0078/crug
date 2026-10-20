@@ -1,0 +1,10 @@
+phase-20 #3 rc=0
+cmd: make check-DIAGNOSTICS
+expected: exit 0, printing `check-diagnostic-goldens: 50 case(s) match their golden, 0 drifted` and `check-diagnostic-sarif: ok`.
+---
+scripts/check-diagnostic-goldens.sh
+check-diagnostic-goldens: 50 case(s) match their golden, 0 drifted
+scripts/check-diagnostic-sarif.sh
+sarif: ruleId crug-UAM-001, origin note present, rule documented
+sarif: warning ruleId crug-OWN-007
+check-diagnostic-sarif: ok

@@ -1,0 +1,6 @@
+phase-20 #6 rc=0
+cmd: make check-docs-examples
+expected: exit 0 (the examples quoted in the migration guide compile and run).
+---
+scripts/check-docs-examples.sh
+docs-examples: 6 example(s), 0 failure(s)

@@ -1,0 +1,7 @@
+phase-20 #4 rc=0
+cmd: scripts/check-diagnostic-sarif.sh
+expected: exit 0, printing `sarif: ruleId crug-UAM-001, origin note present, rule documented` (machine-readable: the code is the SARIF `ruleId`, the origin note is a result).
+---
+sarif: ruleId crug-UAM-001, origin note present, rule documented
+sarif: warning ruleId crug-OWN-007
+check-diagnostic-sarif: ok

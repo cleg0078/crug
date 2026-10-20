@@ -1,0 +1,5 @@
+phase-20 #5 rc=0
+cmd: test "$(grep -c 'GIMPLE' docs/crug/DIAGNOSTICS.md)" -eq 0
+expected: exit 0 (no user-facing fix instruction names a compiler dump).
+---
+

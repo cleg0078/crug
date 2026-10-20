@@ -1,0 +1,5 @@
+phase-20 #2 rc=0
+cmd: test "$(grep -vc '^[[:space:]]*\(#\|$\)' gcc/testsuite/crug.dg/diagnostics/top50.txt)" -eq 50
+expected: exit 0 (50 published classes; `make check-DIAGNOSTICS` proves each has a fixture and a golden).
+---
+
