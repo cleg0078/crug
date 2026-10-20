@@ -1,0 +1,67 @@
+name: ci-debug
+
+on:
+  push:
+    paths:
+      - .github/workflows/ci-debug.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-x86_64
+            runner: ubuntu-24.04
+          - os: windows-x86_64
+            runner: windows-2022
+          - os: macos-arm64
+            runner: macos-14
+    name: probe-${ matrix.os }
+    runs-on: ${ matrix.runner }
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Toolchain (ubuntu)
+        if: matrix.os == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential gcc-aarch64-linux-gnu qemu-user-static
+      - name: Toolchain (msys2)
+        if: matrix.os == 'windows-x86_64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: make mingw-w64-x86_64-gcc
+      - name: Run the command and capture both streams
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          if [ "${ matrix.os }" = "linux-x86_64" ]; then
+            { make check-MULTI_OS TARGET=aarch64-linux; } > "ci-logs/${ matrix.os }.log" 2>&1
+          elif [ "${ matrix.os }" = "windows-x86_64" ]; then
+            export PATH="/c/msys64/mingw64/bin:$PATH"
+            { make -C libcrug check-MULTI_OS CC=gcc; } > "ci-logs/${ matrix.os }.log" 2>&1
+          else
+            { make -C libcrug check-MULTI_OS; } > "ci-logs/${ matrix.os }.log" 2>&1
+          fi
+          echo "rc=$?" >> "ci-logs/${ matrix.os }.log"
+          head -80 "ci-logs/${ matrix.os }.log"
+      - name: Publish the log on a branch
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "ci-debug"
+          git config user.email "ci-debug@localhost"
+          git checkout -B "ci-debug-${ matrix.os }"
+          git add -f ci-logs
+          git commit -m "ci-debug: ${ matrix.os } [skip ci]" || true
+          git push --force "https://x-access-token:${ secrets.GITHUB_TOKEN }}@github.com/${ github.repository }}.git" "HEAD:refs/heads/ci-debug-${ matrix.os }"
