@@ -389,7 +389,8 @@ libcrug dependency (ADR 0017, proposed) - and `scripts/check-p0-open.sh
 --kernel` reads the new defect ledger `docs/crug/KNOWN-ISSUES.md` (no open P0).
 The Phase 19 gate (amendment A-22) runs six runnable checks over these artefacts
 and passes 6/6 at `3775c34` (logs under `docs/crug/gates/phase-19/3775c34/`),
-so M19 is awarded.
+so M19 is awarded. The closing push (`d54cda2`) is green: `kernel-compat`
+run 23 and `multi-os` run 10 both succeeded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
