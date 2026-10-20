@@ -1,0 +1,5 @@
+phase-18 #3 rc=0
+cmd: test "$(grep -RE '#if.*(_WIN32|__APPLE__|__linux__)' libcrug/core | wc -l)" -eq 0
+expected: exit 0: no platform ifdef in the scheduler core; every platform name lives under `libcrug/pal/` or `libcrug/arch/` (ADR 0012 D2).
+---
+

@@ -1,0 +1,19 @@
+phase-18 #4 rc=0
+cmd: make -C libcrug check-PAL PAL=fake
+expected: exit 0: the same twelve-case contract passes with no operating system at all, so the contract, not the backend, is what the suite tests.
+---
+make: Entering directory '/home/cleg/MyDev/crug/libcrug'
+case version-and-names: ok
+case thread-create-join: ok
+case thread-rejects-null-entry: ok
+case cpu-count: ok
+case wait-wake: ok
+case wait-returns-when-changed: ok
+case memory-reserve-commit-release: ok
+case memory-guard: skip (backend declines guard pages)
+case clock-monotonic: ok
+case sleep-duration: ok
+case error-mapping: ok
+case shutdown-idempotent: ok
+pal-contract[fake]: 12 cases, 0 failed, 1 skipped
+make: Leaving directory '/home/cleg/MyDev/crug/libcrug'

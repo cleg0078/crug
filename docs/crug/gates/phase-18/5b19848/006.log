@@ -1,0 +1,10 @@
+phase-18 #6 rc=0
+cmd: make check-C_COMPAT
+expected: exit 0: the runtime is a library, so a plain-C translation unit is unchanged.
+---
+scripts/check-c-compat.sh
+diff-cc: 30 files, 0 differing (-O0)
+diff-cc: 30 files, 0 differing (-O2)
+diff-cc: 30 files, 0 differing (-Os)
+hidden-state: undefined-symbols=0 defined-symbols=0 dynamic-libcrug=0
+C_COMPAT: 3 option matrices plus 2 checks, 0 FAIL
