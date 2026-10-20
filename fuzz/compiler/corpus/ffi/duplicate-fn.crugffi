@@ -1,0 +1,4 @@
+# Invalid: fuzz_free is declared twice.
+crugffi 1.0;
+fn fuzz_free consumes arg0 nullable;
+fn fuzz_free consumes arg0;

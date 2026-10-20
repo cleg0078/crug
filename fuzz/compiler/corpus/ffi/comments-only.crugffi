@@ -1,0 +1,5 @@
+# A valid, empty catalog: only comments and blank lines.
+crugffi 1.0;
+
+# fn fuzz_alloc returns owned FuzzNode nullable drop fuzz_free;
+# fn fuzz_free consumes arg0 nullable;

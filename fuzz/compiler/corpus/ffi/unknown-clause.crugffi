@@ -1,0 +1,4 @@
+# Invalid: 'frobnicate' is not an ADR 0007 clause.
+crugffi 1.0;
+fn fuzz_alloc returns owned FuzzNode nullable drop fuzz_free;
+fn fuzz_count returns int frobnicate arg0;

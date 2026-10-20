@@ -1,0 +1,3 @@
+# Invalid: only crugffi 1.0 is understood.
+crugffi 99.0;
+fn fuzz_count returns int;

@@ -1,0 +1,10 @@
+# Every ADR 0007 clause kind on one small API.
+crugffi 1.0;
+
+fn fuzz_alloc returns owned FuzzNode nullable drop fuzz_free;
+fn fuzz_free consumes arg0 nullable;
+fn fuzz_fill out_owned arg0 drop fuzz_free;
+fn fuzz_peek borrows arg0;
+fn fuzz_set mut_borrows arg0;
+fn fuzz_cb callback arg0;
+fn fuzz_count returns int;

@@ -1,0 +1,73 @@
+name: fuzz-nightly
+
+# Nightly evidence for the Crug ownership, borrow, drop and channel runtime:
+# the fuzz target in fuzz/ runs for a fixed budget under the sanitizer build,
+# and the ASan/UBSan suite runs once more. docs/crug/EXIT-GATES.md requires the
+# schedule to stay green for 30 consecutive days, so this workflow must be
+# stable, quiet and cheap: it only builds the pinned baseline and then runs the
+# two checks.
+#
+# The evidence that the schedule is green is collected out of band by
+# scripts/check-fuzz-nightly.sh, which reads the run history from the public
+# GitHub API or the workflow page.
+on:
+  schedule:
+    # 03:17 UTC daily, a few minutes after the kernel-compat cron slot so the
+    # two jobs do not start together.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'fuzz/**'
+      - 'scripts/check-fuzz.sh'
+      - 'scripts/check-sanitizer.sh'
+      - '.github/workflows/fuzz-nightly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz-nightly:
+    name: fuzz-nightly
+    runs-on: ubuntu-24.04
+    # The GCC build plus the checkout needs about 8 GB, so the job frees space
+    # first. The default 30-minute sanitizer and fuzz work fits well inside two
+    # hours; the limit keeps a hung fuzz loop from eating the runner.
+    timeout-minutes: 120
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Free disk space
+        run: |
+          # The runner image ships toolchains this build never uses; removing
+          # them turns a 14 GB disk into roughly 30 GB of usable space.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker image prune -af || true
+      - name: Require disk headroom
+        run: |
+          available=$(df --output=avail -k . | tail -n 1)
+          echo "available_kib=$available"
+          if [ "$available" -lt 12582912 ]; then
+            echo "fuzz-nightly: need at least 12 GiB free, found $available KiB" >&2
+            exit 1
+          fi
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd \
+            clang
+      - name: Configure and build the pinned GCC baseline
+        run: make baseline JOBS=$(nproc)
+      - name: Run the fuzz target for a fixed budget
+        run: make check-FUZZ FUZZ_BUDGET=2000
+      - name: Run the sanitizer suite
+        run: make check-SANITIZER

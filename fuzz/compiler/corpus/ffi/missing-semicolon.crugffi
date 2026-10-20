@@ -1,0 +1,4 @@
+# Invalid: the first fn clause has no terminating semicolon.
+crugffi 1.0;
+fn fuzz_alloc returns owned FuzzNode nullable drop fuzz_free
+fn fuzz_free consumes arg0 nullable;

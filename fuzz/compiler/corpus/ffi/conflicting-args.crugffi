@@ -1,0 +1,3 @@
+# Invalid: arg0 is both consumed and out_owned.
+crugffi 1.0;
+fn fuzz_free consumes arg0 out_owned arg0;

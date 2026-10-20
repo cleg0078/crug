@@ -1,0 +1,6 @@
+# Owning returns with drop callbacks; one nullable and one required.
+crugffi 1.0;
+fn fuzz_alloc returns owned FuzzNode drop fuzz_free;
+fn fuzz_free consumes arg0;
+fn my_alloc returns owned Node nullable drop my_free;
+fn my_free consumes arg0 nullable;

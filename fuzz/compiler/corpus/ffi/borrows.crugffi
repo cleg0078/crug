@@ -1,0 +1,6 @@
+# borrow, mut_borrows, callback and plain returns; no owning calls.
+crugffi 1.0;
+fn fuzz_peek borrows arg0;
+fn fuzz_set mut_borrows arg0;
+fn fuzz_cb callback arg0;
+fn fuzz_count returns int;

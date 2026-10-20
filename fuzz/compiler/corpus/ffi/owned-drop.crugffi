@@ -1,0 +1,6 @@
+# owned/nullable/drop variants for both fixture APIs.
+crugffi 1.0;
+fn fuzz_alloc returns owned FuzzNode nullable drop fuzz_free;
+fn fuzz_free consumes arg0 nullable;
+fn my_alloc returns owned Node nullable drop my_free;
+fn my_free consumes arg0 nullable;
