@@ -1,0 +1,12 @@
+phase-21 #5 rc=0
+cmd: scripts/check-kernel-perf.sh
+expected: exit 0, printing `kernel-perf: 438 object(s): 437 identical, 1 explained, 0 differing` (2.6).
+---
+kernel-perf: comparing 438 object(s): /home/cleg/MyDev/crug/build/kernel-crug against /home/cleg/MyDev/crug/build/kernel-ref (20 job(s))
+kernel-perf: explained: init/version-timestamp.o: embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times (the rest of the corpus is byte-identical)
+kernel-perf: disassembly: 0 of 438 object(s) differ
+kernel-perf: file size: 0 of 438 object(s) differ; .text size: 0 differ
+kernel-perf: symbols: 43309 total (26798 defined, 16511 undefined), 0 object(s) differ
+kernel-perf: stack-usage: no .stack_sizes section in the corpus objects
+kernel-perf: full build: bzImage 14783488 bytes, vmlinux 51420536 bytes
+kernel-perf: 438 object(s): 437 identical, 1 explained, 0 differing (bytes 12173712, text 3580580, symbols 43309)

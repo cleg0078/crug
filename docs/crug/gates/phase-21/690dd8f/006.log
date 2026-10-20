@@ -1,0 +1,53 @@
+phase-21 #6 rc=0
+cmd: make check-PERFORMANCE
+expected: exit 0, printing `performance: OK`; it runs the five checks above and writes `bench/results/<date>.md` with a pass verdict (2.7).
+---
+zero-cost: own-drop  -O0 instructions 18 = 18, calls 2 = 2, IR identical => ok
+zero-cost: own-drop  -O2 instructions 1 = 1, calls 0 = 0, IR identical => ok
+zero-cost: own-drop  -O3 instructions 1 = 1, calls 0 = 0, IR identical => ok
+zero-cost: move      -O0 instructions 9 = 9, calls 0 = 0, IR identical => ok
+zero-cost: move      -O2 instructions 2 = 2, calls 0 = 0, IR identical => ok
+zero-cost: move      -O3 instructions 2 = 2, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O0 instructions 21 = 21, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O2 instructions 12 = 12, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O3 instructions 48 = 48, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O0 instructions 20 = 20, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O2 instructions 17 = 17, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O3 instructions 42 = 42, calls 0 = 0, IR identical => ok
+zero-cost: 12 comparison(s), 0 added instruction(s), 0 added call(s)
+zero-cost: OK (every Crug construct lowers exactly to its plain-C twin)
+pristine: 114 source/option pair(s), 0 object difference(s), 0 LTO timing violation(s) against the unmodified GCC 16.2
+pristine: OK (plain-C codegen is byte-identical to GCC 16.2)
+kernel     opt     baseline ns       now ns   ratio
+list       -O0         2318848      2202268   0.950  object identical
+list       -O2         1738320      1759659   1.012  object identical
+list       -O3         1843023      1765757   0.958  object identical
+stencil    -O0        20396102     20353781   0.998  object identical
+stencil    -O2         5461504      5901942   1.081  object identical
+stencil    -O3         1933374      2029382   1.050  object identical
+strcopy    -O0        19153257     18850853   0.984  object identical
+strcopy    -O2         4854175      5085307   1.048  object identical
+strcopy    -O3          349899       342092   0.978  object identical
+vadd       -O0        14399597     16116433   1.119  object identical
+vadd       -O2         4164679      3995813   0.959  object identical
+vadd       -O3         1481151      1831289   1.236  object identical
+list       lto         1843205      1806056   0.980  (lto timing informational)
+stencil    lto         1927170      1988447   1.032  (lto timing informational)
+strcopy    lto          348491       369764   1.061  (lto timing informational)
+vadd       lto         1452158      1553248   1.070  (lto timing informational)
+plain-c: worst observed ratio 1.236 (band 1.02; non-LTO object identity is the enforcement)
+plain-c: OK
+concurrency: dispatch pthread=2434455 pool=127840 crug=1872123 ratio=0.769 pool-ratio=14.644 (target 1.5, met=false: per-task 64 KiB stack reserve+commit; the pool arm is allocation-free by design) tasks=200 lost=0
+concurrency: memory-per-task pthread=8032.1KiB crug=67.7KiB
+channels: latency=199ns/roundtrip throughput=36376487 elem/s memory=4224B scaling=36304493/39930728/37697700 elem/s
+concurrency: OK
+kernel-perf: comparing 438 object(s): /home/cleg/MyDev/crug/build/kernel-crug against /home/cleg/MyDev/crug/build/kernel-ref (20 job(s))
+kernel-perf: explained: init/version-timestamp.o: embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times (the rest of the corpus is byte-identical)
+kernel-perf: disassembly: 0 of 438 object(s) differ
+kernel-perf: file size: 0 of 438 object(s) differ; .text size: 0 differ
+kernel-perf: symbols: 43309 total (26798 defined, 16511 undefined), 0 object(s) differ
+kernel-perf: stack-usage: no .stack_sizes section in the corpus objects
+kernel-perf: full build: bzImage 14783488 bytes, vmlinux 51420536 bytes
+kernel-perf: 438 object(s): 437 identical, 1 explained, 0 differing (bytes 12173712, text 3580580, symbols 43309)
+performance: report written to bench/results/2026-10-20.md
+performance: OK

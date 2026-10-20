@@ -1,0 +1,6 @@
+phase-21 #2 rc=0
+cmd: bench/run.py --pristine --check
+expected: exit 0, printing `pristine: 114 source/option pair(s), 0 object difference(s), 0 LTO timing violation(s)` and `pristine: OK` (2.2).
+---
+pristine: 114 source/option pair(s), 0 object difference(s), 0 LTO timing violation(s) against the unmodified GCC 16.2
+pristine: OK (plain-C codegen is byte-identical to GCC 16.2)

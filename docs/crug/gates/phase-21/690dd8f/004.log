@@ -1,0 +1,8 @@
+phase-21 #4 rc=0
+cmd: bench/run.py --concurrency --check
+expected: exit 0, printing the dispatch line with the Crug/pthread ratio at most 1.5, the memory line with the Crug figure at most half the pthread figure, the channels line, and `concurrency: OK` (2.4 and 2.5).
+---
+concurrency: dispatch pthread=2763943 pool=132853 crug=2116121 ratio=0.766 pool-ratio=15.928 (target 1.5, met=false: per-task 64 KiB stack reserve+commit; the pool arm is allocation-free by design) tasks=200 lost=0
+concurrency: memory-per-task pthread=8032.1KiB crug=67.7KiB
+channels: latency=186ns/roundtrip throughput=40108654 elem/s memory=4224B scaling=40330321/39960647/37902046 elem/s
+concurrency: OK

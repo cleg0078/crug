@@ -1,0 +1,23 @@
+phase-21 #3 rc=0
+cmd: bench/run.py --plain-c --check
+expected: exit 0, printing `plain-c: OK` after every non-LTO object matched the recorded baseline (2.3).
+---
+kernel     opt     baseline ns       now ns   ratio
+list       -O0         2318848      2578094   1.112  object identical
+list       -O2         1738320      1985579   1.142  object identical
+list       -O3         1843023      2335359   1.267  object identical
+stencil    -O0        20396102     22527195   1.104  object identical
+stencil    -O2         5461504      5560182   1.018  object identical
+stencil    -O3         1933374      2193724   1.135  object identical
+strcopy    -O0        19153257     20673606   1.079  object identical
+strcopy    -O2         4854175      5270960   1.086  object identical
+strcopy    -O3          349899       327051   0.935  object identical
+vadd       -O0        14399597     15273260   1.061  object identical
+vadd       -O2         4164679      4002642   0.961  object identical
+vadd       -O3         1481151      1494746   1.009  object identical
+list       lto         1843205      1845095   1.001  (lto timing informational)
+stencil    lto         1927170      2012514   1.044  (lto timing informational)
+strcopy    lto          348491       341935   0.981  (lto timing informational)
+vadd       lto         1452158      1635694   1.126  (lto timing informational)
+plain-c: worst observed ratio 1.267 (band 1.02; non-LTO object identity is the enforcement)
+plain-c: OK

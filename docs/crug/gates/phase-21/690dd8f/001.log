@@ -1,0 +1,18 @@
+phase-21 #1 rc=0
+cmd: bench/run.py --zero-cost --check
+expected: exit 0, printing `zero-cost: 12 comparison(s), 0 added instruction(s), 0 added call(s)` and `zero-cost: OK` (RELEASE-POLICY 2.1).
+---
+zero-cost: own-drop  -O0 instructions 18 = 18, calls 2 = 2, IR identical => ok
+zero-cost: own-drop  -O2 instructions 1 = 1, calls 0 = 0, IR identical => ok
+zero-cost: own-drop  -O3 instructions 1 = 1, calls 0 = 0, IR identical => ok
+zero-cost: move      -O0 instructions 9 = 9, calls 0 = 0, IR identical => ok
+zero-cost: move      -O2 instructions 2 = 2, calls 0 = 0, IR identical => ok
+zero-cost: move      -O3 instructions 2 = 2, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O0 instructions 21 = 21, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O2 instructions 12 = 12, calls 0 = 0, IR identical => ok
+zero-cost: ref-param -O3 instructions 48 = 48, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O0 instructions 20 = 20, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O2 instructions 17 = 17, calls 0 = 0, IR identical => ok
+zero-cost: mut-param -O3 instructions 42 = 42, calls 0 = 0, IR identical => ok
+zero-cost: 12 comparison(s), 0 added instruction(s), 0 added call(s)
+zero-cost: OK (every Crug construct lowers exactly to its plain-C twin)
