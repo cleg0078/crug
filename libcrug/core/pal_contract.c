@@ -173,8 +173,20 @@ case_wait_returns_when_changed (crug_pal_reporter reporter, void *ctx)
 static void
 case_memory_reserve_commit_release (crug_pal_reporter reporter, void *ctx)
 {
-  const size_t size = (size_t) 1 << 20;
-  unsigned char *ptr = (unsigned char *) crug_pal_memory_reserve (size);
+  const size_t page = crug_pal_page_size ();
+  size_t size;
+  unsigned char *ptr;
+
+  /* The runtime places a task's guard page on a page boundary, so the page
+     size is part of the contract, not an implementation detail.  */
+  if (page < (size_t) 4096 || (page & (page - 1)) != 0)
+    {
+      fail (reporter, ctx, "memory-reserve-commit-release",
+	    "the page size is not a power of two of at least 4096");
+      return;
+    }
+  size = page * 256;
+  ptr = (unsigned char *) crug_pal_memory_reserve (size);
 
   if (ptr == NULL)
     {
@@ -302,12 +314,12 @@ case_error_mapping (crug_pal_reporter reporter, void *ctx)
 static void
 case_version_and_names (crug_pal_reporter reporter, void *ctx)
 {
-  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 0)
+  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 1)
     {
       fail (reporter, ctx, "version-and-names", "the suite was built against another contract version");
       return;
     }
-  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 0))
+  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 1))
     {
       fail (reporter, ctx, "version-and-names", "the ABI version encoding changed");
       return;

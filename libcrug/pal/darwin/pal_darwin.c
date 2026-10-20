@@ -221,6 +221,13 @@ crug_pal_wake_all (_Atomic uint32_t *addr)
   pthread_mutex_unlock (&bucket->lock);
 }
 
+size_t
+crug_pal_page_size (void)
+{
+  long page = sysconf (_SC_PAGESIZE);
+  return page > 0 ? (size_t) page : (size_t) 4096;
+}
+
 void *
 crug_pal_memory_reserve (size_t size)
 {

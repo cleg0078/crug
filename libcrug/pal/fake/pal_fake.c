@@ -138,6 +138,14 @@ crug_pal_wake_all (_Atomic uint32_t *addr)
   fake_wakes++;
 }
 
+size_t
+crug_pal_page_size (void)
+{
+  /* The fake backend has no operating system, so it has no page granularity
+     either; 4096 is the smallest page size the contract allows.  */
+  return (size_t) 4096;
+}
+
 void *
 crug_pal_memory_reserve (size_t size)
 {

@@ -221,6 +221,14 @@ crug_pal_wake_all (_Atomic uint32_t *addr)
 
 /* ---- memory ---------------------------------------------------------- */
 
+size_t
+crug_pal_page_size (void)
+{
+  SYSTEM_INFO info;
+  GetSystemInfo (&info);
+  return (size_t) info.dwPageSize;
+}
+
 void *
 crug_pal_memory_reserve (size_t size)
 {

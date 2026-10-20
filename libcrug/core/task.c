@@ -434,8 +434,14 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
 
   runtime_start ();
 
-  guard = CRUG_TASK_GUARD_BYTES;
+  /* The guard must start on a page boundary: a backend's protection call
+     rejects a misaligned range, and the page can be larger than 4 KiB
+     (16 KiB on Apple silicon).  */
+  guard = crug_pal_page_size ();
+  if (guard < CRUG_TASK_GUARD_BYTES)
+    guard = CRUG_TASK_GUARD_BYTES;
   stack = sched.stack_bytes;
+  stack = (stack + guard - 1) & ~(guard - 1);
   total = guard + stack;
   frame_bytes = (frame_size + 15u) & ~(size_t) 15u;
 

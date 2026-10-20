@@ -1,4 +1,4 @@
-/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.
+/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.1.
    Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
 
    This header is the ONLY way libcrug/core reaches an operating system.
@@ -37,7 +37,9 @@
    makes a sub-range inaccessible again; returning false means the backend has
    no guard-page support and the caller must not assume protection.
    release() returns a whole reservation obtained from reserve(); size must be
-   the size passed to reserve().
+   the size passed to reserve().  page_size() is the granularity of all three:
+   a power of two, at least 4096, and commit()/protect_guard() take ranges on
+   page boundaries (the runtime places a task's guard page at one).
 
    Time
    ----
@@ -60,7 +62,7 @@ extern "C" {
 #endif
 
 #define CRUG_PAL_VERSION_MAJOR 1
-#define CRUG_PAL_VERSION_MINOR 0
+#define CRUG_PAL_VERSION_MINOR 1
 #define CRUG_PAL_ABI_VERSION ((CRUG_PAL_VERSION_MAJOR << 16) | CRUG_PAL_VERSION_MINOR)
 
 /* Stable error classes.  Values are part of the v1 contract: they may be
@@ -104,7 +106,9 @@ void crug_pal_wait_u32 (_Atomic uint32_t *addr, uint32_t expected);
 void crug_pal_wake_one (_Atomic uint32_t *addr);
 void crug_pal_wake_all (_Atomic uint32_t *addr);
 
-/* Memory.  */
+/* Memory.  page_size() is the granularity of reserve/commit/protect_guard:
+   a power of two, at least 4096.  */
+size_t crug_pal_page_size (void);
 void *crug_pal_memory_reserve (size_t size);
 bool crug_pal_memory_commit (void *ptr, size_t size);
 bool crug_pal_memory_protect_guard (void *ptr, size_t size);
