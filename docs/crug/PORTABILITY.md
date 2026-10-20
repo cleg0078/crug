@@ -148,7 +148,7 @@ The same sources define every backend:
 | `windows-x86_64` | `windows-2022` + MSYS2 MinGW-w64 | `make -C libcrug check-MULTI_OS CC=gcc` |
 | `macos-arm64` | `macos-14` | `make -C libcrug check-MULTI_OS` |
 
-The workflow is green at `b964c75` (run 39354431681, four jobs), and that run
+The workflow is green at `f086068` (run 39355413321, four jobs), and that run
 is the phase gate's evidence for the hosts this tree cannot execute. The jobs
 are not yet required checks on `main` - branch protection requires only
 `kernel-compat` - so the remaining step is an owner action, and this page names
