@@ -1,0 +1,6 @@
+phase-23 #2 rc=0
+cmd: make check-DOCS
+expected: exit 0, printing `check-docs: 43 document(s) checked, 0 violation(s)` (every manifest row exists, every top-level page has a row, has a title, a `Status:` line and its required sections, and no document makes an unqualified §32 post-1.0 claim).
+---
+scripts/check-docs.sh
+check-docs: 43 document(s) checked, 0 violation(s)

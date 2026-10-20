@@ -1,0 +1,5 @@
+phase-23 #3 rc=0
+cmd: missing=0; for k in 'language versioning' 'Crug ABI versioning' '.crugffi versioning' 'libcrug ABI policy' 'feature deprecation' 'GCC baseline policy' 'supported platforms' 'supported C dialects' 'kernel support policy'; do grep -Fqi "$k" docs/crug/COMPATIBILITY-POLICY.md || { echo "missing compatibility item: $k"; missing=1; }; done; exit $missing
+expected: exit 0, printing nothing (all nine §28 items defined).
+---
+
