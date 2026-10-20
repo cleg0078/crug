@@ -1,0 +1,7 @@
+cases/use-before-init.c: In function ‘f’:
+cases/use-before-init.c:9:17: error: owned value ‘p’ may be used before it is initialized [crug-DROP-007]
+    9 |   own struct S *p;
+      |                 ^
+cases/use-before-init.c:8:1: note: the ownership state here depends on which branch was taken
+    8 | {
+      | ^

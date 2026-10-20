@@ -1,0 +1,63 @@
+# Crug Phase 20: the 50 diagnostic classes a new user is most likely to meet.
+#
+# Format: <code> | cases/<name>.c | <flags> | -
+#   <code>   a crug-<AREA>-<NNN> code registered in docs/crug/DIAGNOSTICS.md
+#   case     the fixture, relative to this directory
+#   flags    the options needed to trigger the diagnostic (-fsyntax-only is added
+#            by the harness and is not listed here; a case that needs a sidecar
+#            names it with -fcrug-ffi=<path>)
+#   origin   reserved for the origin note; the Lead fills this column
+#
+# The list is ratified by the owner.  Keep it at exactly 50 data lines and
+# 50 distinct codes.
+
+crug-UAM-001 | cases/use-after-move.c | -O2 -fcrug-ownership -Wno-crug-unadopted-own | value was moved here
+crug-UAM-002 | cases/double-move.c | -O2 -fcrug-ownership -Wno-crug-unadopted-own | value was moved here
+crug-UAM-003 | cases/implicit-copy.c | -O2 -fcrug-ownership -Wno-crug-unadopted-own | -
+crug-UAM-004 | cases/maybe-moved.c | -O2 -fcrug-ownership -Wno-crug-unadopted-own | -
+crug-OWN-001 | cases/move-not-owned.c | -fcrug-ownership | -
+crug-OWN-002 | cases/adopt-bad-dtor.c | -O2 -fcrug-strict | -
+crug-OWN-007 | cases/unadopted-own.c | -fcrug-ownership | -
+crug-OWN-010 | cases/conflict-dtor.c | -fcrug-ownership | -
+crug-OWN-011 | cases/own-arg-needs-move.c | -O2 -fcrug-strict | -
+crug-OWN-012 | cases/own-arg-plain-call.c | -O2 -fcrug-strict | -
+crug-BORROW-002 | cases/mut-while-shared.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | borrow created here
+crug-BORROW-003 | cases/mut-twice.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | borrow created here
+crug-BORROW-004 | cases/move-while-borrowed.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-005 | cases/drop-while-borrowed.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-008 | cases/write-through-ref.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-009 | cases/borrow-non-owned.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-011 | cases/borrow-empty-own.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-014 | cases/assign-owner-while-borrowed.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-015 | cases/use-owner-under-mut.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-BORROW-016 | cases/shared-after-mut.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | borrow created here
+crug-DROP-001 | cases/drop-non-owned.c | -O2 -fcrug-ownership | -
+crug-DROP-002 | cases/goto-into-owned-scope.c | -O2 -fcrug-ownership | -
+crug-DROP-006 | cases/maybe-destroyed-once.c | -O2 -fcrug-ownership | the ownership state here depends on which branch was taken
+crug-DROP-007 | cases/use-before-init.c | -O2 -fcrug-ownership | the ownership state here depends on which branch was taken
+crug-DROP-008 | cases/reassign-owned.c | -O2 -fcrug-ownership | -
+crug-CONC-003 | cases/send-needs-move.c | -fcrug-channels -fcrug-ownership | -
+crug-CONC-004 | cases/select-arm-form.c | -fcrug-channels | -
+crug-CONC-007 | cases/select-eqeq.c | -fcrug-channels | -
+crug-CONC-011 | cases/owned-to-task.c | -fcrug-goroutines -fcrug-ownership | use ‘move (buf)’ to transfer it to the task
+crug-CONC-015 | cases/goto-into-scope.c | -fcrug-goroutines | -
+crug-CONC-024 | cases/not-send-capture.c | -fcrug-goroutines | -
+crug-ADT-001 | cases/empty-payload-parens.c | -fcrug-result | -
+crug-ADT-003 | cases/variant-needs-payload.c | -fcrug-result | -
+crug-ADT-004 | cases/unit-variant-payload.c | -fcrug-result | -
+crug-ADT-005 | cases/ctor-needs-context.c | -fcrug-result | -
+crug-ADT-011 | cases/match-non-exhaustive.c | -fcrug-result | -
+crug-ADT-013 | cases/match-not-sum.c | -fcrug-result | -
+crug-TYPE-001 | cases/own-non-pointer.c | -fcrug-ownership | -
+crug-TYPE-002 | cases/own-ref-combo.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-TYPE-005 | cases/own-function-type.c | -fcrug-ownership | -
+crug-TYPE-007 | cases/ref-non-pointer.c | -O2 -fcrug-borrow -Wno-crug-unadopted-own | -
+crug-TYPE-013 | cases/slice-arity.c | -fcrug-slices | -
+crug-SAFE-001 | cases/raw-deref.c | -O2 -fcrug-strict | -
+crug-SAFE-002 | cases/pointer-int-cast.c | -O2 -fcrug-strict | -
+crug-SAFE-003 | cases/owned-to-void.c | -O2 -fcrug-strict | -
+crug-SAFE-004 | cases/asm-outside-unsafe.c | -O2 -fcrug-strict | -
+crug-SAFE-005 | cases/longjmp-outside-unsafe.c | -O2 -fcrug-strict | -
+crug-FFI-007 | cases/consumes-not-moved.c | -fcrug-ffi=cases/ffi-007.crugffi | -
+crug-FFI-008 | cases/out-owned-busy.c | -fcrug-ffi=cases/ffi-008.crugffi | -
+crug-FFI-009 | cases/callback-not-function.c | -fcrug-ffi=cases/ffi-009.crugffi | -

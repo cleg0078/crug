@@ -1,0 +1,4 @@
+cases/borrow-non-owned.c: In function ‘f’:
+cases/borrow-non-owned.c:5:12: error: borrow() operand must be a whole owned object or a borrow; member borrows are not supported in this phase [crug-BORROW-009]
+    5 |   ref int *r = borrow (q);
+      |            ^

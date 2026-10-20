@@ -1,0 +1,4 @@
+cases/ref-non-pointer.c: In function ‘f’:
+cases/ref-non-pointer.c:4:11: error: a borrow qualifier must apply to a pointer declarator [crug-TYPE-007]
+    4 |   ref int x;
+      |           ^

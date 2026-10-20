@@ -1,0 +1,4 @@
+cases/own-non-pointer.c: In function ‘f’:
+cases/own-non-pointer.c:4:11: error: an owning declarator must have pointer type [crug-TYPE-001]
+    4 |   own int x;
+      |           ^

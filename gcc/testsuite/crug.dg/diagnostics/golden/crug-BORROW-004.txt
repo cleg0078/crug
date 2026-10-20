@@ -1,0 +1,4 @@
+cases/move-while-borrowed.c: In function ‘f’:
+cases/move-while-borrowed.c:6:12: error: cannot move ‘p’ while it is borrowed [crug-BORROW-004]
+    6 |   own int *q = move (p);
+      |            ^

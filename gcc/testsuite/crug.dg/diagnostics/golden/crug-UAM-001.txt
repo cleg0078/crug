@@ -1,0 +1,7 @@
+cases/use-after-move.c: In function ‘f’:
+cases/use-after-move.c:10:9: error: use of moved value ‘p’ [crug-UAM-001]
+   10 |   *sink = p;
+      |   ~~~~~~^~~
+cases/use-after-move.c:9:19: note: value was moved here
+    9 |   own struct Foo *q = move (p);
+      |                   ^

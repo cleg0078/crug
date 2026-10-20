@@ -1,0 +1,3 @@
+cases/own-function-type.c:2:11: error: an owning declarator cannot have pointer-to-function type [crug-TYPE-005]
+    2 | own int (*fp) (void);
+      |           ^~

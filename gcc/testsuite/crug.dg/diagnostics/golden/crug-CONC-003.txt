@@ -1,0 +1,7 @@
+cases/send-needs-move.c: In function ‘give’:
+cases/send-needs-move.c:6:3: error: send transfers ownership; wrap the argument in ‘move ()’ [crug-CONC-003]
+    6 |   send (out, p);
+      |   ^~~~
+cases/send-needs-move.c:4:49: warning: owned value ‘p’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+    4 | static void give (chan own char *out, own char *p)
+      |                                       ~~~~~~~~~~^

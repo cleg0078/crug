@@ -1,0 +1,4 @@
+cases/implicit-copy.c: In function ‘f’:
+cases/implicit-copy.c:8:19: error: implicit copy of owned value ‘a’; owned values are not copyable [crug-UAM-003]
+    8 |   own struct Foo *b = a;
+      |                   ^

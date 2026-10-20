@@ -1,0 +1,4 @@
+cases/reassign-owned.c: In function ‘f’:
+cases/reassign-owned.c:8:5: error: assignment to an owned value that already owns; call drop() or release() first [crug-DROP-008]
+    8 |   p = raw_source;
+      |   ~~^~~~~~~~~~~~

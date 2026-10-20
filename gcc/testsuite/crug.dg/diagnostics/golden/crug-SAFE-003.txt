@@ -1,0 +1,7 @@
+cases/owned-to-void.c: In function ‘f’:
+cases/owned-to-void.c:8:13: error: an owned value cannot be converted to an unmanaged pointer; release (‘a’) first, or use an ‘unsafe’ block [crug-SAFE-003]
+    8 |   void *q = (void *) a;
+      |             ^
+cases/owned-to-void.c:7:19: error: owned value ‘a’ is never adopted or released [crug-OWN-007]
+    7 |   own struct Foo *a = raw_source;
+      |                   ^

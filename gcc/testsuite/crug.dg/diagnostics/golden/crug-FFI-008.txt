@@ -1,0 +1,4 @@
+cases/out-owned-busy.c: In function ‘main’:
+cases/out-owned-busy.c:10:3: error: owned variable ‘n’ already owns a value; drop it or release it before passing its address for output [crug-FFI-008]
+   10 |   fill_node (&n);
+      |   ^~~~~~~~~~~~~~

@@ -1,0 +1,7 @@
+cases/mut-twice.c: In function ‘f’:
+cases/mut-twice.c:6:12: error: cannot mutably borrow ‘p’ more than once [crug-BORROW-003]
+    6 |   mut int *b = borrow_mut (p);
+      |            ^
+cases/mut-twice.c:5:12: note: borrow created here
+    5 |   mut int *a = borrow_mut (p);
+      |            ^

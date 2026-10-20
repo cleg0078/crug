@@ -1,0 +1,4 @@
+cases/assign-owner-while-borrowed.c: In function ‘f’:
+cases/assign-owner-while-borrowed.c:6:5: error: cannot assign to ‘p’ while it is borrowed [crug-BORROW-014]
+    6 |   p = (int *) 2;
+      |   ~~^~~~~~~~~~~

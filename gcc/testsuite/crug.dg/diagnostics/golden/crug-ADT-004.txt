@@ -1,0 +1,4 @@
+cases/unit-variant-payload.c: In function ‘f’:
+cases/unit-variant-payload.c:10:20: error: variant ‘Quit’ does not take a payload [crug-ADT-004]
+   10 |   enum Message m = Quit (1);
+      |                    ^~~~

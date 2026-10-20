@@ -1,0 +1,4 @@
+cases/goto-into-owned-scope.c: In function ‘f’:
+cases/goto-into-owned-scope.c:8:5: error: goto jumps into the scope of owned ‘p’ [crug-DROP-002]
+    8 |     goto inside;
+      |     ^~~~

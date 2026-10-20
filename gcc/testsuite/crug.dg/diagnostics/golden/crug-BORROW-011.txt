@@ -1,0 +1,4 @@
+cases/borrow-empty-own.c: In function ‘f’:
+cases/borrow-empty-own.c:5:12: error: cannot borrow ‘p’ because it owns nothing [crug-BORROW-011]
+    5 |   ref int *r = borrow (p);
+      |            ^

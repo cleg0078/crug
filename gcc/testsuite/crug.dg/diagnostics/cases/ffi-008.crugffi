@@ -1,0 +1,5 @@
+# crug-FFI-008 fixture: an out_owned argument must not overwrite an owned value.
+crugffi 1.0;
+fn my_alloc returns owned Node nullable drop my_free;
+fn my_free consumes arg0 nullable;
+fn fill_node out_owned arg0 drop my_free;

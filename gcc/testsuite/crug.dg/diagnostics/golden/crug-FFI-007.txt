@@ -1,0 +1,4 @@
+cases/consumes-not-moved.c: In function ‘main’:
+cases/consumes-not-moved.c:9:3: error: ‘my_free’ takes ownership of argument 1; pass ‘move’ of an owned value, a fresh allocation, or null [crug-FFI-007]
+    9 |   my_free (n);
+      |   ^~~~~~~~~~~

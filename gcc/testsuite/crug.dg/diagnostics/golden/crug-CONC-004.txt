@@ -1,0 +1,4 @@
+cases/select-arm-form.c: In function ‘main’:
+cases/select-arm-form.c:7:5: error: select case must be ‘case v = recv (ch):’, ‘case send (ch, v):’ or ‘default:’ [crug-CONC-004]
+    7 |     case x + 1:
+      |     ^~~~

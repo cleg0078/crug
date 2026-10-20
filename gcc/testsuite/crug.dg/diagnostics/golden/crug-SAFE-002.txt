@@ -1,0 +1,4 @@
+cases/pointer-int-cast.c: In function ‘to_pointer’:
+cases/pointer-int-cast.c:4:10: error: conversion between an integer and a pointer outside an ‘unsafe’ block [crug-SAFE-002]
+    4 |   return (void *) i;
+      |          ^

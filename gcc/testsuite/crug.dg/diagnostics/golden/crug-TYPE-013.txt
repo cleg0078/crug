@@ -1,0 +1,3 @@
+cases/slice-arity.c:2:1: error: ‘slice’ needs exactly one type argument [crug-TYPE-013]
+    2 | slice<int, int> bad;
+      | ^~~~~

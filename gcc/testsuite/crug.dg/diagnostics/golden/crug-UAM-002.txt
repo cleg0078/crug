@@ -1,0 +1,7 @@
+cases/double-move.c: In function ‘f’:
+cases/double-move.c:10:11: error: move of already-moved value ‘p’ [crug-UAM-002]
+   10 |   *sink = move (p);
+      |           ^~~~
+cases/double-move.c:9:11: note: value was moved here
+    9 |   *sink = move (p);
+      |           ^~~~

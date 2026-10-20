@@ -1,0 +1,4 @@
+cases/write-through-ref.c: In function ‘f’:
+cases/write-through-ref.c:6:6: error: assignment through shared borrow ‘r’ [crug-BORROW-008]
+    6 |   *r = 5;
+      |   ~~~^~~

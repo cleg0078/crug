@@ -1,0 +1,4 @@
+cases/own-ref-combo.c: In function ‘f’:
+cases/own-ref-combo.c:4:7: error: more than one Crug qualifier on one declarator [crug-TYPE-002]
+    4 |   own ref int *p;
+      |       ^~~

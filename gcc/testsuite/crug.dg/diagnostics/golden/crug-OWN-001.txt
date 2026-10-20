@@ -1,0 +1,4 @@
+cases/move-not-owned.c: In function ‘f’:
+cases/move-not-owned.c:9:10: error: move() operand is not an owned object [crug-OWN-001]
+    9 |   sink = move (p);
+      |          ^~~~

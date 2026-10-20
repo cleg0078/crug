@@ -1,0 +1,4 @@
+cases/match-non-exhaustive.c: In function ‘f’:
+cases/match-non-exhaustive.c:4:3: error: non-exhaustive ‘match’: no arm for ‘none’; add that arm or a ‘_’ arm [crug-ADT-011]
+    4 |   match (o)
+      |   ^~~~~

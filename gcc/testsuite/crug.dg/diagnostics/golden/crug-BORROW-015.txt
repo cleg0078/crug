@@ -1,0 +1,4 @@
+cases/use-owner-under-mut.c: In function ‘f’:
+cases/use-owner-under-mut.c:6:11: error: cannot use ‘p’ while it is mutably borrowed [crug-BORROW-015]
+    6 |   int x = *p;
+      |           ^~

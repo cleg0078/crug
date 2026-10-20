@@ -298,6 +298,13 @@ check-KERNEL: ## run the Phase 19 kernel stages, the object diff and the P0 ledg
 	scripts/kernel-object-diff.sh
 	scripts/check-p0-open.sh --kernel
 
+check-DIAGNOSTICS: ## check the Phase 20 diagnostic goldens and the SARIF contract
+	scripts/check-diagnostic-goldens.sh
+	scripts/check-diagnostic-sarif.sh
+
+check-docs-examples: ## compile and run the examples quoted in docs/crug/MIGRATION-EXAMPLES.md
+	scripts/check-docs-examples.sh
+
 fork-delta: ## print the fork delta against the pinned GCC vendor tag
 	scripts/fork-delta.sh
 
@@ -365,5 +372,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
+	check-DIAGNOSTICS check-docs-examples \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

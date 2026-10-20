@@ -1,0 +1,4 @@
+cases/callback-not-function.c: In function ‘main’:
+cases/callback-not-function.c:7:3: error: ‘run_cb’ calls back through argument 1; pass a function or a null pointer [crug-FFI-009]
+    7 |   run_cb ((void (*) (void)) &x);
+      |   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~

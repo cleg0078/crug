@@ -1,0 +1,3 @@
+# crug-FFI-009 fixture: a callback argument must be a function or null.
+crugffi 1.0;
+fn run_cb callback arg0;

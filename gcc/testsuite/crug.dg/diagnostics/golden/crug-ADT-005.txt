@@ -1,0 +1,4 @@
+cases/ctor-needs-context.c: In function ‘f’:
+cases/ctor-needs-context.c:4:3: error: ‘some’ needs an option or result type from its context; initialize a declaration or use it in a return statement [crug-ADT-005]
+    4 |   some (1);
+      |   ^~~~

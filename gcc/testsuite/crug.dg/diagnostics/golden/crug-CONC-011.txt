@@ -1,0 +1,5 @@
+cases/owned-to-task.c: In function ‘main’:
+cases/owned-to-task.c:13:3: error: owned value passed to concurrent task without ownership transfer [crug-CONC-011]
+   13 |   go take (buf);
+      |   ^~
+cases/owned-to-task.c:13:3: note: use ‘move (buf)’ to transfer it to the task

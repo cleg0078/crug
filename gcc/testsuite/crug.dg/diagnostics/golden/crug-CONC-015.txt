@@ -1,0 +1,4 @@
+cases/goto-into-scope.c: In function ‘main’:
+cases/goto-into-scope.c:8:3: error: goto jumps into a ‘scope’ block [crug-CONC-015]
+    8 |   goto inside;
+      |   ^~~~

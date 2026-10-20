@@ -1,0 +1,4 @@
+cases/maybe-moved.c: In function ‘f’:
+cases/maybe-moved.c:12:9: error: use of possibly-moved value ‘p’ after a branch join [crug-UAM-004]
+   12 |   *sink = p;
+      |   ~~~~~~^~~

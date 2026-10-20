@@ -1,0 +1,4 @@
+cases/match-not-sum.c: In function ‘f’:
+cases/match-not-sum.c:4:3: error: ‘match’ needs an option, result or payload enum value [crug-ADT-013]
+    4 |   match (x)
+      |   ^~~~~

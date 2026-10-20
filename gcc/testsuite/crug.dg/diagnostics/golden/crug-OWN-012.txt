@@ -1,0 +1,4 @@
+cases/own-arg-plain-call.c: In function ‘f’:
+cases/own-arg-plain-call.c:10:3: error: an owned value passed to ‘plain’ has no ownership contract; release (‘x’) first, or use an ‘unsafe’ block [crug-OWN-012]
+   10 |   plain (x);
+      |   ^~~~~~~~~

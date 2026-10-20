@@ -1,0 +1,4 @@
+cases/raw-deref.c: In function ‘read_it’:
+cases/raw-deref.c:6:11: error: dereference of ‘raw’ pointer ‘p’ outside an ‘unsafe’ block [crug-SAFE-001]
+    6 |   return p->v;
+      |           ^~

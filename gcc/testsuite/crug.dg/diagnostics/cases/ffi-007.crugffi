@@ -1,0 +1,4 @@
+# crug-FFI-007 fixture: a consumes argument must be moved explicitly.
+crugffi 1.0;
+fn my_alloc returns owned Node nullable drop my_free;
+fn my_free consumes arg0 nullable;

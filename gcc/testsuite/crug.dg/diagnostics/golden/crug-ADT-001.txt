@@ -1,0 +1,3 @@
+cases/empty-payload-parens.c:4:5: error: empty payload parentheses in a payload enum [crug-ADT-001]
+    4 |   A (),
+      |     ^

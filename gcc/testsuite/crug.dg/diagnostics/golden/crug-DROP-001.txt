@@ -1,0 +1,4 @@
+cases/drop-non-owned.c: In function ‘f’:
+cases/drop-non-owned.c:7:3: error: drop() operand is not an owned object [crug-DROP-001]
+    7 |   drop (raw);
+      |   ^~~~

@@ -1,0 +1,4 @@
+cases/select-eqeq.c: In function ‘main’:
+cases/select-eqeq.c:7:5: error: ‘case v == recv (ch)’ is not a select form; use ‘case v = recv (ch)’ [crug-CONC-007]
+    7 |     case v == recv (a):
+      |     ^~~~

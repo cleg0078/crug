@@ -1,0 +1,7 @@
+cases/shared-after-mut.c: In function ‘f’:
+cases/shared-after-mut.c:6:12: error: cannot borrow ‘p’ while it is mutably borrowed [crug-BORROW-016]
+    6 |   ref int *r = borrow (p);
+      |            ^
+cases/shared-after-mut.c:5:12: note: borrow created here
+    5 |   mut int *m = borrow_mut (p);
+      |            ^

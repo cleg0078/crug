@@ -1,0 +1,7 @@
+cases/maybe-destroyed-once.c: In function ‘f’:
+cases/maybe-destroyed-once.c:9:19: error: cannot prove that ‘p’ is destroyed exactly once on this path [crug-DROP-006]
+    9 |   own struct Foo *p = adopt (raw_source, my_free);
+      |                   ^
+cases/maybe-destroyed-once.c:8:1: note: the ownership state here depends on which branch was taken
+    8 | {
+      | ^

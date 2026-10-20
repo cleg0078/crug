@@ -1,0 +1,4 @@
+cases/unadopted-own.c: In function ‘f’:
+cases/unadopted-own.c:7:19: warning: owned value ‘p’ is never adopted or released [crug-OWN-007] [-Wcrug-unadopted-own]
+    7 |   own struct Foo *p = raw;
+      |                   ^

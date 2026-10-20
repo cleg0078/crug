@@ -1,0 +1,4 @@
+cases/variant-needs-payload.c: In function ‘f’:
+cases/variant-needs-payload.c:10:20: error: variant ‘Text’ expects a payload [crug-ADT-003]
+   10 |   enum Message m = Text;
+      |                    ^~~~

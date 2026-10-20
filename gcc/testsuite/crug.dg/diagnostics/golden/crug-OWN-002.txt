@@ -1,0 +1,4 @@
+cases/adopt-bad-dtor.c: In function ‘f’:
+cases/adopt-bad-dtor.c:8:19: error: adopt() destructor must have type void (*)(T *) for the operand type T [crug-OWN-002]
+    8 |   own struct Foo *p = adopt (my_alloc (), not_a_dtor);
+      |                   ^

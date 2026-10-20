@@ -1,0 +1,4 @@
+cases/drop-while-borrowed.c: In function ‘f’:
+cases/drop-while-borrowed.c:6:3: error: cannot drop ‘p’ while it is borrowed [crug-BORROW-005]
+    6 |   drop (p);
+      |   ^~~~

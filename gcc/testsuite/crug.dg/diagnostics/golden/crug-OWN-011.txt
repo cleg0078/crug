@@ -1,0 +1,4 @@
+cases/own-arg-needs-move.c: In function ‘f’:
+cases/own-arg-needs-move.c:10:3: error: an owned value passed to an ‘own’ parameter must be moved explicitly: write move (‘x’) [crug-OWN-011]
+   10 |   take_own (x);
+      |   ^~~~~~~~~~~~

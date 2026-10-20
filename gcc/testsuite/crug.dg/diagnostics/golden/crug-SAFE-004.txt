@@ -1,0 +1,4 @@
+cases/asm-outside-unsafe.c: In function ‘f’:
+cases/asm-outside-unsafe.c:4:3: error: an ‘asm’ statement outside an ‘unsafe’ block can change memory that Crug tracks [crug-SAFE-004]
+    4 |   asm volatile ("" ::: "memory");
+      |   ^~~

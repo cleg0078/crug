@@ -1,0 +1,4 @@
+cases/not-send-capture.c: In function ‘main’:
+cases/not-send-capture.c:17:3: error: a value of type ‘int *’ cannot cross to another task; the type is not ‘Send’ [crug-CONC-024]
+   17 |   go fill (buf, 4);
+      |   ^~

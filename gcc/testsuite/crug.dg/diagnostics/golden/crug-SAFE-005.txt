@@ -1,0 +1,4 @@
+cases/longjmp-outside-unsafe.c: In function ‘jump’:
+cases/longjmp-outside-unsafe.c:10:3: error: ‘longjmp’ bypasses automatic destruction; call it inside an ‘unsafe’ block under ‘-fcrug-strict’ [crug-SAFE-005]
+   10 |   longjmp (&env, 1);
+      |   ^~~~~~~~~~~~~~~~~

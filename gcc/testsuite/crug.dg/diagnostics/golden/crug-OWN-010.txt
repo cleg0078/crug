@@ -1,0 +1,4 @@
+cases/conflict-dtor.c: In function ‘f’:
+cases/conflict-dtor.c:11:6: error: conflicting destructors for owned value ‘p’ on different paths [crug-OWN-010]
+   11 |   if (c)
+      |      ^
