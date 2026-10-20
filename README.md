@@ -152,7 +152,27 @@ debuggers are meant to consume the compiler,
 [MIGRATION-EXAMPLES.md](docs/crug/MIGRATION-EXAMPLES.md) shows the before and
 after of a migration with executable examples, and
 [ADR 0027](docs/crug/adr/0027-tooling-decisions.md) (proposed) fixes the
-decisions behind them. See
+decisions behind them.
+Phase 21 measures the zero-cost claim instead of asserting it: `bench/run.py --zero-cost --check`
+compiles four Crug constructs (an owned allocation with automatic drop,
+`move`, and `ref` and `mut` parameters) against their plain-C twins at
+-O0/-O2/-O3 and finds the optimised tree dump and the instruction stream
+identical in all twelve comparisons (0 added instructions, 0 added calls).
+`--pristine --check` compiles the corpus and the benchmark kernels with an
+unmodified GCC 16.2 built by `make pristine-xgcc` and gets byte-identical
+objects (114 of 114 pairs), which is the only non-tautological plain-C
+comparison in the project. `--plain-c --check` re-checks the recorded baseline
+(object identity enforced). `--concurrency --check` spawns 200 tasks (Crug/pthread
+dispatch ratio 0.82; 67.7 KiB of memory per task against 8032.1 KiB for a
+pthread) and runs the channel arms (197 ns per round trip, 42.5M elements/s,
+4224 B per channel). `scripts/check-kernel-perf.sh` compares the 438-object
+kernel corpus: 437 objects byte-identical, the timestamp object explained in
+`kernel/object-diff-allow.txt`, and the disassembly, `.text` sizes and symbol
+counts identical for all 438. The thresholds are ratified in
+[docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) and the measured
+results and method are in [docs/crug/PERFORMANCE.md](docs/crug/PERFORMANCE.md);
+`make check-PERFORMANCE` runs all five checks and writes the report.
+See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -315,7 +335,12 @@ origin notes (`scripts/check-diagnostic-goldens.sh`,
 is the registry and the "common errors and how to fix them" guide);
 `make check-docs-examples` compiles and runs every marked example in
 [docs/crug/MIGRATION-EXAMPLES.md](docs/crug/MIGRATION-EXAMPLES.md) and compares
-its stdout.
+its stdout. `make check-PERFORMANCE` runs the five Phase 21 checks (zero cost,
+pristine parity, recorded baseline, concurrency and channels, kernel codegen)
+and writes `bench/results/<date>.md`; `make pristine-xgcc` builds the unmodified
+reference compiler it compares against, and
+[docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) owns every number the
+qualification enforces.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.

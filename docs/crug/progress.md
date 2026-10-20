@@ -31,7 +31,14 @@ Phase 19 qualifies the Linux kernel build (2,980 translation units, a boot
 under QEMU and an object diff against plain GCC 16.2), and Phase 20 makes the
 stable diagnostic codes machine-readable (SARIF `ruleId`), publishes one
 fixture and one golden per code for the fifty most common classes, and records
-the tooling contract and executable migration examples. The `kernel-compat`
+the tooling contract and executable migration examples. Phase 21 measures the
+zero-cost claim instead of asserting it: four Crug constructs compile to the
+same optimised machine code as their plain-C twins at three optimisation levels
+(12 of 12 comparisons, 0 added instructions and 0 added calls), plain C stays
+byte-identical to an unmodified GCC 16.2 (114 of 114 pairs), 200 tasks dispatch
+faster than pthread-per-task with 67.7 KiB of memory per task instead of
+8032.1 KiB, and the 438-object kernel corpus keeps 437 identical objects plus
+one explained timestamp. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -424,6 +431,34 @@ It passes 6/6 at `9dd9eaf` (logs under `docs/crug/gates/phase-20/9dd9eaf/`),
 so M20 is awarded. The closing push (`60184c4`) is green: `kernel-compat`
 run 25 and `multi-os` run 12 both succeeded.
 
+Phase 21 replaces the last unmeasured promise with numbers. `bench/run.py` gained
+five qualification modes: a zero-cost matrix (four constructs - automatic drop,
+`move`, a `ref` parameter and a `mut` parameter - each compiled against its
+plain-C twin from the same basename and compared as optimised tree dump plus
+instruction stream), a pristine comparison against an unmodified GCC 16.2 built
+by `make pristine-xgcc` (the only non-tautological plain-C comparison in the
+project, because the phase-1 `diff-cc.sh` compares two builds of the same fork),
+a re-check of the recorded `bench/baseline.json`, a concurrency driver
+(`bench/concurrency/run.py`: pthread-per-task, an allocation-free pool and the
+Crug runtime over 200 tasks, plus a memory-per-task arm and a channel bench in
+`bench/channels/`), and the kernel codegen comparison over the 438-object corpus.
+Everything is green: 12 of 12 zero-cost comparisons identical with 0 added
+instructions and 0 added calls; 114 of 114 pristine objects byte-identical;
+every non-LTO baseline object identical (timing ratios 0.916-1.012, which is
+host noise); Crug dispatch 1.88 ms against 2.30 ms for pthread-per-task
+(ratio 0.818) with 67.7 KiB of memory per task against 8032.1 KiB; channels at
+197 ns per round trip and 42.5M elements/s with 4224 B per channel; and 437 of
+438 kernel objects byte-identical with the timestamp object explained in
+`kernel/object-diff-allow.txt`. The thresholds are ratified in the new
+[docs/crug/RELEASE-POLICY.md](RELEASE-POLICY.md) (Section 2, amendment A-1:
+dispatch compares against pthread-per-task and the allocation-free pool ratio is
+recorded only, because a 64 KiB stack per task is a runtime design decision,
+not language overhead). The measured results and method are in the new
+[docs/crug/PERFORMANCE.md](PERFORMANCE.md), `make check-PERFORMANCE` writes
+`bench/results/<date>.md`, and the Phase 21 gate (amendment A-24) runs six
+runnable checks: the four harness modes, the kernel codegen comparison and the
+single command that runs all five. It is archived under
+`docs/crug/gates/phase-21/`.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -506,6 +541,7 @@ superseding ADR and owner ratification.
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
 | The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
+| The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
 
 ## Still open
 
@@ -538,15 +574,22 @@ superseding ADR and owner ratification.
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
 | -  | ADR 0022 (baseline upgrade policy) is Proposed, so the P/M/J classes, the acceptance rule and the ratification split are not yet binding | owner ratification |
 | -  | The upgrade procedure has never been executed against a real new release; the first M- or J-class upgrade is the drill | first GCC release after 16.2 |
+| -  | The performance bands are calibrated on this one reference host (Linux x86-64, 20 CPUs): the zero-cost result is exact and machine-independent, but the dispatch, memory and channel margins are host-specific and the absolute numbers in `PERFORMANCE.md` are not portable | RELEASE-POLICY.md Section 2; a second reference host when one is available |
+| -  | The zero-cost matrix covers four constructs (`own` with drop, `move`, `ref`, `mut`); `scope`, `chan`, payload enums and `match` are measured only indirectly through the concurrency and kernel arms, and a new construct must add a pair under `bench/zero-cost/` | a later performance increment; the matrix is the extension point |
+| -  | Dispatch and memory are compared against pthread-per-task with the allocation-free pool recorded only: Crug stays about 14x slower than the pool because every task reserves and commits a 64 KiB guarded stack, and stack pooling is future work needing its own ADR | ADR 0008 and RELEASE-POLICY.md amendment A-1 |
+| -  | The kernel codegen arm compares objects and disassembly only: no runtime speed measurement of the booted kernel is made, so `PERFORMANCE.md` does not claim kernel throughput | a later phase with a kernel benchmark harness |
 
 ## Next actions, in dependency order
 
-1. **Open Phase 21 (performance qualification)**: the Phase 20 gate
-   (amendment A-23) runs six checks over the diagnostics corpus, the SARIF
-   contract and the documentation examples. Phase 21's deliverable is measured
-   performance against the C baseline: the `bench/` matrix currently measures
-   the alias-facts row only, and the phase needs a pinned harness, a reporting
-   format and a zero-cost verdict per construct.
+1. **Open Phase 22 (security and reliability qualification)**: the Phase 21 gate
+   (amendment A-24) runs the four harness modes, the kernel codegen comparison
+   and the single command that runs all five, and the phase is archived under
+   `docs/crug/gates/phase-21/`. Phase 22's deliverable is evidence that the
+   compiler and the runtime fail safely: fuzz harnesses for the parser,
+   ownership, borrow, `.crugffi`, scheduler and channel state machine, ASan/UBSan
+   (and TSan where it is valid) runs, the P0/P1 ledger checks and a nightly CI
+   window; `docs/crug/KNOWN-ISSUES.md` already carries the ledger format those
+   gates read.
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status
