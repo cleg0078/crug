@@ -489,7 +489,15 @@ the `fuzz-nightly` workflow was only just pushed, so the checker reports "the
 workflow has no scheduled runs yet" (exit 2, which is not evidence of success).
 Its logs are archived under `docs/crug/gates/phase-22/d791347/` and marked as a
 pre-closure run; M22 is not awarded until 30 consecutive scheduled runs
-accumulate (RELEASE-POLICY 3.3) and a closure run is archived.
+accumulate (RELEASE-POLICY 3.3) and a closure run is archived. The nightly
+workflow itself is green on CI: run 3 at `5ec1d13` ran both checks at the
+nightly budget (8,000 compiler inputs, 2,000 scheduler sequences, 20,000 channel
+runs, the sanitizer arms including TSan) and succeeded. The first run failed
+without a captured log (the log capture was added afterwards); runs 2 and 3
+both pass. The workflow now installs clang's
+compiler-rt package and lowers `vm.mmap_rnd_bits` for TSan so a runner without
+those does not fail on a missing sanitizer runtime. The first scheduled run is
+03:17 UTC.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
