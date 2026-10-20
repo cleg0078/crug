@@ -26,7 +26,12 @@ types (`slice`, `option`, `result`, payload enums, owned payloads, `match`,
 checked indexing) exist and are described below, Phase 11 lets the
 optimizer use proven ownership (`-fcrug-alias-facts`, `mut`/`own` parameters
 as `restrict`), and Phase 12 adds `c2crug`, a conservative C-to-Crug migration
-tool (proof-based `own` insertion, `raw` for everything unproven). The `kernel-compat`
+tool (proof-based `own` insertion, `raw` for everything unproven).
+Phase 19 qualifies the Linux kernel build (2,980 translation units, a boot
+under QEMU and an object diff against plain GCC 16.2), and Phase 20 makes the
+stable diagnostic codes machine-readable (SARIF `ruleId`), publishes one
+fixture and one golden per code for the fifty most common classes, and records
+the tooling contract and executable migration examples. The `kernel-compat`
 CI job builds the pinned baseline on every push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
@@ -415,6 +420,9 @@ with executable examples checked by `make check-docs-examples`. ADR 0027
 (tooling decisions) is written and Proposed. The Phase 20 gate (amendment A-23)
 runs six runnable checks: the registry, the fifty-row corpus, the goldens, the
 SARIF contract, the absence of GIMPLE jargon and the documentation examples.
+It passes 6/6 at `9dd9eaf` (logs under `docs/crug/gates/phase-20/9dd9eaf/`),
+so M20 is awarded. The closing push (`60184c4`) is green: `kernel-compat`
+run 25 and `multi-os` run 12 both succeeded.
 
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
