@@ -211,7 +211,7 @@ No qemu version is part of the pin; a later boot record names its own.
   validated — no key for it was available in the verifying keyring — so the digest
   line was cross-checked as text only.
 - Performed by the Phase 19 gate on 2026-10-20 (archived under
-  `docs/crug/gates/phase-19/`):
+  `docs/crug/gates/phase-19/`; the run at `3775c34` passed 6/6):
   - `scripts/kernel-stage.sh K1` — 8 header probes compiled as an external module.
   - `K2` — 12 selected translation units; `K3` — `lib/` built as a whole.
   - `K4` — 438 corpus objects compiled from source.
@@ -222,8 +222,10 @@ No qemu version is part of the pin; a later boot record names its own.
     `crug-boot-ok` once, clean poweroff.
   - `K7` — 15 aarch64 objects compiled with the cross compiler and checked to be
     AArch64 relocatables.
-  - `scripts/kernel-object-diff.sh` — all 438 objects byte-identical to the same
-    objects built by the wrapped GCC driver, 0 differences.
+  - `scripts/kernel-object-diff.sh` — 437 of the 438 objects byte-identical to
+    the same objects built by the wrapped GCC driver; the single difference is
+    `init/version-timestamp.o`, whose `UTS_VERSION` embeds the build time and
+    build number, and `kernel/object-diff-allow.txt` records that reason.
 - Not claimed: no `class K0` or `stage K0` result, no ownership contracts in kernel
   code, and no codegen-parity performance claim (that is Phase 21). A gate claim
   needs archived command output per `docs/crug/EXIT-GATES.md` section 2.
