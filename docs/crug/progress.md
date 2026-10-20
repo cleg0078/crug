@@ -392,6 +392,30 @@ and passes 6/6 at `3775c34` (logs under `docs/crug/gates/phase-19/3775c34/`),
 so M19 is awarded. The closing push (`d54cda2`) is green: `kernel-compat`
 run 23 and `multi-os` run 10 both succeeded.
 
+Phase 20 turns the stable diagnostic codes into an interface. Every Crug
+diagnostic is now emitted through one helper (`gcc/c-family/crug-diagnostics.cc`)
+that attaches the code as a GCC diagnostic rule, so text output renders
+`[crug-<AREA>-<NNN>]` from the rule rather than from a hand-written suffix, and
+SARIF - the only machine-readable format GCC 16.2 implements - carries the code
+in `ruleId` with a `helpUri` that resolves to `docs/crug/DIAGNOSTICS.md`
+(`gcc/diagnostics/sarif-sink.cc` gained the metadata-rule branch). Fifty of the
+129 registered codes have a fixture and a golden under
+`gcc/testsuite/crug.dg/diagnostics/` (one case and one golden per code, listed
+in `top50.txt`), and `scripts/check-diagnostic-goldens.sh` fails on any wording
+drift, a duplicate code or a missing fixture; `scripts/check-diagnostic-sarif.sh`
+asserts the `ruleId`, the rule entry and the origin note from the SARIF output.
+Eight classes point at the construct that caused the error (UAM-001/002 "value
+was moved here"; BORROW-002/003/016 "borrow created here"; CONC-011 and
+DROP-006/007 already carried fix notes). The registry gained a user-facing
+"Common errors and how to fix them" section with all fifty entries, the SARIF
+consumption rule replaced the false `-fdiagnostics-format=json` claim, and
+`docs/crug/TOOLING.md` plus `docs/crug/MIGRATION-EXAMPLES.md` document how
+editors and analysers consume the compiler and what a migration looks like,
+with executable examples checked by `make check-docs-examples`. ADR 0027
+(tooling decisions) is written and Proposed. The Phase 20 gate (amendment A-23)
+runs six runnable checks: the registry, the fifty-row corpus, the goldens, the
+SARIF contract, the absence of GIMPLE jargon and the documentation examples.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -434,6 +458,7 @@ superseding ADR and owner ratification.
 | RFC-0001 stated syntax without deciding ambiguity, attachment or ABI erasure | spec/CRUG_RFC_0001.md 0.2-draft sections 13-25 + Appendix H |
 | ADR numbering conflicted with MASTER_SPEC §79 | resolved 2026-10-18: ADR 0003/0004 split + ADR 0005 renamed; mapping in docs/crug/adr/README.md |
 | The decision set was unratified, so nothing could be cited as settled | ten ADRs carry Status Accepted (six on 2026-10-18; ADRs 0006 and 0007 on 2026-10-19; ADRs 0019 and 0020 on 2026-10-19); spec/000-PRECEDENCE.md Accepted (2026-10-18) |
+| Diagnostic codes lived in message strings, so a code was unqueryable and a wording change could not fail a test | one helper (`gcc/c-family/crug-diagnostics.cc`) attaches the code as a diagnostic rule: SARIF `ruleId`, text suffix and `helpUri`; 50-class corpus with one golden per code under `gcc/testsuite/crug.dg/diagnostics/`; origin notes for eight classes; `make check-DIAGNOSTICS`, `make check-docs-examples`; ADR 0027 (Proposed) |
 | No kernel source was pinned, so K0 and Phase 19 were untestable | docs/crug/KERNEL-BASELINE.md (Linux 6.18.57 LTS, tag/commit/SHA256, x86_64_defconfig, qemu markers) + scripts/kernel-pin.sh; C-09 resolved 2026-10-18 |
 | Exit gates were partially unfalsifiable | docs/crug/EXIT-GATES.md |
 | No stable diagnostic-code registry | docs/crug/DIAGNOSTICS.md (111 codes; 84 implemented through Phases 4 to 11) + scripts/check-diagnostics.sh |
@@ -481,7 +506,9 @@ superseding ADR and owner ratification.
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
 | -  | ADR 0017 (kernel ownership policy) is Proposed: kernel code has no ownership, drop, borrow or race analysis in v1, and enabling any of it needs a superseding ADR with kernel allocation/release and RCU/lock rules | owner ratification; a later kernel ownership phase |
 | -  | The aarch64 half of the kernel evidence is compile-only: 15 pinned objects under `arm64_defconfig`, no aarch64 boot and no aarch64 object diff | a later phase with an aarch64 boot harness |
-| -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
+| -  | The diagnostic corpus covers 50 of the 129 registered codes; the rest are exercised by their phase dg suites but have no golden, and GRAMMAR/KERNEL classes emit no diagnostic yet and are excluded on purpose | a later diagnostics increment; the corpus list `gcc/testsuite/crug.dg/diagnostics/top50.txt` is the extension point |
+| -  | Only eight diagnostic classes carry an origin note (UAM-001/002, BORROW-002/003/016, CONC-011, DROP-006/007); the rest point at the use, not at the construct that created the obligation | a later diagnostics increment; the corpus fourth column is where a new note is declared |
+| -  | There is no JSON diagnostic format (GCC 16.2 has none) and no LSP server, no formatter and no shipped editor grammar: `docs/crug/TOOLING.md` fixes the consumption contract (SARIF, dumps, a synthesized compilation database) but the tools themselves are not part of the tree, and ADR 0027 is Proposed | owner ratification of ADR 0027; an editor-tooling phase if the contract proves insufficient |
 | -  | `.crugffi` v1 deliberately excludes returned borrows, conditional ownership (`sqlite3_open`, `realloc`), refcounted APIs, struct members, macros, inline functions and variadic tails; such calls stay level 1 (`adopt` at the call site) | a later FFI revision (ADR 0007 D9) |
 | -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
 | -  | `slice`, `option`, `result`, payload enum and `chan` layouts are frozen (`ABI.md` section 3); no other Crug-native type may cross a C interface yet | a later phase that adds one |
@@ -506,11 +533,12 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Open Phase 20 (diagnostic golden corpus)**: the Phase 19 gate
-   (amendment A-22) runs six checks over the kernel build, boot and object diff.
-   `docs/crug/DIAGNOSTICS.md` already registers the stable codes; Phase 20's
-   deliverable is a golden corpus of error classes with stable wording, one
-   fixture per code, and a checker that fails on any wording drift.
+1. **Open Phase 21 (performance qualification)**: the Phase 20 gate
+   (amendment A-23) runs six checks over the diagnostics corpus, the SARIF
+   contract and the documentation examples. Phase 21's deliverable is measured
+   performance against the C baseline: the `bench/` matrix currently measures
+   the alias-facts row only, and the phase needs a pinned harness, a reporting
+   format and a zero-cost verdict per construct.
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status

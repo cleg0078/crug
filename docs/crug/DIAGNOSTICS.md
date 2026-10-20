@@ -41,9 +41,13 @@ crug-<AREA>-<NNN>
 - The human-readable form is
   `<file>:<line>:<column>: error: <message> [-Wcrug-<option>] [crug-<AREA>-<NNN>]`,
   with the option bracket omitted for hard errors that have no option.
-- The machine-readable form (GCC `-fdiagnostics-format=json`) carries the code
-  as the string member `code` and keeps the related-location chain in `notes`.
-  Codes are identical in both forms; there is no numeric-only alternative.
+- The machine-readable form is SARIF, produced by
+  `-fdiagnostics-format=sarif-file` (or `sarif-stderr`). The code is the
+  result's `ruleId`; the rule is listed in `tool.driver.rules` with a
+  `helpUri` pointing at this file; an origin note is a result of its own. GCC
+  16.2 has no JSON diagnostic format, so this is the only machine-readable
+  surface a consumer may rely on. Codes are identical in the text and SARIF
+  forms; there is no numeric-only alternative.
 
 ## 3. Areas
 
@@ -313,6 +317,11 @@ unsafe, only surprising.
 - `note:` lines carry the fix: the flag, the intrinsic to use, or the exact
   spelling. The phase-20 gate rejects any fix instruction that requires reading a
   compiler dump.
+- An **origin note** points at the earlier construct that caused the conflict:
+  "value was moved here" (UAM-001, UAM-002), "borrow created here"
+  (BORROW-002, BORROW-003, BORROW-016). The corpus records which classes have
+  one in the fourth column of `top50.txt`, and the golden checker fails if a
+  recorded note disappears.
 - Wording changes are allowed; they must update the golden file in the same
   commit. Code changes are not allowed without a new number.
 - Dynamic text (`%s`) is quoted with straight single quotes; no backticks, no
@@ -343,17 +352,263 @@ gate logs.
 - every registry row has a unique code and a known area;
 - no code is registered twice.
 
+Two scripts check the observable behaviour:
+
+- `scripts/check-diagnostic-goldens.sh` compiles each of the 50 corpus cases
+  from `gcc/testsuite/crug.dg/diagnostics/` and compares the compiler's stderr
+  with `golden/<code>.txt`, byte for byte after the fix is applied. It also
+  requires the fourth column of `top50.txt` (the origin-note column) to be
+  present in the output, and fails when the list is not exactly 50 distinct
+  codes and cases. `--update` regenerates the goldens.
+- `scripts/check-diagnostic-sarif.sh` compiles a moved-value case and a
+  warning case with `-fdiagnostics-format=sarif-file` and requires
+  `ruleId` to be the code (not the `-W` option), the rule to be listed with
+  the documentation URL, and the origin note to be a result.
+
 It does not check semantics; that is the gate's job. The phase-4 gate runs the
 script and requires `[crug-UAM-001]` on the use-after-move test; phase 20 runs
-the script plus the 50-entry golden corpus that this registry seeds. The registry
-is therefore the *index* of diagnostics, not the proof that they work: a code
-with a row and no test is caught by review, a code with a test and no row is
-caught by the script.
+the script plus both checkers. The registry is therefore the *index* of
+diagnostics, not the proof that they work: a code with a row and no test is
+caught by review, a code with a test and no row is caught by the script.
 
-## 9. Status
+## 9. Common errors and how to fix them
+
+These are the fifty Crug diagnostics a new user is most likely to meet, in registry order. Each entry gives the trigger, the invariant it protects and the fix, with the flags that enable the check and the fixture under gcc/testsuite/crug.dg/diagnostics/cases/.
+
+### Move paths (UAM)
+
+#### crug-UAM-001 - use of a moved value
+
+Used ‘p’ after ‘move (p)’ gave it away (use-after-move.c). One owner per value, so use the new owner or move it back; flags ‘-O2 -fcrug-ownership -Wno-crug-unadopted-own’.
+
+#### crug-UAM-002 - move of an already-moved value
+
+Moved the same owned value twice (double-move.c). A value can be given away once, so move it once and then use the new owner; flags ‘-O2 -fcrug-ownership -Wno-crug-unadopted-own’.
+
+#### crug-UAM-003 - implicit copy of an owned value
+
+Initialized one owned variable from another (implicit-copy.c). Owned values are never copied implicitly, so write ‘move (a)’ to transfer or ‘borrow (a)’ to look; flags ‘-O2 -fcrug-ownership -Wno-crug-unadopted-own’.
+
+#### crug-UAM-004 - use of a possibly-moved value
+
+Moved on one branch, then used the name after the join (maybe-moved.c). The compiler cannot know the value is still owned, so move on both paths or neither; flags ‘-O2 -fcrug-ownership -Wno-crug-unadopted-own’.
+
+### Ownership operands and adoption (OWN)
+
+#### crug-OWN-001 - move of a non-owned object
+
+Called ‘move (p)’ on a plain pointer (move-not-owned.c). Plain pointers are unowned raw addresses, so adopt it first or drop the ‘move’; flags ‘-fcrug-ownership’.
+
+#### crug-OWN-002 - adopt() destructor has the wrong type
+
+Passed a destructor that cannot be called as ‘void (*)(T *)’ (adopt-bad-dtor.c). The destructor is the cleanup promise, so fix its signature; flags ‘-O2 -fcrug-strict’.
+
+#### crug-OWN-007 - owned value is never adopted or released
+
+Left an owning local from a raw pointer neither adopted, released, dropped nor moved (unadopted-own.c). Ownership intent is unclear, so adopt, release or drop it, or use ‘-Wno-crug-unadopted-own’; flags ‘-fcrug-ownership’.
+
+#### crug-OWN-010 - conflicting destructors on different paths
+
+Adopted one owned value with different destructors on different paths (conflict-dtor.c). One value needs one way to die, so adopt before the branch or use one destructor; flags ‘-fcrug-ownership’.
+
+#### crug-OWN-011 - owned value passed to an own parameter must be moved
+
+Passed an owned value to an ‘own’ parameter without transferring it (own-arg-needs-move.c). Both sides would own it, so write ‘take_own (move (x))’; flags ‘-O2 -fcrug-strict’.
+
+#### crug-OWN-012 - owned value passed to a function without an ownership contract
+
+Passed an owned value to a plain parameter (own-arg-plain-call.c). The callee has no ownership contract, so release first, mark the parameter ‘own’, or use ‘unsafe’; flags ‘-O2 -fcrug-strict’.
+
+### Borrowing (BORROW)
+
+#### crug-BORROW-002 - mutable borrow while a shared borrow is live
+
+Took ‘borrow_mut’ while a ‘ref’ borrow was live (mut-while-shared.c). Shared borrows promise no change, so end it first; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-003 - more than one mutable borrow
+
+Kept two ‘borrow_mut’ calls live at once (mut-twice.c). One writer at a time, so drop one borrow first; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-004 - move of a borrowed value
+
+Moved the owner while a borrow was live (move-while-borrowed.c). The borrow points at the old location, so end it before moving; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-005 - drop of a borrowed value
+
+Dropped the owner while it was borrowed (drop-while-borrowed.c). A borrow must not outlive its value, so end the borrow first; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-008 - assignment through a shared borrow
+
+Wrote through a ‘ref’ pointer (write-through-ref.c). Shared borrows are read-only, so use a ‘mut’ borrow or do not write; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-009 - borrow of something that is not an owned object
+
+Called ‘borrow’ on a plain pointer (borrow-non-owned.c). Borrows track owned values, so borrow the owning variable; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-011 - borrow of an empty owned value
+
+Borrowed an owned value that was null (borrow-empty-own.c). There is nothing to lend, so initialize the owner first; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-014 - assignment to a borrowed owner
+
+Overwrote the owner while a borrow was live (assign-owner-while-borrowed.c). The borrow would point at the old value, so end it or write through a mutable borrow; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-015 - use of an owner while it is mutably borrowed
+
+Read the owner while it was mutably borrowed (use-owner-under-mut.c). Exclusive access goes through the borrow, so read through it or end it; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-BORROW-016 - shared borrow while a mutable borrow is live
+
+Took a ‘ref’ borrow while a ‘mut’ borrow was live (shared-after-mut.c). Shared and exclusive access cannot coexist, so end the mutable borrow first; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+### Dropping and initialization (DROP)
+
+#### crug-DROP-001 - drop of a non-owned object
+
+Called ‘drop’ on a plain pointer (drop-non-owned.c). Only owned values have a destructor, so adopt it or free it through its API; flags ‘-O2 -fcrug-ownership’.
+
+#### crug-DROP-002 - goto jumps into the scope of an owned value
+
+A ‘goto’ jumped past an owning local declaration (goto-into-owned-scope.c). The block would have an uninitialized owner, so jump before the declaration or move it out; flags ‘-O2 -fcrug-ownership’.
+
+#### crug-DROP-006 - cannot prove the value is destroyed exactly once
+
+Moved the owned value on one path only (maybe-destroyed-once.c). Destruction must be provable on every path, so move on both paths or neither; flags ‘-O2 -fcrug-ownership’.
+
+#### crug-DROP-007 - owned value may be used before it is initialized
+
+Initialized the owning local on one branch only (use-before-init.c). The value may not exist at scope end, so initialize it on every path; flags ‘-O2 -fcrug-ownership’.
+
+#### crug-DROP-008 - assignment to an owned value that already owns
+
+Overwrote an owned variable that still owned a value (reassign-owned.c). The old value would leak, so release or drop it first; flags ‘-O2 -fcrug-ownership’.
+
+### Concurrency (CONC)
+
+#### crug-CONC-003 - send transfers ownership, so pass move()
+
+Passed an owning value to ‘send’ by name (send-needs-move.c). The channel takes ownership, so write ‘send (ch, move (p))’; flags ‘-fcrug-channels -fcrug-ownership’.
+
+#### crug-CONC-004 - malformed select case
+
+Used an arbitrary expression as a ‘select’ arm (select-arm-form.c). Only receive, send and default arms exist, so write ‘case v = recv (ch):’, ‘case send (ch, v):’ or ‘default:’; flags ‘-fcrug-channels’.
+
+#### crug-CONC-007 - select arm uses == instead of =
+
+Wrote ‘case v == recv (ch):’ (select-eqeq.c). That compares instead of binding, so use a single ‘=’; flags ‘-fcrug-channels’.
+
+#### crug-CONC-011 - owned value passed to a task without transfer
+
+Passed an owned value to a task but kept it (owned-to-task.c). Both sides would own it, so pass ‘move (buf)’ and stop using ‘buf’; flags ‘-fcrug-goroutines -fcrug-ownership’.
+
+#### crug-CONC-015 - goto jumps into a scope block
+
+A ‘goto’ jumped into a ‘scope’ block (goto-into-scope.c). Scope bodies have entry rules, so jump before the block or restructure; flags ‘-fcrug-goroutines’.
+
+#### crug-CONC-024 - the value cannot cross to another task
+
+Passed an array that decays to ‘int *’ to a task (not-send-capture.c). The type is not safe to share, so copy into an owned buffer and ‘move’ it, or use a channel; flags ‘-fcrug-goroutines’.
+
+### Sum types and match (ADT)
+
+#### crug-ADT-001 - empty payload parentheses
+
+Declared a variant as ‘A ()’ (empty-payload-parens.c). Parentheses need a payload type, so write ‘A (int)’ or drop the parentheses; flags ‘-fcrug-result’.
+
+#### crug-ADT-003 - variant expects a payload
+
+Named a payload variant without its value (variant-needs-payload.c). The variant needs a payload to exist, so write ‘Text (value)’; flags ‘-fcrug-result’.
+
+#### crug-ADT-004 - variant does not take a payload
+
+Gave a unit variant a payload (unit-variant-payload.c). There is nothing to store, so write the name alone; flags ‘-fcrug-result’.
+
+#### crug-ADT-005 - constructor needs a type from its context
+
+Used a constructor as a bare statement (ctor-needs-context.c). The compiler cannot pick the option or result type, so initialize a declaration such as ‘option<int> o = some (1);’; flags ‘-fcrug-result’.
+
+#### crug-ADT-011 - non-exhaustive match
+
+Left one variant without an arm (match-non-exhaustive.c). A ‘match’ must cover every case, so add the arm or a ‘_’ arm; flags ‘-fcrug-result’.
+
+#### crug-ADT-013 - match needs a sum type
+
+Matched a plain ‘int’ (match-not-sum.c). Only options, results and payload enums are sum types, so match a sum value or use a switch; flags ‘-fcrug-result’.
+
+### Declarations and types (TYPE)
+
+#### crug-TYPE-001 - owning declarator must have pointer type
+
+Applied ‘own’ to a non-pointer (own-non-pointer.c). Ownership is tracked through pointers, so declare ‘own int *p’; flags ‘-fcrug-ownership’.
+
+#### crug-TYPE-002 - more than one Crug qualifier on one declarator
+
+Combined ‘own’ and ‘ref’ (own-ref-combo.c). A declaration cannot be both ownership and borrow, so choose one; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-TYPE-005 - owning declarator cannot have pointer-to-function type
+
+Applied ‘own’ to a function pointer (own-function-type.c). Functions are not heap objects, so drop the ‘own’; flags ‘-fcrug-ownership’.
+
+#### crug-TYPE-007 - borrow qualifier must apply to a pointer
+
+Applied ‘ref’ to a non-pointer (ref-non-pointer.c). A borrow is an address, so write ‘ref int *r’; flags ‘-O2 -fcrug-borrow -Wno-crug-unadopted-own’.
+
+#### crug-TYPE-013 - slice needs exactly one type argument
+
+Declared ‘slice<int, int>’ (slice-arity.c). A slice has one element type, so write ‘slice<int>’; flags ‘-fcrug-slices’.
+
+### Strict mode (SAFE)
+
+#### crug-SAFE-001 - raw pointer dereference outside unsafe
+
+Dereferenced a ‘raw’ pointer outside ‘unsafe’ (raw-deref.c). Raw access has no safety proof, so wrap it in ‘unsafe { ... }’ or take an owned or borrowed parameter; flags ‘-O2 -fcrug-strict’.
+
+#### crug-SAFE-002 - integer and pointer conversion outside unsafe
+
+Cast between integer and pointer outside ‘unsafe’ (pointer-int-cast.c). The cast bypasses the type system, so use ‘unsafe’ or keep a typed pointer; flags ‘-O2 -fcrug-strict’.
+
+#### crug-SAFE-003 - owned value converted to an unmanaged pointer
+
+Cast an owned value to ‘void *’ (owned-to-void.c). The cast erases ownership, so release it first or mark the conversion ‘unsafe’; flags ‘-O2 -fcrug-strict’.
+
+#### crug-SAFE-004 - asm outside unsafe
+
+Ran inline assembly outside ‘unsafe’ (asm-outside-unsafe.c). The compiler cannot see what it changes, so move the statement into ‘unsafe’; flags ‘-O2 -fcrug-strict’.
+
+#### crug-SAFE-005 - longjmp outside unsafe
+
+Called ‘longjmp’ outside ‘unsafe’ (longjmp-outside-unsafe.c). It skips automatic cleanup, so wrap it in ‘unsafe’ or use ordinary control flow; flags ‘-O2 -fcrug-strict’.
+
+### Foreign functions (FFI)
+
+#### crug-FFI-007 - consumes argument must be moved
+
+Passed a ‘consumes’ argument by name (consumes-not-moved.c). Ownership must be surrendered, so write ‘my_free (move (n))’ or pass a fresh allocation or null; flags ‘-fcrug-ffi=cases/ffi-007.crugffi’.
+
+#### crug-FFI-008 - out_owned argument would overwrite a live owner
+
+Passed the address of an owned variable that already owned a value to an ‘out_owned’ argument (out-owned-busy.c). The old value would leak, so release it first or pass a fresh variable; flags ‘-fcrug-ffi=cases/ffi-008.crugffi’.
+
+#### crug-FFI-009 - callback argument must be a function or null
+
+Passed a cast data object as a ‘callback’ argument (callback-not-function.c). Calling data as code is undefined, so pass a function pointer or null; flags ‘-fcrug-ffi=cases/ffi-009.crugffi’.
+
+## 10. Status
 
 129 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
 DROP 8, CONC 27, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+
+Phase 20 added no code. It gave the registry a machine-readable surface and a
+published corpus: every diagnostic that carries a code now carries it as a
+diagnostic rule (text output appends `[crug-<AREA>-<NNN>]`; SARIF makes it the
+`ruleId` with the `helpUri` pointing here), the 50 most common classes have one
+fixture and one golden each under `gcc/testsuite/crug.dg/diagnostics/`, and the
+classes that can point at an earlier construct now say where: UAM-001 and
+UAM-002 add "value was moved here", BORROW-002, BORROW-003 and BORROW-016 add
+"borrow created here" (CONC-011 and DROP-006/DROP-007 already carried their
+fix notes). `scripts/check-diagnostic-goldens.sh` and
+`scripts/check-diagnostic-sarif.sh` are the checks; the corpus list is the
+fourth-column origin-note table described in section 8.
 
 Phase 17 added four codes, all in ADR 0026: CONC-024 (a value whose type is
 not Send crosses a task or channel boundary), CONC-025 (a thread-affine value

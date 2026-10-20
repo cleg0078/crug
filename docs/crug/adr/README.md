@@ -7,7 +7,7 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Twenty of the twenty-three written ADRs are Accepted and are cited by number
+Twenty of the twenty-four written ADRs are Accepted and are cited by number
 throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
 2026-10-18, ADRs 0006 and 0007 on 2026-10-19, ADRs 0019 and 0020 on 2026-10-19
 as the Phase 7 planning decisions, ADR 0010 on 2026-10-19 together with the
@@ -23,7 +23,8 @@ that kernel code is plain GNU C in v1, with no kernel ownership contracts, and i
 awaits owner ratification. ADR 0021 (Phase 8) is Proposed: it is implemented
 and tested but awaits owner ratification. ADR 0022 (GCC baseline upgrade
 policy) is Proposed: its measurements are recorded, but the policy itself awaits
-ratification.
+ratification. ADR 0027 (Phase 20) is Proposed: it records the tooling surfaces
+and the no-LSP/no-formatter decisions, and it awaits owner ratification.
 
 | ADR | File | Decides | Status |
 |-----|------|---------|--------|
@@ -50,6 +51,7 @@ ratification.
 | 0026 | 0026-send-sync.md | Send/Sync inference over C types, the crossing rules, the FFI affinity clause and annotations, the documented limits | Accepted (2026-10-20) |
 | 0012 | 0012-os-backend-policy.md | the v1 platform set, two axes without ifdefs in the core, the Windows and Darwin mappings, the callee-saved sets, the CI matrix | Accepted (2026-10-20) |
 | 0017 | 0017-kernel-ownership-policy.md | kernel code is plain GNU C, no kernel ownership contracts in v1, the additive path to a future kernel increment | Proposed (2026-10-20) |
+| 0027 | 0027-tooling-decisions.md | machine-readable diagnostics, the IDE consumption contract, no LSP server in v1, no formatter in v1, highlighting scopes, debugger notes, tooling reuse, executable docs examples | Proposed (2026-10-20) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -97,14 +99,14 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | Number | Topic | Depends on |
 |--------|-------|------------|
 | 0014 | Portable I/O poller | a phase that needs I/O |
-| 0027 | the next topic above 0017 (channels took 0025, Send/Sync 0026) | a phase that needs it |
+| 0028 | the next topic above 0017 (channels took 0025, Send/Sync 0026, tooling 0027) | a phase that needs it |
 | 0016 | Freestanding and no-runtime policy | ADR 0017 (written and proposed) |
 
 ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
 ADRs 0019 and 0020 record the two Phase 7 policies (interprocedural depth zero and
 last-use liveness). ADR 0022 keeps the GCC pin revisable on evidence; a major
-baseline upgrade would supersede ADR 0001 with the next free number (0027 today).
+baseline upgrade would supersede ADR 0001 with the next free number (0028 today).
 ADR 0010 is written and accepted, so Phase 11 is unblocked on the document side;
 ADR 0023 is written and accepted, so Phase 12 is unblocked on the document side.
 ADR 0011 is written and accepted, so Phase 13 is unblocked on the document side
@@ -117,7 +119,10 @@ select) is unblocked on the document side and its gate is adjudicable. ADR 0026
 is written and accepted, so Phase 17 (Send/Sync) is unblocked on the document
 side and its gate is adjudicable; ADR 0012 is written and accepted, so Phase 18
 (multi-OS runtime) is unblocked on the document side and its gate is
-adjudicable. The next free number above 0017 is 0027. ADR 0017 (kernel ownership policy) is
+adjudicable. ADR 0027 is written and proposed: it records the Phase 20 tooling
+decisions (machine-readable diagnostics, the editor consumption contract, no
+LSP server, no formatter, highlighting scopes, debugger notes, and executable
+docs examples). The next free number above 0017 is 0028. ADR 0017 (kernel ownership policy) is
 written and proposed: Phase 19's kernel build and boot make the decision
 concrete, and 0016 (freestanding and no-runtime policy) builds on it. The next
 ADR that unblocks work is 0014 (the poller, when an I/O phase opens); 0015

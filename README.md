@@ -137,7 +137,22 @@ rebuilds the same corpus with the wrapped GCC driver and finds every object
 byte-identical except the one that embeds the build timestamp
 (`kernel/object-diff-allow.txt` records the reason). Kernel code stays plain
 GNU C: no ownership lowering, no drop insertion, no runtime symbol, as recorded
-in [ADR 0017](docs/crug/adr/0017-kernel-ownership-policy.md) (proposed). See
+in [ADR 0017](docs/crug/adr/0017-kernel-ownership-policy.md) (proposed).
+Phase 20 makes the diagnostics usable off the console: every diagnostic that
+carries a stable code carries it as a GCC diagnostic rule, so text output ends
+in `[crug-<AREA>-<NNN>]` and SARIF (the only machine-readable format GCC 16.2
+has; there is no JSON) puts that code in `ruleId` with a `helpUri` that points
+at [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md). The fifty most common
+error classes have one fixture and one golden each under
+`gcc/testsuite/crug.dg/diagnostics/`, so a wording drift fails
+`make check-DIAGNOSTICS`; the classes that can point at an earlier construct
+say where (`note: value was moved here`, `note: borrow created here`).
+[TOOLING.md](docs/crug/TOOLING.md) records how editors, static analysers and
+debuggers are meant to consume the compiler,
+[MIGRATION-EXAMPLES.md](docs/crug/MIGRATION-EXAMPLES.md) shows the before and
+after of a migration with executable examples, and
+[ADR 0027](docs/crug/adr/0027-tooling-decisions.md) (proposed) fixes the
+decisions behind them. See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -293,6 +308,14 @@ on Linux, Windows and macOS runners; `docs/crug/PORTABILITY.md` describes it.
 the wrapped GCC driver and the kernel-scoped P0 ledger check; the stage script
 is `scripts/kernel-stage.sh` and `docs/crug/KNOWN-ISSUES.md` is the defect
 ledger the kernel gates read.
+`make check-DIAGNOSTICS` compiles the fifty-class diagnostics corpus, compares
+each case byte for byte with its golden and asserts the SARIF `ruleId` plus the
+origin notes (`scripts/check-diagnostic-goldens.sh`,
+`scripts/check-diagnostic-sarif.sh`; [docs/crug/DIAGNOSTICS.md](docs/crug/DIAGNOSTICS.md)
+is the registry and the "common errors and how to fix them" guide);
+`make check-docs-examples` compiles and runs every marked example in
+[docs/crug/MIGRATION-EXAMPLES.md](docs/crug/MIGRATION-EXAMPLES.md) and compares
+its stdout.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
