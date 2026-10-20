@@ -1,0 +1,27 @@
+phase-19 #1 rc=0
+cmd: for s in K1 K2 K3 K4 K5 K6 K7; do ./scripts/kernel-stage.sh $s || exit 1; done
+expected: exit 0, with one pass line per stage: `K1: 8 header probe(s) compiled`, `K2: 12 translation unit(s) compiled`, `K3: lib/ built`, `K4: 438 corpus object(s) compiled`, `K5: full build ok`, `K6: boot smoke ok`, `K7: 15 aarch64 object(s) compiled`.
+---
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K1: compiling kernel/probes as an external module
+kernel-stage: K1: 8 header probe(s) compiled
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K2: compiling selected translation units from the gate subsystems
+kernel-stage: K2: 12 translation unit(s) compiled
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K3: building the lib/ subsystem as a whole
+kernel-stage: K3: lib/ built (lib.a present)
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K4: compiling 438 pinned corpus object(s)
+kernel-stage: K4: 438 corpus object(s) compiled
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K5: full kernel build with CC=/home/cleg/MyDev/crug/gcc/crugc
+kernel-stage: K5: full build ok: 3089 object(s), 0 error line(s), vmlinux 51420536 bytes
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K6: building the freestanding /init and an initramfs
+kernel-stage: K6: booting with qemu-system-x86_64 (2 GiB, 2 CPUs, serial console)
+kernel-stage: K6: boot smoke ok: 6.18.57 banner, /init ran, crug-boot-ok once, clean poweroff
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K7: building the cross compiler (incremental after the first run)
+kernel-stage: K7: compiling 15 pinned aarch64 object(s)
+kernel-stage: K7: 15 aarch64 object(s) compiled with xgcc

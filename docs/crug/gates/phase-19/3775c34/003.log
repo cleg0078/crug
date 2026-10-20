@@ -1,0 +1,5 @@
+phase-19 #3 rc=0
+cmd: test "$(nm build/kernel-crug/vmlinux | grep -c '__crug_')" -eq 0
+expected: exit 0: no mandatory runtime symbol, and no libcrug dependency, in the built kernel.
+---
+

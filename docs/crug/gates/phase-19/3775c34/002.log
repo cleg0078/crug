@@ -1,0 +1,5 @@
+phase-19 #2 rc=0
+cmd: test -s build/kernel-crug/vmlinux && test -s build/kernel-crug/arch/x86/boot/bzImage && test -s build/kernel-crug/System.map
+expected: exit 0: the full pinned build produced the kernel image and its map.
+---
+

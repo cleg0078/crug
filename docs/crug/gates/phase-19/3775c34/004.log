@@ -1,0 +1,8 @@
+phase-19 #4 rc=0
+cmd: ./scripts/kernel-stage.sh K6
+expected: exit 0, printing `K6: boot smoke ok: 6.18.57 banner, /init ran, crug-boot-ok once, clean poweroff` (qemu booted the K5 kernel, ran the freestanding `/init`, saw the marker exactly once and exited on poweroff).
+---
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K6: building the freestanding /init and an initramfs
+kernel-stage: K6: booting with qemu-system-x86_64 (2 GiB, 2 CPUs, serial console)
+kernel-stage: K6: boot smoke ok: 6.18.57 banner, /init ran, crug-boot-ok once, clean poweroff

@@ -1,0 +1,5 @@
+phase-19 #6 rc=0
+cmd: ./scripts/check-p0-open.sh --kernel
+expected: exit 0, printing `check-p0-open: 0 open P0 in scope 'kernel' (0 fixed P0/P1 without a regression id)`.
+---
+check-p0-open: 0 open P0 in scope 'kernel' (0 fixed P0/P1 without a regression id)

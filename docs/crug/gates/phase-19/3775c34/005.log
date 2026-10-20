@@ -1,0 +1,7 @@
+phase-19 #5 rc=0
+cmd: ./scripts/kernel-object-diff.sh
+expected: exit 0, printing `438 object(s): 437 identical, 1 explained, 0 unexplained`: every delta against the same corpus built by the wrapped GCC driver is absent or has a line in `kernel/object-diff-allow.txt` (the one explained object embeds the build timestamp).
+---
+kernel-object-diff: building the reference: 438 object(s) with /home/cleg/MyDev/crug/build/obj/gcc/xgcc -B/home/cleg/MyDev/crug/build/obj/gcc/
+kernel-object-diff: explained: init/version-timestamp.o: embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times (the rest of the corpus is byte-identical)
+kernel-object-diff: 438 object(s): 437 identical, 1 explained, 0 unexplained
