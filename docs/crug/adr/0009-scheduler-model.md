@@ -26,6 +26,9 @@ when the machine cannot start a worker.
 
 ### D1 - M:N with one global FIFO ready queue, no stealing, no priorities
 
+(Amended by A-1 in Phase 18: the shared queue hands out only tasks that have
+never run; a task that yields stays on its own worker.)
+
 Workers come only from `crug_pal_thread_create` (ADR 0011 D1). The default
 worker count is `min (usable processors, 8)`, clamped to 1..64 and overridable
 with `CRUG_TASKS_WORKERS` before the first spawn. One global run queue guarded
@@ -102,6 +105,38 @@ gate).
 - The global queue will not scale to many workers; a work-stealing queue is a
   later, measurable change (the spin lock is already isolated behind
   `queue_lock`/`queue_unlock`).
+
+## Amendments
+
+The decisions above are unchanged in intent. Phase 14 implemented them, and
+Phase 18 measured a constraint that D1 cannot survive on a multi-worker host.
+The clarification below is binding.
+
+### A-1 - A task stays on the worker that first runs it
+
+D1 gives every worker the same queue. Phase 18 found that a *resumed* task must
+not be handed to another worker. A C task's stack frames may cache the address
+of a thread-local object in a callee-saved register: on Windows x86-64 mingw64
+compiles `_Thread_local` through `__emutls_get_address` and keeps the returned
+pointer, and on Linux the address is thread-pointer relative and equally
+cacheable. Our context switch saves and restores exactly the callee-saved set,
+so a frame resumed on another thread keeps the *old* thread's address and reads
+that thread's storage. The runtime's own `current_task` is such an object, so
+the failure was concrete: on Windows x86-64 under Wine `crug_task_finish` read
+`current_task == NULL` and stored `CRUG_TASK_DONE` at offset 0x48
+(`offsetof (struct crug_task, state)`), and on Linux AArch64 under qemu the
+same access faulted at the same address; both reproduced only with two or more
+workers, and a one-worker run passes because a task then never changes thread.
+
+The rule in force from Phase 18: the shared queue hands out only tasks that have
+never run, and a task that yields is requeued on the calling worker's own queue
+(`worker_local_push`), so a task is pinned to the worker that first ran it. The
+gate check that failed before the fix and passes after it is the Wine and
+AArch64 run of `tasks-test` with more than one worker
+(`scripts/check-multi-os-ports.sh`). A later work-stealing design must first
+either re-establish the cached thread-local addresses on the new worker or
+forbid C thread-local storage across a `yield ()`; D1 alone does not license
+migration.
 
 ## Alternatives considered
 

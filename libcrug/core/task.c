@@ -109,6 +109,18 @@ static struct crug_sched sched;
 static _Thread_local struct crug_task *current_task;
 static _Thread_local void *worker_sp;
 
+/* The per-worker run queue.  A task is pinned to the worker thread that first
+   runs it (ADR 0009 D3, amended in Phase 18): a C task's stack frames may hold
+   the address of a thread-local object in a callee-saved register, and
+   resuming such a frame on another worker makes it read that other thread's
+   storage.  Linux AArch64 and Windows x86-64 both crashed exactly that way
+   (current_task read as NULL or as another task's pointer).  The shared queue
+   only hands out tasks that have never run; a task that yields goes back to
+   its own worker's queue.  These two pointers are touched only by the worker
+   loop of this thread and never by task code.  */
+static _Thread_local struct crug_task *worker_local_head;
+static _Thread_local struct crug_task *worker_local_tail;
+
 static void crug_worker_main (void *arg);
 
 static void crug_runtime_fatal (const char *what) __attribute__ ((noreturn));
@@ -172,6 +184,35 @@ queue_pop (void)
       task->next = NULL;
     }
   queue_unlock ();
+  return task;
+}
+
+/* The local queue of the calling worker; no lock is needed because only its
+   own worker thread touches it.  */
+
+static void
+worker_local_push (struct crug_task *task)
+{
+  task->next = NULL;
+  if (worker_local_tail == NULL)
+    worker_local_head = task;
+  else
+    worker_local_tail->next = task;
+  worker_local_tail = task;
+}
+
+static struct crug_task *
+worker_local_pop (void)
+{
+  struct crug_task *task = worker_local_head;
+
+  if (task != NULL)
+    {
+      worker_local_head = task->next;
+      if (worker_local_head == NULL)
+	worker_local_tail = NULL;
+      task->next = NULL;
+    }
   return task;
 }
 
@@ -333,6 +374,10 @@ worker_next_task (void)
       uint32_t epoch = atomic_load_explicit (&sched.epoch, memory_order_acquire);
       struct crug_task *task = queue_pop ();
 
+      /* Fresh tasks come from the shared queue, so that all workers share the
+	 load; a resumed task can only come from this worker's own queue.  */
+      if (task == NULL)
+	task = worker_local_pop ();
       if (task != NULL)
         return task;
       if (atomic_load_explicit (&sched.shutdown, memory_order_acquire)
@@ -362,7 +407,9 @@ crug_worker_main (void *arg)
       if (atomic_load_explicit (&task->state, memory_order_acquire) == CRUG_TASK_DONE)
         task_release (task);
       else
-        queue_push (task);
+        /* The task stays on this worker: its frames may cache this thread's
+	   thread-local addresses (ADR 0009 D3).  */
+        worker_local_push (task);
     }
 }
 
