@@ -5,8 +5,10 @@ pass and are archived (section 7), including a `kernel-compat` check run that
 concluded success on that commit and its status as a required check on `main`.
 
 **Closes:** M2 — Linux-kernel/GNU-C baseline, and the evidence basis for conformance
-`class K0` (RFC-0001 section 7.2). Phase 2 does **not** claim K0: K0 also needs the
-per-object kernel corpus of Phase 19.
+`class K0` (RFC-0001 section 7.2). Phase 2 does **not** claim K0: Phase 19 now
+supplies the per-object corpus (`kernel/KERNEL-CORPUS.md`) and the build and boot
+evidence (`docs/crug/KERNEL-BASELINE.md` section 8), but this document still
+claims only the compile-level baseline.
 
 ## 1. What Phase 2 claims
 
@@ -21,7 +23,7 @@ compiler instead of an assumption. It adds:
 - two object-level checks: no Crug runtime symbols, no hidden hosted runtime in a
   freestanding translation unit.
 
-It does **not** compile kernel source (Phase 19), benchmark codegen (Phase 21), give
+It does **not** benchmark codegen (Phase 21), give
 the kernel profile ownership semantics (master-spec stage 8K, optional per roadmap
 section 33), or tune any `-O` level.
 
@@ -187,14 +189,16 @@ as history.
 ## 8. Known limits
 
 - Compile-only: the corpus never links, so link-time and start-up behaviour of a
-  kernel build is not measured here. Phase 19 covers a real kernel build.
-- No kernel source: the pin (Linux 6.18.57 LTS, `docs/crug/KERNEL-BASELINE.md`) is
-  recorded but no kernel file is compiled in Phase 2.
-- x86_64 only. AArch64 kernel compatibility is a Phase 8 deliverable.
+  kernel build is not measured here. Phase 19 measures the real kernel build and
+  boot in `docs/crug/KERNEL-BASELINE.md` section 8.
+- No kernel source in Phase 2: the pin (Linux 6.18.57 LTS) is recorded, and Phase 19
+  compiles and boots that tree (`scripts/kernel-stage.sh`, `kernel/KERNEL-CORPUS.md`).
+- x86_64 only here. Phase 19 adds a compile-only aarch64 object subset and no
+  aarch64 boot.
 - The corpus is a floor, not a census: it names the constructs roadmap section 7
   lists, and a construct absent from the list is untested.
-- The freestanding unit includes no headers at all, so it does not exercise GCC's
-  freestanding header set; that belongs to Phase 19.
+- The freestanding unit includes no headers at all; the kernel header probes of
+  Phase 19 stage K1 exercise the freestanding header set instead.
 - CI is a single job with no matrix and no caching; if it exceeds the 300-minute
   cap the job fails rather than silently truncating.
 - Phase 2 cannot detect an optimizer defect that only appears on kernel-shaped

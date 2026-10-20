@@ -124,7 +124,20 @@ three plain-C channel programs) runs on every host; Windows and Darwin have
 their own wait/wake mappings and the Microsoft x64 and AAPCS64 context switches
 save their own callee-saved sets - see
 [docs/crug/PORTABILITY.md](docs/crug/PORTABILITY.md) and
-[ADR 0012](docs/crug/adr/0012-os-backend-policy.md). See
+[ADR 0012](docs/crug/adr/0012-os-backend-policy.md).
+Phase 19 builds and boots the real kernel: the pinned Linux 6.18.57 tree compiles
+with `CC=gcc/crugc` with 0 errors and 0 warnings (2,980 translation units),
+produces `vmlinux`, `bzImage` and `System.map`, and boots under QEMU to a
+freestanding `/init` that prints `crug-boot-ok` once and powers off. The
+evidence is staged: eight header probes, twelve translation units, `lib/` as a
+whole, the 438-object pinned corpus, the full build, the boot, and fifteen
+aarch64 objects compiled with a cross compiler built from this same tree
+(`kernel/KERNEL-CORPUS.md`, `scripts/kernel-stage.sh`). The object diff
+rebuilds the same corpus with the wrapped GCC driver and finds every object
+byte-identical except the one that embeds the build timestamp
+(`kernel/object-diff-allow.txt` records the reason). Kernel code stays plain
+GNU C: no ownership lowering, no drop insertion, no runtime symbol, as recorded
+in [ADR 0017](docs/crug/adr/0017-kernel-ownership-policy.md) (proposed). See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
 
@@ -276,6 +289,10 @@ channel programs under one command on the current host (and with
 `TARGET=aarch64-linux` the AArch64 port); the Windows port cross-builds with
 `x86_64-w64-mingw32-gcc` and `.github/workflows/multi-os.yml` runs the matrix
 on Linux, Windows and macOS runners; `docs/crug/PORTABILITY.md` describes it.
+`make check-KERNEL` runs the Phase 19 stages in order, the object diff against
+the wrapped GCC driver and the kernel-scoped P0 ledger check; the stage script
+is `scripts/kernel-stage.sh` and `docs/crug/KNOWN-ISSUES.md` is the defect
+ledger the kernel gates read.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.

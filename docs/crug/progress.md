@@ -368,6 +368,27 @@ enforced`. The Phase 17 gate (amendment A-20) runs seven runnable checks and
 passes 7/7 at `42669c5` (logs under `docs/crug/gates/phase-17/42669c5/`),
 so M17 is awarded.
 
+Phase 19 qualifies the Linux kernel build. The pinned 6.18.57 tree
+(`docs/crug/KERNEL-BASELINE.md`) is built out of tree with `CC=gcc/crugc`:
+2,980 translation units, 0 errors, 0 warnings, `vmlinux` (51,420,536 bytes),
+`arch/x86/boot/bzImage` and `System.map`. Seven stages make that measurable
+(`scripts/kernel-stage.sh`): K1 compiles eight header probes as an external
+module, K2 twelve translation units, K3 `lib/` as a whole (106 objects), K4 the
+pinned 438-object corpus (`kernel/KERNEL-CORPUS.md`), K5 the full build, K6 boots
+the result under QEMU 10.2.1 to a freestanding `/init` (`kernel/boot/init.c`)
+that prints `crug-boot-ok` exactly once and powers off, and K7 compiles fifteen
+pinned aarch64 objects with a cross compiler configured from this same tree
+(`--target=aarch64-linux-gnu --without-headers`) and checks that they are
+AArch64 relocatables. `scripts/kernel-object-diff.sh` rebuilds the corpus with
+the wrapped GCC driver and compares object bytes: 437 of 438 are identical, and
+the single difference is `init/version-timestamp.o`, whose `UTS_VERSION` embeds
+the build time and build number; `kernel/object-diff-allow.txt` carries that
+explanation, so an unexplained difference still fails. Kernel code remains plain
+GNU C - no ownership lowering, no drop insertion, no `__crug_` symbol and no
+libcrug dependency (ADR 0017, proposed) - and `scripts/check-p0-open.sh
+--kernel` reads the new defect ledger `docs/crug/KNOWN-ISSUES.md` (no open P0).
+The Phase 19 gate (amendment A-22) runs six runnable checks over these artefacts.
+
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -448,13 +469,15 @@ superseding ADR and owner ratification.
 | A value could cross a task or channel boundary unchecked, so the ownership model appeared to bless data races | `gcc/c/crug-send-sync.cc` (`Send`/`Sync` inference, thread affinity, FFI widening), CONC-024..027, ten dg cases, `scripts/check-send-sync.sh`, `make check-SEND_SYNC`; `docs/crug/SEND-SYNC.md`; ADR 0026; phase-17 gate A-20 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
+| The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 
 ## Still open
 
 | ID | Item | Blocked on |
 |----|------|------------|
 | C-05 | P1 conformance refers to a release matrix that does not exist | RFC-0010 |
-| -  | The Phase-19 per-object corpus list `kernel/KERNEL-CORPUS.md` does not exist; the kernel source is pinned but the compile corpus is not | Phase 19 gate |
+| -  | ADR 0017 (kernel ownership policy) is Proposed: kernel code has no ownership, drop, borrow or race analysis in v1, and enabling any of it needs a superseding ADR with kernel allocation/release and RCU/lock rules | owner ratification; a later kernel ownership phase |
+| -  | The aarch64 half of the kernel evidence is compile-only: 15 pinned objects under `arm64_defconfig`, no aarch64 boot and no aarch64 object diff | a later phase with an aarch64 boot harness |
 | -  | Phase-20 golden corpus (50 error classes with stable wording) is not written | Crug frontend; docs/crug/DIAGNOSTICS.md seeds the classes |
 | -  | `.crugffi` v1 deliberately excludes returned borrows, conditional ownership (`sqlite3_open`, `realloc`), refcounted APIs, struct members, macros, inline functions and variadic tails; such calls stay level 1 (`adopt` at the call site) | a later FFI revision (ADR 0007 D9) |
 | -  | A sidecar for a header found through `-I` is discovered only when it sits next to the file containing the `#include`, because libcpp reports the include directive, not the includer directory | ADR 0007 amendment A-1; use `-fcrug-ffi=<path>` explicitly |
@@ -480,18 +503,15 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Open Phase 19 (Linux kernel build qualification)**: the Phase 18 gate
-   (amendment A-21) runs six runnable checks and passes 6/6 at the commit that
-   closes it, so M18 is awarded and one `make check-MULTI_OS` is now the command
-   every host port must pass. Phase 18 did not add the I/O poller - that stays
-   deferred by RFC-0001 section 32 - so the next phase is the kernel corpus, not
-   a poller. Its first deliverable is `kernel/KERNEL-CORPUS.md` on top of the
-   pinned Linux 6.18.57 tree; `-fcrug-kernel` currently rejects
-   `-fcrug-ownership` and `-fcrug-borrow` until that phase decides kernel drop
-   lowering.
-2. **Ratify ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the strict
-   policy, the baseline upgrade policy and the two borrow policies are implemented
-   and measured but still carry Status Proposed.
+1. **Open Phase 20 (diagnostic golden corpus)**: the Phase 19 gate
+   (amendment A-22) runs six checks over the kernel build, boot and object diff.
+   `docs/crug/DIAGNOSTICS.md` already registers the stable codes; Phase 20's
+   deliverable is a golden corpus of error classes with stable wording, one
+   fixture per code, and a checker that fails on any wording drift.
+2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
+   kernel ownership policy, the strict policy, the baseline upgrade policy and the
+   two borrow policies are implemented and measured but still carry Status
+   Proposed.
 3. **Add the `multi-os` jobs to the required checks on `main`**: the first run
    is green (run 39355413321 at `f086068`, four jobs), but branch protection
    currently requires only `kernel-compat`, so a port can regress without

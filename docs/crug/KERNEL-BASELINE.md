@@ -1,7 +1,7 @@
 # CRUG kernel baseline
 
 **Document type:** External-input pin (Linux kernel test corpus)
-**Status:** Proposed
+**Status:** Accepted (2026-10-20)
 **Owner:** CRUG project owner (compiler lead). Gate adjudicator: a second engineer, or the CI job that runs `scripts/kernel-pin.sh --verify` and the phase-19 checks.
 **Derived from:** `spec/CRUG_PRODUCTION_ROADMAP.md` sections 7 and 24 (Phase 2 kernel/GNU-C baseline and Phase 19 stages K0–K7) and section 26 (Phase 21 kernel codegen parity); `spec/CRUG_MASTER_SPEC_EN.md` section 17 (Linux Kernel C Compatibility), sections 41.5–41.6 (external corpus, K0–K7 milestones) and section 83 (pinned kernel test source/corpus); `spec/CRUG_RFC_0001.md` section 7.2 (`class K0`) and section 38 (kernel profile).
 
@@ -9,8 +9,9 @@ This file pins the external Linux kernel source against which kernel compatibili
 claims are measured. `docs/crug/GCC-BASELINE.md` section 4 still records the pin as
 missing and leaves the open decision tracked as C-09 in `spec/000-PRECEDENCE.md`;
 this document supplies the tag, commit, configuration and boot command that section 4
-requires. Pinning the corpus is not a kernel build, not a boot, and not a claim of
-`class K0` (RFC-0001 section 7.2).
+requires. The Phase 19 gate now builds and boots the tree; section 8 records the
+result. Pinning the corpus is still not a claim of `class K0` (RFC-0001
+section 7.2).
 
 ## 1. Pinned artefact
 
@@ -79,40 +80,49 @@ instead. `scripts/kernel-pin.sh --verify` re-checks the local digest line agains
 
 The tarball extracts to `build/linux-6.18.57` (its top-level directory is
 `linux-6.18.57/`) and is built with an out-of-tree object directory,
-`build/kernel-6.18.57`. Both live under the gitignored `/build/`. From the
+`build/kernel-crug`. Both live under the gitignored `/build/`. From the
 repository root:
 
 ```sh
 tar --extract --xz --file=sources/kernel/linux-6.18.57.tar.xz --directory=build
-make -C build/linux-6.18.57 O=$PWD/build/kernel-6.18.57 x86_64_defconfig
-make -C build/kernel-6.18.57 -j$(nproc)
+make -C build/linux-6.18.57 O=$PWD/build/kernel-crug x86_64_defconfig
+make -C build/linux-6.18.57 O=$PWD/build/kernel-crug -j$(nproc) CC=$PWD/gcc/crugc
 ```
 
 `O=` must be absolute (`$PWD`), because the kernel build system rejects a relative
 object directory. `x86_64_defconfig` resolves to
-`arch/x86/configs/x86_64_defconfig` (section 5). The third command builds with the
-host `gcc` that kbuild selects. Phase 19 stage K5 substitutes the Crug driver —
-`make CC=crugc` (roadmap section 24) — and Phase 21 compares that build with this
-reference build.
+`arch/x86/configs/x86_64_defconfig` (section 5). The third command is Phase 19
+stage K5: it builds with the Crug driver, and `scripts/kernel-stage.sh K5` runs it
+and asserts `vmlinux`, `arch/x86/boot/bzImage` and `System.map`. The reference
+build for `scripts/kernel-object-diff.sh` uses the same tree and configuration in
+`build/kernel-ref` with the GCC driver the launcher wraps (Phase 21 compares
+object code against it).
 
-No command in this section was run when this document was written. The first
-execution belongs to the Phase 19 gate, whose output is archived per
-`docs/crug/EXIT-GATES.md` section 2. The host must satisfy the kernel's own
-documented build requirements; this pin adds none.
+The host must satisfy the kernel's own documented build requirements; this pin
+adds none. One requirement is easy to miss on a minimal host: the kernel's
+`objtool` needs the libelf headers. This checkout's root-free copy under
+`build/deps/usr/include` plus `build/deps/lib` is used through `CPATH` and
+`LIBRARY_PATH` by the stage scripts when it exists.
 
 ## 4. Boot smoke
 
+Phase 19 stage K6 runs this command (`scripts/kernel-stage.sh K6`), with an
+initramfs attached and `rdinit=/init`:
+
 ```sh
 qemu-system-x86_64 -m 2G -smp 2 \
-  -kernel build/kernel-6.18.57/arch/x86/boot/bzImage \
-  -append "console=ttyS0 panic=-1" -nographic
+  -kernel build/kernel-crug/arch/x86/boot/bzImage \
+  -initrd build/kernel-stages/k6/initramfs.cpio \
+  -append "console=ttyS0 panic=-1 rdinit=/init" -nographic -no-reboot
 ```
 
 Expected console markers, in order:
 
 - `Linux version 6.18.57` — the kernel banner, once the decompressed kernel starts.
-- `Run /init as init process` — printed when an initramfs is supplied and its
-  `/init` is executed.
+- `Run /init as init process` — printed when the initramfs `/init` is executed.
+- `crug-boot-ok` — printed exactly once by the freestanding `/init`
+  (`kernel/boot/init.c`), which then calls `reboot (LINUX_REBOOT_CMD_POWER_OFF)`
+  so qemu exits instead of hanging.
 
 `x86_64_defconfig` enables the 8250 serial console (`CONFIG_SERIAL_8250_CONSOLE=y`)
 and initramfs support (`CONFIG_BLK_DEV_INITRD=y`), so `console=ttyS0` reaches the
@@ -121,10 +131,9 @@ needs an initramfs carrying a statically linked `/init`: without one the kernel 
 no userspace and panics, and `panic=-1` keeps the failure visible on the serial
 console instead of rebooting the VM.
 
-The boot proof is deferred to Phase 19 stage K6 (roadmap section 24).
-`docs/crug/EXIT-GATES.md` phase 19 uses its own K6 observable (`crug-boot-ok`);
-this document records the kernel-side markers only. No boot has been run, and no
-qemu version is part of the pin — a boot record must name the version used.
+The boot was run on 2026-10-20 with QEMU 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2);
+the console showed the three markers above and ended with `reboot: Power down`.
+No qemu version is part of the pin; a later boot record names its own.
 
 ## 5. Scope and object list
 
@@ -135,13 +144,19 @@ qemu version is part of the pin — a boot record must name the version used.
   `mm/`, `fs/`, `ipc/`, `net/`, `drivers/base/`, `lib/`. This set is the gate's
   compile scope, and stage K3 ("one subsystem", roadmap section 24) can be met
   inside it.
-- **Object list and counts:** `docs/crug/EXIT-GATES.md` phase 19 requires a pinned
-  file list and counts in `kernel/KERNEL-CORPUS.md` before M19 is claimed (the
-  phase-19 `VAGUE` item). That file is absent today; this document fixes the
-  subsystem scope and claims no object count.
-- **Architecture:** x86_64 only. The secondary aarch64-linux-gnu target is deferred to
-  Phase 8 onwards (`docs/crug/GCC-BASELINE.md` section 3), and stage K7 on aarch64
-  requires an amendment to this document naming its defconfig, tag and boot harness.
+- **Object list and counts:** `kernel/KERNEL-CORPUS.md` pins the Phase 19
+  corpus: 438 x86_64 objects for stage K4 across the nine directories
+  `arch/x86/mm`, `drivers/base`, `fs`, `init`, `ipc`, `kernel`, `lib`, `mm`
+  and `net/core`, plus 15 aarch64 objects for stage K7. It also fixes stage K3's
+  size: the 106 objects directly in `lib/`. The lists are generated from this
+  configuration, not hand-picked; a change to them is an amendment to this document
+  (amendment A-1).
+- **Architecture:** x86_64 is the build and boot architecture. Stage K7 pins the
+  second architecture as a compile-only subset: the same tree with Kbuild's arm64
+  `defconfig` (`make ARCH=arm64 defconfig`), and a GCC 16.2.0 cross compiler
+  configured from this same source tree
+  (`--target=aarch64-linux-gnu --without-headers`). No aarch64 boot is part of the
+  gate. A further architecture is an amendment (section 7).
 - **Out of scope:** kernel ownership contracts (optional per master spec 8K and the
   phase-19 non-goals in `docs/crug/EXIT-GATES.md`), RCU-aware modelling, and a kernel
   task backend. None of these changes the corpus.
@@ -195,6 +210,30 @@ qemu version is part of the pin — a boot record must name the version used.
   tarball; `qemu-system-x86_64` was present. The `sha256sums.asc` signature was not
   validated — no key for it was available in the verifying keyring — so the digest
   line was cross-checked as text only.
-- Not claimed: no build, no boot, no object-file comparison, and no `class K0` or
-  `stage K0` result. `docs/crug/EXIT-GATES.md` section 2 accepts only archived
-  command output for a gate claim, and this document provides none.
+- Performed by the Phase 19 gate on 2026-10-20 (archived under
+  `docs/crug/gates/phase-19/`):
+  - `scripts/kernel-stage.sh K1` — 8 header probes compiled as an external module.
+  - `K2` — 12 selected translation units; `K3` — `lib/` built as a whole.
+  - `K4` — 438 corpus objects compiled from source.
+  - `K5` — full build with `CC=gcc/crugc`: 2,980 `CC` lines, 0 errors, 0
+    warnings, `vmlinux` 51,420,536 bytes, `bzImage` 14,783,488 bytes,
+    `System.map` 8,496,151 bytes.
+  - `K6` — boot with QEMU 10.2.1: banner, `Run /init as init process`,
+    `crug-boot-ok` once, clean poweroff.
+  - `K7` — 15 aarch64 objects compiled with the cross compiler and checked to be
+    AArch64 relocatables.
+  - `scripts/kernel-object-diff.sh` — all 438 objects byte-identical to the same
+    objects built by the wrapped GCC driver, 0 differences.
+- Not claimed: no `class K0` or `stage K0` result, no ownership contracts in kernel
+  code, and no codegen-parity performance claim (that is Phase 21). A gate claim
+  needs archived command output per `docs/crug/EXIT-GATES.md` section 2.
+
+## 9. Amendments
+
+- **A-1 (2026-10-20, Phase 19).** The object directory is `build/kernel-crug`
+  (the earlier text said `build/kernel-6.18.57`); the reference build is
+  `build/kernel-ref`; `kernel/KERNEL-CORPUS.md` publishes the 438-object x86_64
+  corpus and the 15-object aarch64 subset; stage K6 now names its initramfs and
+  `rdinit=/init`; stage K7 pins the arm64 `defconfig` and the cross compiler
+  described in section 5; section 8 records the measured Phase 19 results. The pin
+  itself (tag `v6.18.57`, commit `2ff600d`, size, digest) did not change.

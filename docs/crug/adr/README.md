@@ -7,7 +7,7 @@ not a decision. Ratified ADRs move to Accepted and stay citable by number.
 
 ## Written ADRs
 
-Twenty of the twenty-two written ADRs are Accepted and are cited by number
+Twenty of the twenty-three written ADRs are Accepted and are cited by number
 throughout `spec/` and `docs/crug/`. CLEG0078 (project owner) ratified six on
 2026-10-18, ADRs 0006 and 0007 on 2026-10-19, ADRs 0019 and 0020 on 2026-10-19
 as the Phase 7 planning decisions, ADR 0010 on 2026-10-19 together with the
@@ -18,7 +18,9 @@ phase-14 task runtime, ADR 0024 on 2026-10-19 with the phase-15 structured
 scope, ADR 0025 on 2026-10-19 with the phase-16 channels and select
 surface, ADR 0026 on 2026-10-20 with the phase-17 Send/Sync surface, and
 ADR 0012 on 2026-10-20 with the phase-18 multi-OS runtime (the v1 platform set,
-the backend layout and the CI matrix). ADR 0021 (Phase 8) is Proposed: it is implemented
+the backend layout and the CI matrix). ADR 0017 (Phase 19) is Proposed: it records
+that kernel code is plain GNU C in v1, with no kernel ownership contracts, and it
+awaits owner ratification. ADR 0021 (Phase 8) is Proposed: it is implemented
 and tested but awaits owner ratification. ADR 0022 (GCC baseline upgrade
 policy) is Proposed: its measurements are recorded, but the policy itself awaits
 ratification.
@@ -47,6 +49,7 @@ ratification.
 | 0025 | 0025-channels-and-select.md | the chan/select representation, the select lowering, the ownership transfer rules, the additive runtime surface | Accepted (2026-10-19) |
 | 0026 | 0026-send-sync.md | Send/Sync inference over C types, the crossing rules, the FFI affinity clause and annotations, the documented limits | Accepted (2026-10-20) |
 | 0012 | 0012-os-backend-policy.md | the v1 platform set, two axes without ifdefs in the core, the Windows and Darwin mappings, the callee-saved sets, the CI matrix | Accepted (2026-10-20) |
+| 0017 | 0017-kernel-ownership-policy.md | kernel code is plain GNU C, no kernel ownership contracts in v1, the additive path to a future kernel increment | Proposed (2026-10-20) |
 
 ADR 0003 is the metadata half of the former aggregate-ownership record, ADR 0004
 the analysis half; the split resolved conflict C-11 (recorded in
@@ -86,7 +89,8 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 | 0009 scheduler-model | written and accepted as `0009-scheduler-model.md` |
 | 0013 arch-context-switch-policy | written and accepted as `0013-arch-context-switch-policy.md` |
 | 0012 os-backend-policy | written and accepted as `0012-os-backend-policy.md` |
-| 0014-0017 | not written |
+| 0017 kernel-ownership-policy | written and proposed as `0017-kernel-ownership-policy.md` |
+| 0014-0016 | not written |
 
 ## Candidate next ADRs
 
@@ -94,8 +98,7 @@ list, so it is 0018. ADR 0003, 0004 and 0005 now carry the required file names.
 |--------|-------|------------|
 | 0014 | Portable I/O poller | a phase that needs I/O |
 | 0027 | the next topic above 0017 (channels took 0025, Send/Sync 0026) | a phase that needs it |
-| 0016 | Freestanding and no-runtime policy | ADR 0017 |
-| 0017 | Kernel ownership policy | C-09 (kernel pin) |
+| 0016 | Freestanding and no-runtime policy | ADR 0017 (written and proposed) |
 
 ADR 0007 defines the `.crugffi` v1 format that Phase 9's parser implements, and
 both it and ADR 0006 are accepted, so Phase 9 is unblocked on the document side.
@@ -114,9 +117,12 @@ select) is unblocked on the document side and its gate is adjudicable. ADR 0026
 is written and accepted, so Phase 17 (Send/Sync) is unblocked on the document
 side and its gate is adjudicable; ADR 0012 is written and accepted, so Phase 18
 (multi-OS runtime) is unblocked on the document side and its gate is
-adjudicable. The next free number above 0017 is 0027. The next ADRs that unblock
-work are 0014 (the poller, when an I/O phase opens) and 0015-0017 (kernel
-compatibility and ownership); 0016 and 0017 follow the kernel ownership work.
+adjudicable. The next free number above 0017 is 0027. ADR 0017 (kernel ownership policy) is
+written and proposed: Phase 19's kernel build and boot make the decision
+concrete, and 0016 (freestanding and no-runtime policy) builds on it. The next
+ADR that unblocks work is 0014 (the poller, when an I/O phase opens); 0015
+(kernel compatibility) is recorded in docs/crug/KERNEL-COMPATIBILITY.md and
+docs/crug/KERNEL-BASELINE.md rather than in a separate ADR.
 
 ## Writing rules
 
