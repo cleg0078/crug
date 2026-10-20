@@ -105,7 +105,10 @@ while IFS=$'\t' read -r ph line; do
   dir="$ROOT/docs/crug/gates/phase-$ph/$(git -C "$ROOT" rev-parse --short HEAD)"
   mkdir -p "$dir"
   log="$dir/$(printf "%03d" "$ran").log"
-  out=$(cd "$ROOT" && timeout "$timeout_s" bash -c "$cmd" 2>&1)
+  # stdin is /dev/null: a check must never read the gate document, which is
+  # what this loop itself reads; a booting guest would otherwise type the
+  # following CHECK lines into its console.
+  out=$(cd "$ROOT" && timeout "$timeout_s" bash -c "$cmd" </dev/null 2>&1)
   rc=$?
   printf "phase-%s #%d rc=%d\ncmd: %s\nexpected: %s\n---\n%s\n" \
     "$ph" "$ran" "$rc" "$cmd" "$exp" "$out" >"$log"

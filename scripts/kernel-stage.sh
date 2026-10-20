@@ -275,7 +275,7 @@ stage_k6 () {
 		-kernel "$KO/arch/x86/boot/bzImage" \
 		-initrd "$boot/initramfs.cpio" \
 		-append "console=ttyS0 panic=-1 rdinit=/init" \
-		-nographic -no-reboot >"$boot/console.log" 2>&1
+		-nographic -no-reboot </dev/null >"$boot/console.log" 2>&1
 	rc=$?
 	grep -q 'Linux version 6\.18\.57' "$boot/console.log" \
 		|| { tail -n 20 "$boot/console.log" >&2
