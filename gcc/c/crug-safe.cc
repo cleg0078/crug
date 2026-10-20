@@ -40,6 +40,7 @@
 #include <map>
 #include <vector>
 
+#include "c-family/crug-diagnostics.h"
 struct crug_payload_enum_entry
 {
   tree type;
@@ -522,8 +523,8 @@ crug_safe_slice_ctor (location_t loc, tree ptr, tree len)
     }
   if (ptr_type == NULL_TREE || TREE_CODE (ptr_type) != POINTER_TYPE)
     {
-      error_at (loc, "%<slice%> needs a pointer as its first argument "
-		"[crug-TYPE-012]");
+      crug_error_at (loc, "crug-TYPE-012", "%<slice%> needs a pointer as its first argument"
+		);
       return error_mark_node;
     }
 

@@ -72,6 +72,7 @@
 #include <set>
 #include <vector>
 
+#include "c-family/crug-diagnostics.h"
 /* The ownership state of one tracked object.  The names are part of the
    observable interface of this file (the Phase 4 gate greps the dump for
    them), so they are not renumbered.  */
@@ -102,12 +103,55 @@ struct crug_ostate
   crug_state state;
   tree dtor;
   std::map<int, tree> variant_dtors;
+  /* Where the value was last moved away, for the origin note under
+     "use of moved value" and "move of already-moved value".  */
+  location_t move_loc;
 
-  crug_ostate () : state (CRUG_EMPTY), dtor (NULL_TREE) {}
-  crug_ostate (crug_state s, tree d) : state (s), dtor (d) {}
+  crug_ostate ()
+    : state (CRUG_EMPTY), dtor (NULL_TREE), move_loc (UNKNOWN_LOCATION) {}
+  crug_ostate (crug_state s, tree d)
+    : state (s), dtor (d), move_loc (UNKNOWN_LOCATION) {}
+  crug_ostate (crug_state s, tree d, location_t loc)
+    : state (s), dtor (d), move_loc (loc) {}
 };
 
 typedef std::map<tree, crug_ostate> state_map;
+
+/* Record that DECL has been moved away at LOC.  */
+
+static void
+set_moved (state_map &env, tree decl, location_t loc)
+{
+  env[decl] = crug_ostate (CRUG_MOVED, NULL_TREE, loc);
+}
+
+/* Point at the place a moved value was moved away from.  The note is part
+   of the diagnostic contract (Phase 20): "use of moved value" and "move of
+   already-moved value" both carry it.  */
+
+static void
+note_previous_move (const state_map &env, tree decl)
+{
+  state_map::const_iterator it = env.find (decl);
+  if (it == env.end () || it->second.state != CRUG_MOVED
+      || it->second.move_loc == UNKNOWN_LOCATION)
+    return;
+  crug_note_at (it->second.move_loc, "value was moved here");
+}
+
+static void
+report_moved_use (state_map &env, tree decl, location_t loc)
+{
+  crug_error_at (loc, "crug-UAM-001", "use of moved value %qD", decl);
+  note_previous_move (env, decl);
+}
+
+static void
+report_moved_move (state_map &env, tree decl, location_t loc)
+{
+  crug_error_at (loc, "crug-UAM-002", "move of already-moved value %qD", decl);
+  note_previous_move (env, decl);
+}
 
 /* One destruction that an exit edge performs.  For an owning payload enum,
    ENUM_TYPE is the payload enum type and VARIANT_DTORS holds the destructor
@@ -574,8 +618,8 @@ crug_mark_owning_decl (tree decl, location_t loc)
 
   if (TREE_CODE (decl) == TYPE_DECL)
     {
-      error_at (loc, "a Crug qualifier cannot be attached to a typedef "
-		"[crug-TYPE-001]");
+      crug_error_at (loc, "crug-TYPE-001", "a Crug qualifier cannot be attached to a typedef"
+		);
       return;
     }
 
@@ -609,15 +653,15 @@ crug_mark_owning_decl (tree decl, location_t loc)
 
   if (TREE_CODE (type) != POINTER_TYPE)
     {
-      error_at (loc, "an owning declarator must have pointer type "
-		"[crug-TYPE-001]");
+      crug_error_at (loc, "crug-TYPE-001", "an owning declarator must have pointer type"
+		);
       return;
     }
 
   if (TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
     {
-      error_at (loc, "an owning declarator cannot have pointer-to-function "
-		"type [crug-TYPE-005]");
+      crug_error_at (loc, "crug-TYPE-005", "an owning declarator cannot have pointer-to-function "
+		"type");
       return;
     }
 
@@ -641,8 +685,8 @@ crug_mark_raw_decl (tree decl, location_t loc)
 
   if (TREE_CODE (decl) == TYPE_DECL)
     {
-      error_at (loc, "a Crug qualifier cannot be attached to a typedef "
-		"[crug-TYPE-001]");
+      crug_error_at (loc, "crug-TYPE-001", "a Crug qualifier cannot be attached to a typedef"
+		);
       return;
     }
 
@@ -667,15 +711,15 @@ crug_mark_raw_decl (tree decl, location_t loc)
 
   if (TREE_CODE (type) != POINTER_TYPE)
     {
-      error_at (loc, "a %<raw%> declarator must have pointer type "
-		"[crug-TYPE-001]");
+      crug_error_at (loc, "crug-TYPE-001", "a %<raw%> declarator must have pointer type"
+		);
       return;
     }
 
   if (TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
     {
-      error_at (loc, "a %<raw%> declarator cannot have pointer-to-function "
-		"type [crug-TYPE-005]");
+      crug_error_at (loc, "crug-TYPE-005", "a %<raw%> declarator cannot have pointer-to-function "
+		"type");
       return;
     }
 
@@ -711,8 +755,8 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
 
   if (TREE_CODE (decl) == TYPE_DECL)
     {
-      error_at (loc, "a borrowed declarator cannot be a typedef "
-		"[crug-BORROW-007]");
+      crug_error_at (loc, "crug-BORROW-007", "a borrowed declarator cannot be a typedef"
+		);
       return;
     }
 
@@ -721,7 +765,7 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
 
   if (TREE_CODE (decl) == FUNCTION_DECL)
     {
-      error_at (loc, "a function cannot return a borrow [crug-BORROW-001]");
+      crug_error_at (loc, "crug-BORROW-001", "a function cannot return a borrow");
       return;
     }
 
@@ -735,8 +779,8 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
   if (TREE_CODE (decl) == VAR_DECL
       && (TREE_STATIC (decl) || current_function_decl == NULL_TREE))
     {
-      error_at (loc, "a borrow must be an automatic variable; %qD would "
-		"outlive its referent [crug-BORROW-018]", decl);
+      crug_error_at (loc, "crug-BORROW-018", "a borrow must be an automatic variable; %qD would "
+		"outlive its referent", decl);
       return;
     }
 
@@ -747,8 +791,8 @@ crug_mark_borrow_decl (tree decl, bool is_mut, location_t loc)
   if (TREE_CODE (type) != POINTER_TYPE
       || TREE_CODE (TREE_TYPE (type)) == FUNCTION_TYPE)
     {
-      error_at (loc, "a borrow qualifier must apply to a pointer declarator "
-		"[crug-TYPE-007]");
+      crug_error_at (loc, "crug-TYPE-007", "a borrow qualifier must apply to a pointer declarator"
+		);
       return;
     }
 
@@ -840,12 +884,12 @@ crug_register_scoped_lender (tree scope, tree lender, location_t loc,
     if (captures[i].lender == lender && (is_mut || captures[i].is_mut))
       {
 	if (is_mut && captures[i].is_mut)
-	  error_at (loc, "cannot mutably borrow %qD for two tasks of one "
-		    "scope; a mutable borrow must be exclusive "
-		    "[crug-BORROW-003]", lender);
+	  crug_error_at (loc, "crug-BORROW-003", "cannot mutably borrow %qD for two tasks of one "
+		    "scope; a mutable borrow must be exclusive"
+		    , lender);
 	else
-	  error_at (loc, "cannot borrow %qD mutably and again in one scope; "
-		    "a mutable borrow must be exclusive [crug-BORROW-002]",
+	  crug_error_at (loc, "crug-BORROW-002", "cannot borrow %qD mutably and again in one scope; "
+		    "a mutable borrow must be exclusive",
 		    lender);
 	return;
       }
@@ -870,8 +914,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 
     if (crug_expr_thread_affine_p (arg, &affinity))
       {
-	error_at (loc, "a thread-affine value cannot cross to another task; "
-		  "it belongs to the %qs thread [crug-CONC-025]",
+	crug_error_at (loc, "crug-CONC-025", "a thread-affine value cannot cross to another task; "
+		  "it belongs to the %qs thread",
 		  affinity == NULL ? "unknown" : affinity);
 	return false;
       }
@@ -889,8 +933,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 
 	  if (scope == NULL_TREE)
 	    {
-	      error_at (loc, "a borrow cannot be captured by a concurrent task; "
-			"capture an owned value with %<move (...)%> [crug-CONC-012]");
+	      crug_error_at (loc, "crug-CONC-012", "a borrow cannot be captured by a concurrent task; "
+			"capture an owned value with %<move (...)%>");
 	      return false;
 	    }
 	  /* A scoped task may borrow: the scope waits for every child before
@@ -911,8 +955,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 	    {
 	      if (!crug_type_send_p (lender_type, &blocker))
 		{
-		  error_at (loc, "a value of type %qT cannot cross to another "
-			    "task; the type is not %<Send%> [crug-CONC-024]",
+		  crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another "
+			    "task; the type is not %<Send%>",
 			    lender_type);
 		  if (blocker != NULL_TREE && blocker != lender_type)
 		    inform (loc, "%qT contains %qT, which is not %<Send%>",
@@ -922,8 +966,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 	    }
 	  else if (!crug_type_sync_p (lender_type, &blocker))
 	    {
-	      error_at (loc, "a shared borrow of %qT cannot cross to another "
-			"task; the type is not %<Sync%> [crug-CONC-026]",
+	      crug_error_at (loc, "crug-CONC-026", "a shared borrow of %qT cannot cross to another "
+			"task; the type is not %<Sync%>",
 			lender_type);
 	      if (blocker != NULL_TREE && blocker != lender_type)
 		inform (loc, "%qT contains %qT, which is not %<Sync%>",
@@ -940,8 +984,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 
 	  if (parm != NULL_TREE && !crug_is_owning_decl (parm))
 	    {
-	      error_at (loc, "the task does not take ownership of the captured "
-			"value: declare the parameter %<own%> [crug-CONC-011]");
+	      crug_error_at (loc, "crug-CONC-011", "the task does not take ownership of the captured "
+			"value: declare the parameter %<own%>");
 	      return false;
 	    }
 	  /* The task owns the value, so its type must be Send.  */
@@ -950,8 +994,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 		  ? TREE_TYPE (moved) : moved;
 	  if (!crug_type_send_p (probe, &blocker))
 	    {
-	      error_at (loc, "a value of type %qT cannot cross to another task; "
-			"the type is not %<Send%> [crug-CONC-024]", probe);
+	      crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another task; "
+			"the type is not %<Send%>", probe);
 	      if (blocker != NULL_TREE && blocker != probe)
 		inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
 			blocker);
@@ -961,8 +1005,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 	}
       if (kind == CRUG_INTR_ADOPT)
 	{
-	  error_at (loc, "a destructor cannot cross a task boundary; the task "
-		    "destroys an owned parameter by itself [crug-CONC-014]");
+	  crug_error_at (loc, "crug-CONC-014", "a destructor cannot cross a task boundary; the task "
+		    "destroys an owned parameter by itself");
 	  return false;
 	}
       return true;
@@ -975,16 +1019,16 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
     {
       if (crug_is_owning_decl (decl))
 	{
-	  error_at (loc, "owned value passed to concurrent task without "
-		    "ownership transfer [crug-CONC-011]");
+	  crug_error_at (loc, "crug-CONC-011", "owned value passed to concurrent task without "
+		    "ownership transfer");
 	  inform (loc, "use %<move (%E)%> to transfer it to the task", decl);
 	  return false;
 	}
 
       if (crug_is_borrow_decl (decl, NULL))
 	{
-	  error_at (loc, "a borrow cannot be captured by a concurrent task; "
-		    "capture an owned value with %<move (...)%> [crug-CONC-012]");
+	  crug_error_at (loc, "crug-CONC-012", "a borrow cannot be captured by a concurrent task; "
+		    "capture an owned value with %<move (...)%>");
 	  return false;
 	}
     }
@@ -1000,8 +1044,8 @@ crug_check_go_capture (location_t loc, tree arg, tree parm, tree scope)
 	&& TREE_CODE (type) != ERROR_MARK
 	&& !crug_type_send_p (type, &blocker))
       {
-	error_at (loc, "a value of type %qT cannot cross to another task; "
-		  "the type is not %<Send%> [crug-CONC-024]", type);
+	crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another task; "
+		  "the type is not %<Send%>", type);
 	if (blocker != NULL_TREE && blocker != type)
 	  inform (loc, "%qT contains %qT, which is not %<Send%>", type,
 		  blocker);
@@ -1785,8 +1829,8 @@ check_scoped_lenders (crug_fn_ctx &ctx, tree bind, size_t depth)
       if (d == ctx.decl_depth.end ())
 	continue;
       if (d->second > depth && ctx.warned.insert (lender).second)
-	error_at (loc, "a scoped task borrows %qD from a block that ends before "
-		  "the scope; declare it in the scope body [crug-CONC-016]",
+	crug_error_at (loc, "crug-CONC-016", "a scoped task borrows %qD from a block that ends before "
+		  "the scope; declare it in the scope body",
 		  lender);
     }
   crug_scoped_lenders.erase (it);
@@ -1879,6 +1923,29 @@ has_live_borrow (crug_fn_ctx &ctx, tree lender, bool *shared, bool *mut)
   return any;
 }
 
+/* Point at the first live borrow of LENDER, for the origin note under a
+   conflicting borrow (Phase 20).  MUT selects which kind of borrow to
+   point at: a mutable one, or a shared one.  */
+
+static void
+note_live_borrow (crug_fn_ctx &ctx, tree lender, bool mut)
+{
+  for (std::map<tree, crug_borrow>::const_iterator i = ctx.borrows.begin ();
+       i != ctx.borrows.end (); ++i)
+    {
+      if (i->second.lender != lender || i->second.is_mut != mut)
+	continue;
+      if (!ctx.liveness_failed
+	  && TREE_CODE (i->first) != PARM_DECL
+	  && ctx.active_borrows.find (i->first) == ctx.active_borrows.end ())
+	continue;
+      if (i->second.origin == UNKNOWN_LOCATION)
+	continue;
+      crug_note_at (i->second.origin, "borrow created here");
+      return;
+    }
+}
+
 /* The declaration at the base of an lvalue expression: the object whose
    storage an assignment actually writes.  Returns NULL_TREE for anything
    that is not rooted in a local declaration.  */
@@ -1923,8 +1990,8 @@ choose_dtor (crug_fn_ctx &ctx, tree decl, tree a, tree b, location_t loc)
   if (b == NULL_TREE)
     return a;
   if (ctx.warned.insert (decl).second)
-    error_at (loc, "conflicting destructors for owned value %qD on different "
-	      "paths [crug-OWN-010]", decl);
+    crug_error_at (loc, "crug-OWN-010", "conflicting destructors for owned value %qD on different "
+	      "paths", decl);
   return a;
 }
 
@@ -1979,12 +2046,12 @@ warn_unadopted (crug_fn_ctx &ctx, tree decl, location_t loc)
   if (!ctx.warned.insert (decl).second)
     return;
   if (crug_feature_enabled (CRUG_FEAT_STRICT))
-    error_at (DECL_SOURCE_LOCATION (decl),
-	      "owned value %qD is never adopted or released [crug-OWN-007]",
+    crug_error_at (DECL_SOURCE_LOCATION (decl), "crug-OWN-007",
+	      "owned value %qD is never adopted or released",
 	      decl);
   else
-    warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wcrug_unadopted_own,
-		"owned value %qD is never adopted or released [crug-OWN-007]",
+    crug_warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wcrug_unadopted_own, "crug-OWN-007",
+		"owned value %qD is never adopted or released",
 		decl);
 }
 
@@ -1995,13 +2062,13 @@ ambiguous_state (crug_fn_ctx &ctx, tree decl, crug_state state,
   if (!ctx.warned.insert (decl).second)
     return;
   if (state == CRUG_MAYBE_EMPTY)
-    error_at (DECL_SOURCE_LOCATION (decl),
-	      "owned value %qD may be used before it is initialized "
-	      "[crug-DROP-007]", decl);
+    crug_error_at (DECL_SOURCE_LOCATION (decl), "crug-DROP-007",
+	      "owned value %qD may be used before it is initialized"
+	      , decl);
   else
-    error_at (DECL_SOURCE_LOCATION (decl),
-	      "cannot prove that %qD is destroyed exactly once on this path "
-	      "[crug-DROP-006]", decl);
+    crug_error_at (DECL_SOURCE_LOCATION (decl), "crug-DROP-006",
+	      "cannot prove that %qD is destroyed exactly once on this path"
+	      , decl);
   inform (loc, "the ownership state here depends on which branch was taken");
 }
 
@@ -2185,8 +2252,8 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
 
   if (TREE_CODE (r) == COMPONENT_REF || TREE_CODE (r) == ARRAY_REF)
     {
-      error_at (loc, "move of aggregate field %qE is not supported; move the "
-		"whole object [crug-UAM-006]", r);
+      crug_error_at (loc, "crug-UAM-006", "move of aggregate field %qE is not supported; move the "
+		"whole object", r);
       return crug_ostate ();
     }
 
@@ -2199,14 +2266,14 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
 
   if (!decl_owns (r))
     {
-      error_at (loc, "move() operand is not an owned object [crug-OWN-001]");
+      crug_error_at (loc, "crug-OWN-001", "move() operand is not an owned object");
       return crug_ostate ();
     }
 
   bool shared = false;
   bool mutborrow = false;
   if (has_live_borrow (ctx, r, &shared, &mutborrow))
-    error_at (loc, "cannot move %qD while it is borrowed [crug-BORROW-004]", r);
+    crug_error_at (loc, "crug-BORROW-004", "cannot move %qD while it is borrowed", r);
 
   crug_ostate moved;
   state_map::const_iterator it = env.find (r);
@@ -2216,12 +2283,12 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
   crug_state st = state_of (env, r);
 
   if (st == CRUG_MOVED)
-    error_at (loc, "move of already-moved value %qD [crug-UAM-002]", r);
+    report_moved_move (env, r, loc);
   else if (st == CRUG_MAYBE_MOVED)
-    error_at (loc, "move of possibly-moved value %qD after a branch join "
-	      "[crug-UAM-004]", r);
+    crug_error_at (loc, "crug-UAM-004", "move of possibly-moved value %qD after a branch join"
+	      , r);
 
-  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+  set_moved (env, r, loc);
   if (st == CRUG_MOVED || st == CRUG_MAYBE_MOVED)
     return crug_ostate ();
   return moved;
@@ -2270,19 +2337,19 @@ check_adopt (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
     {
       crug_state st = state_of (env, operand);
       if (st == CRUG_MOVED)
-	error_at (loc, "use of moved value %qD [crug-UAM-001]", operand);
+	report_moved_use (env, operand, loc);
       else if (st == CRUG_MAYBE_MOVED)
-	error_at (loc, "use of possibly-moved value %qD after a branch join "
-		  "[crug-UAM-004]", operand);
+	crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+		  , operand);
       else
 	{
 	  bool shared = false;
 	  bool mutborrow = false;
 	  if (has_live_borrow (ctx, operand, &shared, &mutborrow))
-	    error_at (loc, "cannot move %qD while it is borrowed "
-		      "[crug-BORROW-004]", operand);
+	    crug_error_at (loc, "crug-BORROW-004", "cannot move %qD while it is borrowed"
+		      , operand);
 	}
-      env[operand] = crug_ostate (CRUG_MOVED, NULL_TREE);
+      set_moved (env, operand, loc);
     }
 
   return fn;
@@ -2301,7 +2368,7 @@ check_release (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
   if ((TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
       || !crug_is_owning_decl (r))
     {
-      error_at (loc, "release() operand is not an owned object [crug-OWN-004]");
+      crug_error_at (loc, "crug-OWN-004", "release() operand is not an owned object");
       walk_expr (ctx, env, arg, loc);
       return;
     }
@@ -2309,16 +2376,16 @@ check_release (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
   bool shared = false;
   bool mutborrow = false;
   if (has_live_borrow (ctx, r, &shared, &mutborrow))
-    error_at (loc, "cannot move %qD while it is borrowed [crug-BORROW-004]", r);
+    crug_error_at (loc, "crug-BORROW-004", "cannot move %qD while it is borrowed", r);
 
   crug_state st = state_of (env, r);
   if (st == CRUG_MOVED)
-    error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+    report_moved_use (env, r, loc);
   else if (st == CRUG_MAYBE_MOVED)
-    error_at (loc, "use of possibly-moved value %qD after a branch join "
-	      "[crug-UAM-004]", r);
+    crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+	      , r);
 
-  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+  set_moved (env, r, loc);
 }
 
 static void
@@ -2334,14 +2401,14 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
   if ((TREE_CODE (r) != VAR_DECL && TREE_CODE (r) != PARM_DECL)
       || !decl_owns (r))
     {
-      error_at (loc, "drop() operand is not an owned object [crug-DROP-001]");
+      crug_error_at (loc, "crug-DROP-001", "drop() operand is not an owned object");
       return;
     }
 
   bool shared = false;
   bool mutborrow = false;
   if (has_live_borrow (ctx, r, &shared, &mutborrow))
-    error_at (loc, "cannot drop %qD while it is borrowed [crug-BORROW-005]", r);
+    crug_error_at (loc, "crug-BORROW-005", "cannot drop %qD while it is borrowed", r);
 
   crug_state st = state_of (env, r);
 
@@ -2350,7 +2417,7 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
     case CRUG_EMPTY:
       break;
     case CRUG_MOVED:
-      error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      report_moved_use (env, r, loc);
       break;
     case CRUG_MAYBE_MOVED:
     case CRUG_MAYBE_EMPTY:
@@ -2367,7 +2434,7 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
       break;
     }
 
-  env[r] = crug_ostate (CRUG_MOVED, NULL_TREE);
+  set_moved (env, r, loc);
 }
 
 /* The destructor that the payload of an owned payload-enum variant brings
@@ -2421,9 +2488,9 @@ payload_transfer_dtor (crug_fn_ctx &ctx, state_map &env, tree payload,
     }
 
   walk_expr (ctx, env, payload, loc);
-  error_at (loc, "the payload of owned variant %qs must be moved in, adopted, "
+  crug_error_at (loc, "crug-ADT-019", "the payload of owned variant %qs must be moved in, adopted, "
 	    "or a fresh allocation; write move (...), adopt (...) or an "
-	    "allocation call [crug-ADT-019]",
+	    "allocation call",
 	    crug_payload_enum_variant_name (enum_type, variant));
   return NULL_TREE;
 }
@@ -2456,16 +2523,16 @@ assign_owning_enum (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
     {
       crug_state s = state_of (env, r);
       if (s == CRUG_MOVED)
-	error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+	report_moved_use (env, r, loc);
       else if (s == CRUG_MAYBE_MOVED)
-	error_at (loc, "use of possibly-moved value %qD after a branch join "
-		  "[crug-UAM-004]", r);
+	crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+		  , r);
       else if (is_scrutinee)
-	error_at (loc, "an owned scrutinee must be moved into match: write "
-		  "match (move (%qD)) [crug-ADT-015]", r);
+	crug_error_at (loc, "crug-ADT-015", "an owned scrutinee must be moved into match: write "
+		  "match (move (%qD))", r);
       else
-	error_at (loc, "implicit copy of owned value %qD; owned values are "
-		  "not copyable [crug-UAM-003]", r);
+	crug_error_at (loc, "crug-UAM-003", "implicit copy of owned value %qD; owned values are "
+		  "not copyable", r);
       set_state (env, decl, CRUG_EMPTY);
       if (is_scrutinee)
 	ctx.match_scrutinee_state[decl] = crug_ostate ();
@@ -2483,7 +2550,7 @@ assign_owning_enum (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
 	  ctx.match_scrutinee_state[decl] = moved;
 	  /* The temporary consumed the value: its payloads were either moved
 	     into an arm binding or belong to a variant that owns nothing.  */
-	  env[decl] = crug_ostate (CRUG_MOVED, NULL_TREE);
+	  set_moved (env, decl, loc);
 	}
       return;
     }
@@ -2541,13 +2608,13 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
     {
       crug_state st = state_of (env, r);
       if (st == CRUG_MOVED)
-	error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+	report_moved_use (env, r, loc);
       else if (st == CRUG_MAYBE_MOVED)
-	error_at (loc, "use of possibly-moved value %qD after a branch join "
-		  "[crug-UAM-004]", r);
+	crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+		  , r);
       else
-	error_at (loc, "implicit copy of owned value %qD; owned values are "
-		  "not copyable [crug-UAM-003]", r);
+	crug_error_at (loc, "crug-UAM-003", "implicit copy of owned value %qD; owned values are "
+		  "not copyable", r);
       set_owned (env, decl, NULL_TREE);
       return;
     }
@@ -2629,8 +2696,8 @@ borrow_escape_check (crug_fn_ctx &ctx, tree binding, tree lender,
   if (me == ctx.decl_depth.end () || le == ctx.decl_depth.end ())
     return;
   if (me->second < le->second)
-    error_at (loc, "borrow %qD escapes the lifetime of its referent "
-	      "[crug-BORROW-007]", binding);
+    crug_error_at (loc, "crug-BORROW-007", "borrow %qD escapes the lifetime of its referent"
+	      , binding);
 }
 
 /* Validate the operand of borrow(e) / borrow_mut(e) and return the root
@@ -2654,11 +2721,11 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
     {
       if (TREE_CODE (r) == COMPONENT_REF || TREE_CODE (r) == ARRAY_REF
 	  || TREE_CODE (r) == INDIRECT_REF || TREE_CODE (r) == MEM_REF)
-	error_at (loc, "%s operand must be a whole owned object or a borrow; "
-		  "member borrows are not supported in this phase "
-		  "[crug-BORROW-009]", what);
+	crug_error_at (loc, "crug-BORROW-009", "%s operand must be a whole owned object or a borrow; "
+		  "member borrows are not supported in this phase"
+		  , what);
       else
-	error_at (loc, "%s operand must be an lvalue [crug-BORROW-006]", what);
+	crug_error_at (loc, "crug-BORROW-006", "%s operand must be an lvalue", what);
       return NULL_TREE;
     }
 
@@ -2667,14 +2734,14 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
     {
       if (want_mut)
 	{
-	  error_at (loc, "a mutable borrow of a borrow is not supported in "
-		    "this phase [crug-BORROW-010]");
+	  crug_error_at (loc, "crug-BORROW-010", "a mutable borrow of a borrow is not supported in "
+		    "this phase");
 	  return NULL_TREE;
 	}
       if (arg_mut)
 	{
-	  error_at (loc, "cannot borrow %qD while it is mutably borrowed "
-		    "[crug-BORROW-016]", r);
+	  crug_error_at (loc, "crug-BORROW-016", "cannot borrow %qD while it is mutably borrowed"
+		    , r);
 	  return NULL_TREE;
 	}
       tree root = resolve_lender (ctx, r);
@@ -2684,31 +2751,31 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
   if (!decl_owns (r))
     {
       if (want_mut)
-	error_at (loc, "%s operand must be a whole modifiable owned object "
-		  "[crug-BORROW-010]", what);
+	crug_error_at (loc, "crug-BORROW-010", "%s operand must be a whole modifiable owned object"
+		  , what);
       else
-	error_at (loc, "%s operand must be a whole owned object or a borrow; "
-		  "member borrows are not supported in this phase "
-		  "[crug-BORROW-009]", what);
+	crug_error_at (loc, "crug-BORROW-009", "%s operand must be a whole owned object or a borrow; "
+		  "member borrows are not supported in this phase"
+		  , what);
       return NULL_TREE;
     }
 
   crug_state st = state_of (env, r);
   if (st == CRUG_EMPTY)
     {
-      error_at (loc, "cannot borrow %qD because it owns nothing "
-		"[crug-BORROW-011]", r);
+      crug_error_at (loc, "crug-BORROW-011", "cannot borrow %qD because it owns nothing"
+		, r);
       return NULL_TREE;
     }
   if (st == CRUG_MOVED)
     {
-      error_at (loc, "use of moved value %qD [crug-UAM-001]", r);
+      report_moved_use (env, r, loc);
       return NULL_TREE;
     }
   if (st == CRUG_MAYBE_MOVED || st == CRUG_MAYBE_EMPTY)
     {
-      error_at (loc, "use of possibly-moved value %qD after a branch join "
-		"[crug-UAM-004]", r);
+      crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+		, r);
       return NULL_TREE;
     }
 
@@ -2719,21 +2786,24 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
     {
       if (mutborrow)
 	{
-	  error_at (loc, "cannot mutably borrow %qD more than once "
-		    "[crug-BORROW-003]", r);
+	  crug_error_at (loc, "crug-BORROW-003", "cannot mutably borrow %qD more than once"
+		    , r);
+	  note_live_borrow (ctx, r, true);
 	  return NULL_TREE;
 	}
       if (shared)
 	{
-	  error_at (loc, "cannot mutably borrow %qD while it is shared-borrowed "
-		    "[crug-BORROW-002]", r);
+	  crug_error_at (loc, "crug-BORROW-002", "cannot mutably borrow %qD while it is shared-borrowed"
+		    , r);
+	  note_live_borrow (ctx, r, false);
 	  return NULL_TREE;
 	}
     }
   else if (mutborrow)
     {
-      error_at (loc, "cannot borrow %qD while it is mutably borrowed "
-		"[crug-BORROW-016]", r);
+      crug_error_at (loc, "crug-BORROW-016", "cannot borrow %qD while it is mutably borrowed"
+		, r);
+      note_live_borrow (ctx, r, true);
       return NULL_TREE;
     }
 
@@ -2762,8 +2832,8 @@ assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
 	  bool src_mut = kind == CRUG_INTR_BORROW_MUT;
 	  if (want_mut && !src_mut)
 	    {
-	      error_at (loc, "a mutable borrow cannot be initialized from "
-			"%<borrow()%> [crug-BORROW-012]");
+	      crug_error_at (loc, "crug-BORROW-012", "a mutable borrow cannot be initialized from "
+			"%<borrow()%>");
 	      return;
 	    }
 	  tree root = check_borrow (ctx, env, r, src_mut, loc);
@@ -2782,20 +2852,20 @@ assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       if (TREE_CODE (r) == VAR_DECL
 	  && ctx.borrows.find (r) == ctx.borrows.end ())
 	{
-	  error_at (loc, "borrow %qD is used without being initialized on "
-		    "this path [crug-BORROW-013]", r);
+	  crug_error_at (loc, "crug-BORROW-013", "borrow %qD is used without being initialized on "
+		    "this path", r);
 	  return;
 	}
       if (want_mut && !src_mut)
 	{
-	  error_at (loc, "a mutable borrow cannot be initialized from a "
-		    "shared borrow [crug-BORROW-012]");
+	  crug_error_at (loc, "crug-BORROW-012", "a mutable borrow cannot be initialized from a "
+		    "shared borrow");
 	  return;
 	}
       if (!want_mut && src_mut)
 	{
-	  error_at (loc, "cannot borrow %qD while it is mutably borrowed "
-		    "[crug-BORROW-016]", r);
+	  crug_error_at (loc, "crug-BORROW-016", "cannot borrow %qD while it is mutably borrowed"
+		    , r);
 	  return;
 	}
       tree root = resolve_lender (ctx, r);
@@ -2806,8 +2876,8 @@ assign_borrow (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       return;
     }
 
-  error_at (loc, "borrow %qD must be initialized from %<borrow()%>, "
-	    "%<borrow_mut()%> or another borrow [crug-BORROW-017]", decl);
+  crug_error_at (loc, "crug-BORROW-017", "borrow %qD must be initialized from %<borrow()%>, "
+	    "%<borrow_mut()%> or another borrow", decl);
 }
 
 static tree expr_base_decl (tree e);
@@ -2824,8 +2894,8 @@ check_use (crug_fn_ctx &ctx, state_map &env, tree decl, location_t loc)
       if (TREE_CODE (decl) == VAR_DECL
 	  && DECL_INITIAL (decl) == NULL_TREE
 	  && ctx.borrows.find (decl) == ctx.borrows.end ())
-	error_at (loc, "borrow %qD is used without being initialized on this "
-		  "path [crug-BORROW-013]", decl);
+	crug_error_at (loc, "crug-BORROW-013", "borrow %qD is used without being initialized on this "
+		  "path", decl);
       return;
     }
 
@@ -2835,15 +2905,15 @@ check_use (crug_fn_ctx &ctx, state_map &env, tree decl, location_t loc)
   bool shared = false;
   bool mutborrow = false;
   if (has_live_borrow (ctx, decl, &shared, &mutborrow) && mutborrow)
-    error_at (loc, "cannot use %qD while it is mutably borrowed "
-	      "[crug-BORROW-015]", decl);
+    crug_error_at (loc, "crug-BORROW-015", "cannot use %qD while it is mutably borrowed"
+	      , decl);
 
   crug_state state = state_of (env, decl);
   if (state == CRUG_MOVED)
-    error_at (loc, "use of moved value %qD [crug-UAM-001]", decl);
+    report_moved_use (env, decl, loc);
   else if (state == CRUG_MAYBE_MOVED)
-    error_at (loc, "use of possibly-moved value %qD after a branch join "
-	      "[crug-UAM-004]", decl);
+    crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
+	      , decl);
 }
 
 /* setjmp and longjmp do not run the destructors of the frames they skip.
@@ -2895,8 +2965,8 @@ check_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc,
   if (crug_feature_enabled (CRUG_FEAT_STRICT))
     {
       if (ctx.unsafe_depth == 0)
-	error_at (loc, "%qs bypasses automatic destruction; call it inside an "
-		  "%<unsafe%> block under %<-fcrug-strict%> [crug-SAFE-005]",
+	crug_error_at (loc, "crug-SAFE-005", "%qs bypasses automatic destruction; call it inside an "
+		  "%<unsafe%> block under %<-fcrug-strict%>",
 		  setjmp_p ? "setjmp" : "longjmp");
       return;
     }
@@ -2910,9 +2980,9 @@ check_setjmp (crug_fn_ctx &ctx, state_map &env, location_t loc,
 	tree d = i->first;
 	if (!ctx.warned_setjmp.insert (d).second)
 	  continue;
-	warning_at (loc, OPT_Wcrug_setjmp_drops,
+	crug_warning_at (loc, OPT_Wcrug_setjmp_drops, "crug-DROP-003",
 		    "destructors between %<setjmp%> and %<longjmp%> may be "
-		    "skipped for %qD [crug-DROP-003]", d);
+		    "skipped for %qD", d);
       }
 }
 
@@ -3016,9 +3086,9 @@ check_ffi_call (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
 	  bool null_ok = (is_null_pointer (r)
 			  && crug_ffi_arg_nullable (fndecl, i));
 	  if (!moved && !fresh && !null_ok)
-	    error_at (loc, "%qD takes ownership of argument %d; pass %<move%> "
-		      "of an owned value, a fresh allocation, or null "
-		      "[crug-FFI-007]", fndecl, i + 1);
+	    crug_error_at (loc, "crug-FFI-007", "%qD takes ownership of argument %d; pass %<move%> "
+		      "of an owned value, a fresh allocation, or null"
+		      , fndecl, i + 1);
 	}
 
       if (crug_ffi_arg_out_owned (fndecl, i, NULL))
@@ -3027,13 +3097,13 @@ check_ffi_call (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
 	  if (TREE_CODE (r) == ADDR_EXPR)
 	    d = nop_decl (TREE_OPERAND (r, 0));
 	  if (d == NULL_TREE || !crug_is_owning_decl (d))
-	    error_at (loc, "%qD writes an owned value through argument %d; "
-		      "pass the address of an owned variable [crug-FFI-008]",
+	    crug_error_at (loc, "crug-FFI-008", "%qD writes an owned value through argument %d; "
+		      "pass the address of an owned variable",
 		      fndecl, i + 1);
 	  else if (state_of (env, d) != CRUG_EMPTY)
-	    error_at (loc, "owned variable %qD already owns a value; drop it "
-		      "or release it before passing its address for output "
-		      "[crug-FFI-008]", d);
+	    crug_error_at (loc, "crug-FFI-008", "owned variable %qD already owns a value; drop it "
+		      "or release it before passing its address for output"
+		      , d);
 	}
 
       if (crug_ffi_arg_callback (fndecl, i))
@@ -3044,8 +3114,8 @@ check_ffi_call (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
 	  else if (TREE_CODE (r) == ADDR_EXPR)
 	    ok = (TREE_CODE (TREE_OPERAND (r, 0)) == FUNCTION_DECL);
 	  if (!ok)
-	    error_at (loc, "%qD calls back through argument %d; pass a "
-		      "function or a null pointer [crug-FFI-009]",
+	    crug_error_at (loc, "crug-FFI-009", "%qD calls back through argument %d; pass a "
+		      "function or a null pointer",
 		      fndecl, i + 1);
 	}
     }
@@ -3207,21 +3277,21 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 		arg_mut = (kind == CRUG_INTR_BORROW_MUT);
 	      if (!arg_mut)
 		{
-		  error_at (loc, "a shared borrow cannot be passed to a "
-			    "%<mut_borrows%> parameter [crug-BORROW-016]");
+		  crug_error_at (loc, "crug-BORROW-016", "a shared borrow cannot be passed to a "
+			    "%<mut_borrows%> parameter");
 		}
 	    }
 	  continue;
 	}
 
       if (fndecl != NULL_TREE)
-	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
-		  "parameter; %qD has no borrow contract [crug-BORROW-020]",
+	crug_error_at (loc, "crug-BORROW-020", "a borrow may only be passed to a %<ref%> or %<mut%> "
+		  "parameter; %qD has no borrow contract",
 		  fndecl);
       else
-	error_at (loc, "a borrow may only be passed to a %<ref%> or %<mut%> "
-		  "parameter; the called function has no borrow contract "
-		  "[crug-BORROW-020]");
+	crug_error_at (loc, "crug-BORROW-020", "a borrow may only be passed to a %<ref%> or %<mut%> "
+		  "parameter; the called function has no borrow contract"
+		  );
     }
 
   /* ADR 0010: the callee treats a mut parameter as 'restrict', so the call
@@ -3247,13 +3317,13 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 	      if (other == NULL_TREE || other != lender || (!mut_i && !mut_j))
 		continue;
 	      if (mut_i && mut_j)
-		error_at (loc, "cannot mutably borrow %qD more than once in one "
-			  "call; a mutable borrow must be exclusive "
-			  "[crug-BORROW-003]", lender);
+		crug_error_at (loc, "crug-BORROW-003", "cannot mutably borrow %qD more than once in one "
+			  "call; a mutable borrow must be exclusive"
+			  , lender);
 	      else
-		error_at (loc, "cannot borrow %qD mutably and again in one "
-			  "call; a mutable borrow must be exclusive "
-			  "[crug-BORROW-002]", lender);
+		crug_error_at (loc, "crug-BORROW-002", "cannot borrow %qD mutably and again in one "
+			  "call; a mutable borrow must be exclusive"
+			  , lender);
 	    }
 
 	  /* The lender itself (or a pointer derived from it) as another
@@ -3272,9 +3342,9 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 		  || (TREE_CODE (otype) != POINTER_TYPE
 		      && TREE_CODE (otype) != ARRAY_TYPE))
 		continue;
-	      error_at (loc, "the lender %qD is also passed to this call; a "
-			"%<mut%> parameter must be the only view of its object "
-			"[crug-BORROW-023]", lender);
+	      crug_error_at (loc, "crug-BORROW-023", "the lender %qD is also passed to this call; a "
+			"%<mut%> parameter must be the only view of its object"
+			, lender);
 	    }
 	}
     }
@@ -3301,12 +3371,12 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
       tree arg = CALL_EXPR_ARG (call, i);
       bool arg_mut = false;
       if (!borrow_value_mut_p (arg, &arg_mut))
-	error_at (loc, "passing a plain pointer to a %<mut%> parameter proves "
+	crug_error_at (loc, "crug-BORROW-021", "passing a plain pointer to a %<mut%> parameter proves "
 		  "no exclusive access; pass borrow_mut (...) or a mutable "
-		  "borrow [crug-BORROW-021]");
+		  "borrow");
       else if (!arg_mut)
-	error_at (loc, "a shared borrow cannot be passed to a %<mut%> "
-		  "parameter [crug-BORROW-022]");
+	crug_error_at (loc, "crug-BORROW-022", "a shared borrow cannot be passed to a %<mut%> "
+		  "parameter");
     }
 }
 
@@ -3389,19 +3459,19 @@ check_strict_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 	}
 
       if (parm != NULL_TREE && crug_is_owning_decl (parm))
-	error_at (loc, "an owned value passed to an %<own%> parameter must be "
-		  "moved explicitly: write move (%qD) [crug-OWN-011]", d);
+	crug_error_at (loc, "crug-OWN-011", "an owned value passed to an %<own%> parameter must be "
+		  "moved explicitly: write move (%qD)", d);
       else if (parm != NULL_TREE && crug_is_borrow_decl (parm, NULL))
 	/* A view: the caller keeps ownership, nothing moves.  */
 	continue;
       else if (fndecl != NULL_TREE)
-	error_at (loc, "an owned value passed to %qD has no ownership "
-		  "contract; release (%qD) first, or use an %<unsafe%> block "
-		  "[crug-OWN-012]", fndecl, d);
+	crug_error_at (loc, "crug-OWN-012", "an owned value passed to %qD has no ownership "
+		  "contract; release (%qD) first, or use an %<unsafe%> block"
+		  , fndecl, d);
       else
-	error_at (loc, "an owned value passed to a function without an "
+	crug_error_at (loc, "crug-OWN-012", "an owned value passed to a function without an "
 		  "ownership contract; release (%qD) first, or use an "
-		  "%<unsafe%> block [crug-OWN-012]", d);
+		  "%<unsafe%> block", d);
     }
 }
 
@@ -3418,9 +3488,9 @@ crug_strict_check_cast (location_t loc, tree to, tree from, tree operand)
   tree d = nop_decl (operand);
   if (d != NULL_TREE && crug_is_owning_decl (d) && POINTER_TYPE_P (to))
     {
-      error_at (loc, "an owned value cannot be converted to an unmanaged "
-		"pointer; release (%qD) first, or use an %<unsafe%> block "
-		"[crug-SAFE-003]", d);
+      crug_error_at (loc, "crug-SAFE-003", "an owned value cannot be converted to an unmanaged "
+		"pointer; release (%qD) first, or use an %<unsafe%> block"
+		, d);
       return;
     }
 
@@ -3434,8 +3504,8 @@ crug_strict_check_cast (location_t loc, tree to, tree from, tree operand)
       && integer_zerop (operand))
     return;
 
-  error_at (loc, "conversion between an integer and a pointer outside an "
-	    "%<unsafe%> block [crug-SAFE-002]");
+  crug_error_at (loc, "crug-SAFE-002", "conversion between an integer and a pointer outside an "
+	    "%<unsafe%> block");
 }
 
 /* True for an access to the artificial temporary that a lowered match uses
@@ -3556,8 +3626,8 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    && (TREE_CODE (lhs) == COMPONENT_REF || TREE_CODE (lhs) == ARRAY_REF
 		|| TREE_CODE (lhs) == INDIRECT_REF || TREE_CODE (lhs) == MEM_REF))
 	  {
-	    error_at (loc, "a borrow cannot be stored in memory; it can only "
-		      "be an automatic variable [crug-BORROW-018]");
+	    crug_error_at (loc, "crug-BORROW-018", "a borrow cannot be stored in memory; it can only "
+		      "be an automatic variable");
 	    walk_expr (ctx, env, lhs, loc);
 	    walk_expr (ctx, env, rhs, loc);
 	    return;
@@ -3567,8 +3637,8 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	if (base != NULL_TREE && crug_is_borrow_decl (base, &base_mut))
 	  {
 	    if (!base_mut)
-	      error_at (loc, "assignment through shared borrow %qD "
-			"[crug-BORROW-008]", base);
+	      crug_error_at (loc, "crug-BORROW-008", "assignment through shared borrow %qD"
+			, base);
 	    /* Writing through a borrow does not change what the owner owns,
 	       and the borrow binding itself is not assigned.  */
 	    walk_expr (ctx, env, lhs, loc);
@@ -3582,23 +3652,23 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    bool mutborrow = false;
 	    if (has_live_borrow (ctx, lhs, &shared, &mutborrow))
 	      {
-		error_at (loc, "cannot assign to %qD while it is borrowed "
-			  "[crug-BORROW-014]", lhs);
+		crug_error_at (loc, "crug-BORROW-014", "cannot assign to %qD while it is borrowed"
+			  , lhs);
 		walk_expr (ctx, env, rhs, loc);
 		return;
 	      }
 	    crug_state st = state_of (env, lhs);
 	    if (st == CRUG_MOVED)
-	      error_at (loc, "use of moved value %qD [crug-UAM-001]", lhs);
+	      report_moved_use (env, lhs, loc);
 	    else if (st == CRUG_MAYBE_MOVED)
-	      error_at (loc, "use of possibly-moved value %qD after a branch "
-			"join [crug-UAM-004]", lhs);
+	      crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch "
+			"join", lhs);
 	    else if (st == CRUG_OWNED || st == CRUG_MAYBE_EMPTY)
 	      {
 		/* Assigning to an object that already owns a value would
 		   overwrite it without destroying it.  */
-		error_at (loc, "assignment to an owned value that already owns; "
-			  "call drop() or release() first [crug-DROP-008]", lhs);
+		crug_error_at (loc, "crug-DROP-008", "assignment to an owned value that already owns; "
+			  "call drop() or release() first", lhs);
 		/* Recovery: the value is not destroyed here, so stop calling
 		   it owned and do not model the assignment.  The state is
 		   EMPTY rather than MOVED so that neither the end of the scope
@@ -3631,8 +3701,8 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	tree base = TREE_OPERAND (t, 0);
 	tree d = nop_decl (base);
 	if (d != NULL_TREE && crug_is_raw_decl (d) && strict_active (ctx))
-	  error_at (loc, "dereference of %<raw%> pointer %qD outside an "
-		    "%<unsafe%> block [crug-SAFE-001]", d);
+	  crug_error_at (loc, "crug-SAFE-001", "dereference of %<raw%> pointer %qD outside an "
+		    "%<unsafe%> block", d);
 	break;
       }
 
@@ -3747,22 +3817,22 @@ check_gotos (crug_fn_ctx &ctx)
 	  if (j == le->second.end ())
 	    {
 	      if (ctx.warned.insert (d).second)
-		error_at (go.loc, "goto jumps into the scope of owned %qD "
-			  "[crug-DROP-002]", d);
+		crug_error_at (go.loc, "crug-DROP-002", "goto jumps into the scope of owned %qD"
+			  , d);
 	      continue;
 	    }
 	  if (i->second.state != j->second.state
 	      && ctx.warned.insert (d).second)
-	    error_at (go.loc, "cannot prove that %qD is destroyed exactly once "
-		      "on this path [crug-DROP-006]", d);
+	    crug_error_at (go.loc, "crug-DROP-006", "cannot prove that %qD is destroyed exactly once "
+		      "on this path", d);
 	}
 
       for (state_map::iterator j = le->second.begin ();
 	   j != le->second.end (); ++j)
 	if (go.env.find (j->first) == go.env.end ()
 	    && ctx.warned.insert (j->first).second)
-	  error_at (go.loc, "goto jumps into the scope of owned %qD "
-		    "[crug-DROP-002]", j->first);
+	  crug_error_at (go.loc, "crug-DROP-002", "goto jumps into the scope of owned %qD"
+		    , j->first);
     }
 }
 
@@ -3921,8 +3991,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    if (is_borrow_value (rv))
 	      {
 		location_t origin = borrow_value_origin (ctx, rv);
-		error_at (loc, "a borrow cannot be returned from the function "
-			  "that created it [crug-BORROW-019]");
+		crug_error_at (loc, "crug-BORROW-019", "a borrow cannot be returned from the function "
+			  "that created it");
 		if (origin != UNKNOWN_LOCATION)
 		  inform (origin, "borrow created here");
 	      }
@@ -3978,7 +4048,7 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    for (size_t i = common; i < info.path.size (); i++)
 	      if (crug_scope_blocks.find (info.path[i]) != crug_scope_blocks.end ()
 		  && ctx.warned.insert (info.path[i]).second)
-		error_at (loc, "goto jumps into a %<scope%> block [crug-CONC-015]");
+		crug_error_at (loc, "crug-CONC-015", "goto jumps into a %<scope%> block");
 
 	    /* The label lives in a block that this goto does not enter.  Any
 	       owning object declared textually before the label in that block
@@ -3986,8 +4056,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    for (size_t i = 0; i < info.decls_before.size (); i++)
 	      if (env.find (info.decls_before[i]) == env.end ()
 		  && ctx.warned.insert (info.decls_before[i]).second)
-		error_at (loc, "goto jumps into the scope of owned %qD "
-			  "[crug-DROP-002]", info.decls_before[i]);
+		crug_error_at (loc, "crug-DROP-002", "goto jumps into the scope of owned %qD"
+			  , info.decls_before[i]);
 	  }
 
 	record_exit (ctx, env, t, CRUG_EXIT_GOTO, common, loc, false);
@@ -4171,8 +4241,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	 analysis seeing it, so strict mode confines it to unsafe blocks
 	 (ADR 0021 D7).  */
       if (strict_active (ctx))
-	error_at (loc, "an %<asm%> statement outside an %<unsafe%> block can "
-		  "change memory that Crug tracks [crug-SAFE-004]");
+	crug_error_at (loc, "crug-SAFE-004", "an %<asm%> statement outside an %<unsafe%> block can "
+		  "change memory that Crug tracks");
       return true;
 
     default:
@@ -4186,9 +4256,9 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		 lowered away silently (ADR 0004 D10).  */
 	      if (kind == CRUG_INTR_ADOPT)
 		{
-		  error_at (loc, "the result of %<adopt%> is discarded; "
-			    "initialize an owned declaration with it "
-			    "[crug-OWN-013]");
+		  crug_error_at (loc, "crug-OWN-013", "the result of %<adopt%> is discarded; "
+			    "initialize an owned declaration with it"
+			    );
 		  return true;
 		}
 	      walk_expr (ctx, env, t, loc);
@@ -4434,10 +4504,10 @@ crug_check_function (tree fndecl, tree body, bool has_scope)
   for (tree a = DECL_ARGUMENTS (fndecl); a != NULL_TREE; a = DECL_CHAIN (a))
     if (TREE_CODE (a) == PARM_DECL
 	&& owns_payload_enum_type_p (TREE_TYPE (a)))
-      error_at (DECL_SOURCE_LOCATION (a), "an owning payload enum cannot be "
+      crug_error_at (DECL_SOURCE_LOCATION (a), "crug-ADT-018", "an owning payload enum cannot be "
 		"passed by value: the destructor of its payload is not part of "
-		"the ABI; keep the value in one function or pass a pointer "
-		"[crug-ADT-018]");
+		"the ABI; keep the value in one function or pass a pointer"
+		);
   if (DECL_RESULT (fndecl) != NULL_TREE)
     {
       tree restype = TREE_TYPE (DECL_RESULT (fndecl));
@@ -4445,10 +4515,10 @@ crug_check_function (tree fndecl, tree body, bool has_scope)
 	  && TREE_TYPE (restype) != NULL_TREE)
 	restype = TREE_TYPE (restype);
       if (owns_payload_enum_type_p (restype))
-	error_at (DECL_SOURCE_LOCATION (fndecl), "a function cannot return an "
+	crug_error_at (DECL_SOURCE_LOCATION (fndecl), "crug-ADT-018", "a function cannot return an "
 		  "owning payload enum by value: the destructor of its payload "
-		  "is not part of the ABI; return a pointer instead "
-		  "[crug-ADT-018]");
+		  "is not part of the ABI; return a pointer instead"
+		  );
     }
 
   crug_fn_ctx ctx;

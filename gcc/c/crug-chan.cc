@@ -55,6 +55,7 @@
 
 #include <vector>
 
+#include "c-family/crug-diagnostics.h"
 bool
 crug_channels_enabled (void)
 {
@@ -125,8 +126,8 @@ crug_channel_type (tree element, bool owns_element, location_t loc)
       || !COMPLETE_TYPE_P (element)
       || TREE_CODE (TYPE_SIZE_UNIT (element)) != INTEGER_CST)
     {
-      error_at (loc, "a channel element must be a complete type with a size "
-		"known at compile time [crug-CONC-019]");
+      crug_error_at (loc, "crug-CONC-019", "a channel element must be a complete type with a size "
+		"known at compile time");
       return error_mark_node;
     }
 
@@ -140,8 +141,8 @@ crug_channel_type (tree element, bool owns_element, location_t loc)
 
     if (!crug_type_send_p (probe, &blocker))
       {
-	error_at (loc, "a channel element must be %<Send%>; %qT is not "
-		  "[crug-CONC-027]", probe);
+	crug_error_at (loc, "crug-CONC-027", "a channel element must be %<Send%>; %qT is not"
+		  , probe);
 	if (blocker != NULL_TREE && blocker != probe)
 	  inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
 		  blocker);
@@ -328,15 +329,15 @@ crug_channel_send (location_t loc, tree channel, tree value)
 
     if (crug_expr_thread_affine_p (value, &affinity))
       {
-	error_at (loc, "a thread-affine value cannot cross to another task; "
-		  "it belongs to the %qs thread [crug-CONC-025]",
+	crug_error_at (loc, "crug-CONC-025", "a thread-affine value cannot cross to another task; "
+		  "it belongs to the %qs thread",
 		  affinity == NULL ? "unknown" : affinity);
 	return error_mark_node;
       }
     if (!crug_type_send_p (probe, &blocker))
       {
-	error_at (loc, "a value of type %qT cannot cross to another task; "
-		  "the type is not %<Send%> [crug-CONC-024]", probe);
+	crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another task; "
+		  "the type is not %<Send%>", probe);
 	if (blocker != NULL_TREE && blocker != probe)
 	  inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
 		  blocker);

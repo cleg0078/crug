@@ -51,6 +51,7 @@
 #include <set>
 #include <vector>
 
+#include "c-family/crug-diagnostics.h"
 /* The runtime entry points.  They are declared here, with the signature the
    runtime defines in libcrug/core/task.h, so that a Crug translation unit
    needs no header for them: the call is an ordinary external reference that
@@ -383,7 +384,7 @@ crug_go_lower (location_t loc, tree callee, tree args, tree scope)
 
   if (fntype == NULL_TREE || TREE_CODE (fntype) != FUNCTION_TYPE)
     {
-      error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+      crug_error_at (loc, "crug-CONC-010", "%<go%> requires a function");
       return NULL_TREE;
     }
 
@@ -391,7 +392,7 @@ crug_go_lower (location_t loc, tree callee, tree args, tree scope)
      (ADR 0018 D4).  */
   if (TREE_CODE (TREE_TYPE (fntype)) != VOID_TYPE)
     {
-      error_at (loc, "%<go%> callee must return void [crug-CONC-008]");
+      crug_error_at (loc, "crug-CONC-008", "%<go%> callee must return void");
       return NULL_TREE;
     }
 
@@ -400,7 +401,7 @@ crug_go_lower (location_t loc, tree callee, tree args, tree scope)
      be replayed for the generated function.  */
   if (!prototype_p (fntype) || stdarg_p (fntype))
     {
-      error_at (loc, "%<go%> requires a prototype for its callee [crug-CONC-013]");
+      crug_error_at (loc, "crug-CONC-013", "%<go%> requires a prototype for its callee");
       return NULL_TREE;
     }
 

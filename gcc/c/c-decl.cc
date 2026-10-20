@@ -69,6 +69,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "tree-pretty-print.h"
 
+#include "c-family/crug-diagnostics.h"
 /* In grokdeclarator, distinguish syntactic contexts of declarators.  */
 enum decl_context
 { NORMAL,			/* Ordinary declaration */
@@ -9186,15 +9187,15 @@ grokfield (location_t loc,
   if ((declspecs->crug_qual == CRUG_QUAL_REF
        || declspecs->crug_qual == CRUG_QUAL_MUT)
       && value != error_mark_node)
-    error_at (loc, "a borrowed member cannot be stored in a structure "
-	      "[crug-BORROW-007]");
+    crug_error_at (loc, "crug-BORROW-007", "a borrowed member cannot be stored in a structure"
+	      );
   else if (declspecs->crug_qual == CRUG_QUAL_RAW && value != error_mark_node)
     {
       if (width != NULL_TREE
 	  || DECL_NAME (value) == NULL_TREE
 	  || c_flexible_array_member_type_p (TREE_TYPE (value)))
-	error_at (loc, "qualifier is not allowed on a bit-field, flexible "
-		  "array member or unnamed member [crug-TYPE-006]");
+	crug_error_at (loc, "crug-TYPE-006", "qualifier is not allowed on a bit-field, flexible "
+		  "array member or unnamed member");
       else
 	crug_mark_raw_decl (value, DECL_SOURCE_LOCATION (value));
     }
@@ -9203,12 +9204,12 @@ grokfield (location_t loc,
       if (width != NULL_TREE
 	  || DECL_NAME (value) == NULL_TREE
 	  || c_flexible_array_member_type_p (TREE_TYPE (value)))
-	error_at (loc, "qualifier is not allowed on a bit-field, flexible "
-		  "array member or unnamed member [crug-TYPE-006]");
+	crug_error_at (loc, "crug-TYPE-006", "qualifier is not allowed on a bit-field, flexible "
+		  "array member or unnamed member");
       else if (DECL_CONTEXT (value) != NULL_TREE
 	       && TREE_CODE (DECL_CONTEXT (value)) == UNION_TYPE)
-	error_at (loc, "own member in union requires an active-variant "
-		  "contract [crug-OWN-009]");
+	crug_error_at (loc, "crug-OWN-009", "own member in union requires an active-variant "
+		  "contract");
       else
 	crug_mark_owning_decl (value, DECL_SOURCE_LOCATION (value));
     }
@@ -10197,9 +10198,9 @@ finish_struct (location_t loc, tree t, tree fieldlist, tree attributes,
 	 field = DECL_CHAIN (field))
       if (crug_is_owning_decl (field))
 	{
-	  error_at (DECL_SOURCE_LOCATION (field),
-		    "own member in union requires an active-variant contract "
-		    "[crug-OWN-009]");
+	  crug_error_at (DECL_SOURCE_LOCATION (field), "crug-OWN-009",
+		    "own member in union requires an active-variant contract"
+		    );
 	  break;
 	}
 
@@ -10917,7 +10918,7 @@ start_function (struct c_declspecs *declspecs, struct c_declarator *declarator,
   if (declspecs->crug_qual == CRUG_QUAL_REF
       || declspecs->crug_qual == CRUG_QUAL_MUT)
     {
-      error_at (loc, "a function cannot return a borrow [crug-BORROW-001]");
+      crug_error_at (loc, "crug-BORROW-001", "a function cannot return a borrow");
       declspecs->crug_qual = CRUG_QUAL_NONE;
     }
 

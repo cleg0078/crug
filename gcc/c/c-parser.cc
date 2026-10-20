@@ -86,6 +86,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/c-ubsan.h"
 #include "gcc-urlifier.h"
 
+#include "c-family/crug-diagnostics.h"
 /* We need to walk over decls with incomplete struct/union/enum types
    after parsing the whole translation unit.
    In finish_decl(), if the decl is static, has incomplete
@@ -3988,13 +3989,13 @@ c_parser_declspecs (c_parser *parser, struct c_declspecs *specs,
 	      enum crug_qualifier_kind qual = crug_qualifier_token_kind (parser);
 
 	      if (specs->crug_qual != CRUG_QUAL_NONE)
-		error_at (name_token->location,
-			  "more than one Crug qualifier on one declarator "
-			  "[crug-TYPE-002]");
+		crug_error_at (name_token->location, "crug-TYPE-002",
+			  "more than one Crug qualifier on one declarator"
+			  );
 	      else if (specs->atomic_p)
-		error_at (name_token->location,
+		crug_error_at (name_token->location, "crug-TYPE-004",
 			  "%<_Atomic%> may not be combined with a Crug "
-			  "qualifier [crug-TYPE-004]");
+			  "qualifier");
 	      else
 		specs->crug_qual = qual;
 	      c_parser_consume_token (parser);
@@ -4450,9 +4451,9 @@ crug_parse_payload_enum (c_parser *parser, location_t enum_loc, tree ident,
      forward 'enum NAME' reference; ask for the definition to come first.  */
   if (ident != NULL_TREE
       && crug_lookup_current_tag (ENUMERAL_TYPE, ident, NULL) != NULL_TREE)
-    error_at (ident_loc, "redefinition of %<enum %E%> as a payload enum; "
-	      "define the payload enum before any reference to its tag "
-	      "[crug-ADT-017]", ident);
+    crug_error_at (ident_loc, "crug-ADT-017", "redefinition of %<enum %E%> as a payload enum; "
+	      "define the payload enum before any reference to its tag"
+	      , ident);
 
   c_parser_consume_token (parser);	/* '{' */
   while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
@@ -4483,8 +4484,8 @@ crug_parse_payload_enum (c_parser *parser, location_t enum_loc, tree ident,
 	  c_parser_consume_token (parser);
 	  if (c_parser_next_token_is (parser, CPP_CLOSE_PAREN))
 	    {
-	      error_at (ploc, "empty payload parentheses in a payload enum "
-			"[crug-ADT-001]");
+	      crug_error_at (ploc, "crug-ADT-001", "empty payload parentheses in a payload enum"
+			);
 	      c_parser_consume_token (parser);
 	    }
 	  else
@@ -4503,8 +4504,8 @@ crug_parse_payload_enum (c_parser *parser, location_t enum_loc, tree ident,
 	      /* A payload is exactly one type-name.  */
 	      if (c_parser_next_token_is (parser, CPP_COMMA))
 		{
-		  error_at (ploc, "a payload variant takes exactly one "
-			    "type-name [crug-ADT-002]");
+		  crug_error_at (ploc, "crug-ADT-002", "a payload variant takes exactly one "
+			    "type-name");
 		  while (!c_parser_next_token_is (parser, CPP_CLOSE_PAREN)
 			 && !c_parser_next_token_is (parser, CPP_EOF))
 		    c_parser_consume_token (parser);
@@ -4530,7 +4531,7 @@ crug_parse_payload_enum (c_parser *parser, location_t enum_loc, tree ident,
 
   if (variants.size () == 0)
     {
-      error_at (enum_loc, "empty payload enum [crug-ADT-001]");
+      crug_error_at (enum_loc, "crug-ADT-001", "empty payload enum");
       return ret;
     }
 
@@ -4711,8 +4712,8 @@ c_parser_enum_specifier (c_parser *parser)
     {
       if (fixed_underlying_type != NULL_TREE)
 	{
-	  error_at (enum_loc, "a payload enum cannot have a fixed underlying "
-		    "type [crug-ADT-016]");
+	  crug_error_at (enum_loc, "crug-ADT-016", "a payload enum cannot have a fixed underlying "
+		    "type");
 	  c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
 	}
       else
@@ -12526,8 +12527,8 @@ c_parser_postfix_expression (c_parser *parser)
 		  }
 		else
 		  {
-		    error_at (slice_loc, "%<slice%> takes two arguments: "
-			      "slice (pointer, length) [crug-TYPE-012]");
+		    crug_error_at (slice_loc, "crug-TYPE-012", "%<slice%> takes two arguments: "
+			      "slice (pointer, length)");
 		    arg1.value = error_mark_node;
 		  }
 		c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
@@ -12600,11 +12601,11 @@ c_parser_postfix_expression (c_parser *parser)
 			arg1 = c_parser_expr_no_commas (parser, NULL);
 		      }
 		    else
-		      error_at (intr_loc, "%<adopt%> takes two arguments: "
-				"adopt (pointer, destructor) [crug-OWN-002]");
+		      crug_error_at (intr_loc, "crug-OWN-002", "%<adopt%> takes two arguments: "
+				"adopt (pointer, destructor)");
 		  }
 		else if (c_parser_next_token_is (parser, CPP_COMMA))
-		  error_at (intr_loc, "%qs takes one argument [crug-OWN-001]",
+		  crug_error_at (intr_loc, "crug-OWN-001", "%qs takes one argument",
 			    IDENTIFIER_POINTER (id));
 		c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 					   "expected %<)%>");
@@ -12652,8 +12653,8 @@ c_parser_postfix_expression (c_parser *parser)
 			c_parser_consume_token (parser);
 			if (c_parser_next_token_is (parser, CPP_OPEN_PAREN))
 			  {
-			    error_at (vloc, "variant %qs does not take a "
-				      "payload [crug-ADT-004]", vname);
+			    crug_error_at (vloc, "crug-ADT-004", "variant %qs does not take a "
+				      "payload", vname);
 			    c_parser_consume_token (parser);	/* '(' */
 			    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 						       NULL);
@@ -12670,8 +12671,8 @@ c_parser_postfix_expression (c_parser *parser)
 		    else if (c_parser_peek_2nd_token (parser)->type
 			     != CPP_OPEN_PAREN)
 		      {
-			error_at (vloc, "variant %qs expects a payload "
-				  "[crug-ADT-003]", vname);
+			crug_error_at (vloc, "crug-ADT-003", "variant %qs expects a payload"
+				  , vname);
 			c_parser_consume_token (parser);
 			expr.value = error_mark_node;
 		      }
@@ -12688,8 +12689,8 @@ c_parser_postfix_expression (c_parser *parser)
 			  }
 			payload = c_parser_expr_no_commas (parser, NULL);
 			if (c_parser_next_token_is (parser, CPP_COMMA))
-			  error_at (vloc, "variant %qs takes exactly one "
-				    "payload [crug-ADT-002]", vname);
+			  crug_error_at (vloc, "crug-ADT-002", "variant %qs takes exactly one "
+				    "payload", vname);
 			c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 						   "expected %<)%>");
 			if (payload.value == error_mark_node)
@@ -32273,8 +32274,8 @@ crug_take_type_close (c_parser *parser, location_t loc)
       crug_pending_greater++;
       return;
     }
-  error_at (loc, "expected %<'>%> to close the type argument list "
-	    "[crug-TYPE-014]");
+  crug_error_at (loc, "crug-TYPE-014", "expected %<'>%> to close the type argument list"
+	    );
 }
 
 static tree
@@ -32318,7 +32319,7 @@ crug_parse_generic_type (c_parser *parser)
 
   if (nargs > 2)
     {
-      error_at (loc, "%qs takes at most two type arguments [crug-TYPE-013]",
+      crug_error_at (loc, "crug-TYPE-013", "%qs takes at most two type arguments",
 		word);
       return error_mark_node;
     }
@@ -32326,8 +32327,8 @@ crug_parse_generic_type (c_parser *parser)
   if (strcmp (word, "slice") == 0)
     {
       if (nargs != 1)
-	error_at (loc, "%<slice%> needs exactly one type argument "
-		  "[crug-TYPE-013]");
+	crug_error_at (loc, "crug-TYPE-013", "%<slice%> needs exactly one type argument"
+		  );
       else if (args[0] == error_mark_node)
 	return error_mark_node;
       else
@@ -32336,8 +32337,8 @@ crug_parse_generic_type (c_parser *parser)
   else if (strcmp (word, "option") == 0)
     {
       if (nargs != 1)
-	error_at (loc, "%<option%> needs exactly one type argument "
-		  "[crug-TYPE-013]");
+	crug_error_at (loc, "crug-TYPE-013", "%<option%> needs exactly one type argument"
+		  );
       else if (args[0] == error_mark_node)
 	return error_mark_node;
       else
@@ -32346,8 +32347,8 @@ crug_parse_generic_type (c_parser *parser)
   else
     {
       if (nargs != 2)
-	error_at (loc, "%<result%> needs exactly two type arguments "
-		  "[crug-TYPE-013]");
+	crug_error_at (loc, "crug-TYPE-013", "%<result%> needs exactly two type arguments"
+		  );
       else if (args[0] == error_mark_node || args[1] == error_mark_node)
 	return error_mark_node;
       else
@@ -32439,9 +32440,9 @@ crug_parse_constructor (c_parser *parser, int ctor, location_t loc)
       c_parser_consume_token (parser);
       if (hint == NULL_TREE || !crug_option_type_p (hint))
 	{
-	  error_at (loc, "%<none%> needs an option type from its context; "
-		    "initialize an option declaration or return it "
-		    "[crug-ADT-005]");
+	  crug_error_at (loc, "crug-ADT-005", "%<none%> needs an option type from its context; "
+		    "initialize an option declaration or return it"
+		    );
 	  return ret;
 	}
       ret.value = crug_safe_option_ctor (loc, hint, CRUG_VARIANT_NONE,
@@ -32457,11 +32458,11 @@ crug_parse_constructor (c_parser *parser, int ctor, location_t loc)
     && ((ctor == 1 && crug_option_type_p (hint))
 	|| (ctor >= 2 && crug_result_type_p (hint)));
   if (hint == NULL_TREE)
-    error_at (loc, "%qs needs an option or result type from its context; "
-	      "initialize a declaration or use it in a return statement "
-	      "[crug-ADT-005]", crug_ctor_name (ctor));
+    crug_error_at (loc, "crug-ADT-005", "%qs needs an option or result type from its context; "
+	      "initialize a declaration or use it in a return statement"
+	      , crug_ctor_name (ctor));
   else if (!have_sum)
-    error_at (loc, "%qs does not construct %qT [crug-ADT-006]",
+    crug_error_at (loc, "crug-ADT-006", "%qs does not construct %qT",
 	      crug_ctor_name (ctor), hint);
 
   int ctor_variant = (ctor == 1 ? CRUG_VARIANT_SOME
@@ -32626,7 +32627,7 @@ crug_parse_go_statement (c_parser *parser)
 	}
       if (TREE_CODE (fn.value) != CALL_EXPR)
 	{
-	  error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+	  crug_error_at (loc, "crug-CONC-010", "%<go%> requires a function");
 	  c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
 	  return NULL_TREE;
 	}
@@ -32646,7 +32647,7 @@ crug_parse_go_statement (c_parser *parser)
       c_parser_consume_token (parser);	/* name  */
       if (decl == NULL_TREE || TREE_CODE (decl) != FUNCTION_DECL)
 	{
-	  error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+	  crug_error_at (loc, "crug-CONC-010", "%<go%> requires a function");
 	  if (decl == NULL_TREE)
 	    inform (loc, "%qE is not declared", id);
 	  /* Consume the argument list so the next token is the ';'.  */
@@ -32671,7 +32672,7 @@ crug_parse_go_statement (c_parser *parser)
     }
   else
     {
-      error_at (loc, "%<go%> requires a function [crug-CONC-010]");
+      crug_error_at (loc, "crug-CONC-010", "%<go%> requires a function");
       c_parser_skip_until_found (parser, CPP_SEMICOLON, "expected %<;%>");
       return NULL_TREE;
     }
@@ -32866,8 +32867,8 @@ crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
 
       if (nargs != 1)
 	{
-	  error_at (loc, "%<channel%> takes one argument: the buffer capacity "
-		    "[crug-CONC-020]");
+	  crug_error_at (loc, "crug-CONC-020", "%<channel%> takes one argument: the buffer capacity"
+		    );
 	  return expr;
 	}
       if (args[0] == error_mark_node)
@@ -32876,9 +32877,9 @@ crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
 	return expr;
       if (hint == NULL_TREE || !crug_channel_type_p (hint))
 	{
-	  error_at (loc, "%<channel%> requires a channel type from context; "
-		    "initialize a channel variable or return it "
-		    "[crug-CONC-002]");
+	  crug_error_at (loc, "crug-CONC-002", "%<channel%> requires a channel type from context; "
+		    "initialize a channel variable or return it"
+		    );
 	  return expr;
 	}
       expr.value = crug_channel_make (loc, hint, args[0]);
@@ -32891,8 +32892,8 @@ crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
   chan_type = TREE_TYPE (args[0]);
   if (chan_type == NULL_TREE || !crug_channel_type_p (chan_type))
     {
-      error_at (loc, "the first argument of %qs must be a channel "
-		"[crug-CONC-018]", word);
+      crug_error_at (loc, "crug-CONC-018", "the first argument of %qs must be a channel"
+		, word);
       return expr;
     }
 
@@ -32900,23 +32901,23 @@ crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
     {
       if (nargs != 2)
 	{
-	  error_at (loc, "%<send%> takes two arguments: send (channel, value) "
-		    "[crug-CONC-021]");
+	  crug_error_at (loc, "crug-CONC-021", "%<send%> takes two arguments: send (channel, value)"
+		    );
 	  return expr;
 	}
       if (crug_channel_owns_element (chan_type))
 	{
 	  if (crug_intrinsic_call_p (args[1], CRUG_INTR_ADOPT))
 	    {
-	      error_at (loc, "a destructor cannot cross a channel; the receiver "
-			"of the value destroys it [crug-CONC-023]");
+	      crug_error_at (loc, "crug-CONC-023", "a destructor cannot cross a channel; the receiver "
+			"of the value destroys it");
 	      return expr;
 	    }
 	  if (args[1] != error_mark_node
 	      && !crug_intrinsic_call_p (args[1], CRUG_INTR_MOVE))
 	    {
-	      error_at (loc, "send transfers ownership; wrap the argument in "
-			"%<move ()%> [crug-CONC-003]");
+	      crug_error_at (loc, "crug-CONC-003", "send transfers ownership; wrap the argument in "
+			"%<move ()%>");
 	      return expr;
 	    }
 	}
@@ -32928,7 +32929,7 @@ crug_parse_channel_call (c_parser *parser, tree id, location_t loc)
 
   if (nargs != 1)
     {
-      error_at (loc, "%qs takes one argument [crug-CONC-022]", word);
+      crug_error_at (loc, "crug-CONC-022", "%qs takes one argument", word);
       return expr;
     }
   if (strcmp (word, "recv") == 0)
@@ -33082,8 +33083,8 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 
   if (t->type != CPP_NAME || t->value == NULL_TREE)
     {
-      error_at (loc, "select case must be %<case v = recv (ch):%>, "
-		"%<case send (ch, v):%> or %<default:%> [crug-CONC-004]");
+      crug_error_at (loc, "crug-CONC-004", "select case must be %<case v = recv (ch):%>, "
+		"%<case send (ch, v):%> or %<default:%>");
       return false;
     }
 
@@ -33093,14 +33094,14 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
     {
       if (c_parser_peek_2nd_token (parser)->type == CPP_EQ_EQ)
 	{
-	  error_at (loc, "%<case v == recv (ch)%> is not a select form; use "
-		    "%<case v = recv (ch)%> [crug-CONC-007]");
+	  crug_error_at (loc, "crug-CONC-007", "%<case v == recv (ch)%> is not a select form; use "
+		    "%<case v = recv (ch)%>");
 	  return false;
 	}
       if (c_parser_peek_2nd_token (parser)->type != CPP_EQ)
 	{
-	  error_at (loc, "select case must be %<case v = recv (ch):%>, "
-		    "%<case send (ch, v):%> or %<default:%> [crug-CONC-004]");
+	  crug_error_at (loc, "crug-CONC-004", "select case must be %<case v = recv (ch):%>, "
+		    "%<case send (ch, v):%> or %<default:%>");
 	  return false;
 	}
       /* 'case v = recv (ch):'  */
@@ -33111,8 +33112,8 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
       if (t->type != CPP_NAME || t->value == NULL_TREE
 	  || strcmp (IDENTIFIER_POINTER (t->value), "recv") != 0)
 	{
-	  error_at (loc, "a %<select%> binding can only receive; write "
-		    "%<case v = recv (ch):%> [crug-CONC-004]");
+	  crug_error_at (loc, "crug-CONC-004", "a %<select%> binding can only receive; write "
+		    "%<case v = recv (ch):%>");
 	  return false;
 	}
       word = "recv";
@@ -33126,7 +33127,7 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 
   if (c_parser_next_token_is (parser, CPP_CLOSE_PAREN))
     {
-      error_at (loc, "%qs needs a channel [crug-CONC-018]",
+      crug_error_at (loc, "crug-CONC-018", "%qs needs a channel",
 		arm->is_recv ? "recv" : "send");
       c_parser_consume_token (parser);
       return false;
@@ -33146,16 +33147,16 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 	  }
 	else
 	  {
-	    error_at (loc, "%<send%> takes two arguments: send (channel, "
-		      "value) [crug-CONC-021]");
+	    crug_error_at (loc, "crug-CONC-021", "%<send%> takes two arguments: send (channel, "
+		      "value)");
 	    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 				       "expected %<)%>");
 	    return false;
 	  }
 	if (c_parser_next_token_is (parser, CPP_COMMA))
 	  {
-	    error_at (loc, "%<send%> takes two arguments: send (channel, "
-		      "value) [crug-CONC-021]");
+	    crug_error_at (loc, "crug-CONC-021", "%<send%> takes two arguments: send (channel, "
+		      "value)");
 	    c_parser_skip_until_found (parser, CPP_CLOSE_PAREN,
 				       "expected %<)%>");
 	    return false;
@@ -33163,7 +33164,7 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
       }
     else if (c_parser_next_token_is (parser, CPP_COMMA))
       {
-	error_at (loc, "%<recv%> takes one argument [crug-CONC-022]");
+	crug_error_at (loc, "crug-CONC-022", "%<recv%> takes one argument");
 	c_parser_skip_until_found (parser, CPP_CLOSE_PAREN, "expected %<)%>");
 	return false;
       }
@@ -33177,26 +33178,26 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
   chan_type = TREE_TYPE (arm->channel);
   if (chan_type == NULL_TREE || !crug_channel_type_p (chan_type))
     {
-      error_at (loc, "the first argument of %qs must be a channel "
-		"[crug-CONC-018]", arm->is_recv ? "recv" : "send");
+      crug_error_at (loc, "crug-CONC-018", "the first argument of %qs must be a channel"
+		, arm->is_recv ? "recv" : "send");
       return false;
     }
 
   if (arm->is_recv && crug_channel_owns_element (chan_type))
     {
-      error_at (loc, "a %<select%> arm cannot receive from a channel with an "
-		"owning element; use %<recv%> directly [crug-CONC-017]");
+      crug_error_at (loc, "crug-CONC-017", "a %<select%> arm cannot receive from a channel with an "
+		"owning element; use %<recv%> directly");
       return false;
     }
 
   if (!arm->is_recv && crug_channel_owns_element (chan_type))
     {
       if (crug_intrinsic_call_p (arm->value, CRUG_INTR_ADOPT))
-	error_at (loc, "a destructor cannot cross a channel; the receiver of "
-		  "the value destroys it [crug-CONC-023]");
+	crug_error_at (loc, "crug-CONC-023", "a destructor cannot cross a channel; the receiver of "
+		  "the value destroys it");
       else if (!crug_intrinsic_call_p (arm->value, CRUG_INTR_MOVE))
-	error_at (loc, "send transfers ownership; wrap the argument in "
-		  "%<move ()%> [crug-CONC-003]");
+	crug_error_at (loc, "crug-CONC-003", "send transfers ownership; wrap the argument in "
+		  "%<move ()%>");
     }
 
   arm->chan_var = crug_select_local (loc, chan_type, vars);
@@ -33260,8 +33261,8 @@ crug_parse_select_statement (c_parser *parser)
 	  c_parser_consume_token (parser);	/* 'default'  */
 	  bool seen_before = have_default;
 	  if (seen_before)
-	    error_at (aloc, "%<select%> may have at most one %<default%> "
-		      "[crug-CONC-005]");
+	    crug_error_at (aloc, "crug-CONC-005", "%<select%> may have at most one %<default%>"
+		      );
 	  if (!c_parser_require (parser, CPP_COLON, "expected %<:%>"))
 	    {
 	      c_parser_skip_until_found (parser, CPP_CLOSE_BRACE, NULL);
@@ -33280,8 +33281,8 @@ crug_parse_select_statement (c_parser *parser)
 	     top of it, and report the misplaced first one at its own keyword
 	     rather than at whatever follows the arm.  */
 	  if (!seen_before && !c_parser_next_token_is (parser, CPP_CLOSE_BRACE))
-	    error_at (aloc, "%<default%> must be the last %<select%> arm "
-		      "[crug-CONC-006]");
+	    crug_error_at (aloc, "crug-CONC-006", "%<default%> must be the last %<select%> arm"
+		      );
 	  continue;
 	}
 
@@ -33503,8 +33504,8 @@ crug_parse_match (c_parser *parser)
       && (stype == NULL_TREE || stype == error_mark_node
 	  || (!crug_option_type_p (stype) && !crug_result_type_p (stype))))
     {
-      error_at (loc, "%<match%> needs an option, result or payload enum "
-		"value [crug-ADT-013]");
+      crug_error_at (loc, "crug-ADT-013", "%<match%> needs an option, result or payload enum "
+		"value");
       crug_skip_match_body (parser);
       return error_mark_node;
     }
@@ -33551,8 +33552,8 @@ crug_parse_match (c_parser *parser)
 
       if (wildcard)
 	{
-	  error_at (aloc, "an arm after %<_%> is unreachable "
-		    "[crug-ADT-012]");
+	  crug_error_at (aloc, "crug-ADT-012", "an arm after %<_%> is unreachable"
+		    );
 	  bad_pattern = true;
 	}
 
@@ -33571,8 +33572,8 @@ crug_parse_match (c_parser *parser)
 	  variant = crug_match_variant (stype, IDENTIFIER_POINTER (pname));
 	  if (variant < 0)
 	    {
-	      error_at (aloc, "unknown pattern %qs for a %qT value "
-			"[crug-ADT-010]", IDENTIFIER_POINTER (pname), stype);
+	      crug_error_at (aloc, "crug-ADT-010", "unknown pattern %qs for a %qT value"
+			, IDENTIFIER_POINTER (pname), stype);
 	      bad_pattern = true;
 	      c_parser_consume_token (parser);
 	    }
@@ -33581,7 +33582,7 @@ crug_parse_match (c_parser *parser)
 	      c_parser_consume_token (parser);
 	      if (seen[variant])
 		{
-		  error_at (aloc, "duplicate arm for %qs [crug-ADT-012]",
+		  crug_error_at (aloc, "crug-ADT-012", "duplicate arm for %qs",
 			    crug_variant_name (stype, variant));
 		  bad_pattern = true;
 		}
@@ -33590,7 +33591,7 @@ crug_parse_match (c_parser *parser)
 	}
       else
 	{
-	  error_at (aloc, "expected a pattern in a match arm [crug-ADT-010]");
+	  crug_error_at (aloc, "crug-ADT-010", "expected a pattern in a match arm");
 	  bad_pattern = true;
 	  /* Consume something to make progress.  */
 	  if (!c_parser_next_token_is (parser, CPP_EQ))
@@ -33615,17 +33616,17 @@ crug_parse_match (c_parser *parser)
 	      c_parser_consume_token (parser);
 	    }
 	  else
-	    error_at (aloc, "expected a name to bind the payload "
-		      "[crug-ADT-010]");
+	    crug_error_at (aloc, "crug-ADT-010", "expected a name to bind the payload"
+		      );
 	  if (!c_parser_require (parser, CPP_CLOSE_PAREN, "expected %<)%>"))
 	    ;			/* keep going; the next token is diagnosed */
 	  if (this_wildcard)
-	    error_at (aloc, "%<_%> does not take a payload [crug-ADT-010]");
+	    crug_error_at (aloc, "crug-ADT-010", "%<_%> does not take a payload");
 	  else if (variant >= 0
 		   && crug_safe_payload_ref (loc, tmp, stype, variant)
 		      == NULL_TREE)
-	    error_at (aloc, "variant %qs does not take a payload "
-		      "[crug-ADT-004]", crug_variant_name (stype, variant));
+	    crug_error_at (aloc, "crug-ADT-004", "variant %qs does not take a payload"
+		      , crug_variant_name (stype, variant));
 	}
 
       /* An owned payload can only be destroyed by a binding, because the arm
@@ -33638,8 +33639,8 @@ crug_parse_match (c_parser *parser)
 	  for (int v = 0; v < nvariants; v++)
 	    if (crug_payload_enum_variant_owns_p (stype, v) && !seen[v])
 	      {
-		error_at (aloc, "a %<_%> arm cannot cover owned variant %qs; "
-			  "name it and bind the payload [crug-ADT-020]",
+		crug_error_at (aloc, "crug-ADT-020", "a %<_%> arm cannot cover owned variant %qs; "
+			  "name it and bind the payload",
 			  crug_variant_name (stype, v));
 		bad_pattern = true;
 		break;
@@ -33647,8 +33648,8 @@ crug_parse_match (c_parser *parser)
 	}
       if (!this_wildcard && owns_variant && bind_name == NULL_TREE)
 	{
-	  error_at (aloc, "an arm covering owned variant %qs must bind its "
-		    "payload; write %qs (name) => ... [crug-ADT-020]",
+	  crug_error_at (aloc, "crug-ADT-020", "an arm covering owned variant %qs must bind its "
+		    "payload; write %qs (name) => ...",
 		    crug_variant_name (stype, variant),
 		    crug_variant_name (stype, variant));
 	  bad_pattern = true;
@@ -33748,8 +33749,8 @@ crug_parse_match (c_parser *parser)
     for (int v = 0; v < nvariants; v++)
       if (!seen[v])
 	{
-	  error_at (loc, "non-exhaustive %<match%>: no arm for %qs; add that "
-		    "arm or a %<_%> arm [crug-ADT-011]",
+	  crug_error_at (loc, "crug-ADT-011", "non-exhaustive %<match%>: no arm for %qs; add that "
+		    "arm or a %<_%> arm",
 		    crug_variant_name (stype, v));
 	  break;
 	}

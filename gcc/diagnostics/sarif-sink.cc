@@ -960,6 +960,9 @@ private:
 						enum kind orig_diag_kind,
 						const char *option_text);
   std::unique_ptr<sarif_reporting_descriptor>
+  make_reporting_descriptor_object_for_rule (const diagnostics::metadata::rule &rule,
+					     const char *rule_id);
+  std::unique_ptr<sarif_reporting_descriptor>
   make_reporting_descriptor_object_for_cwe_id (int cwe_id) const;
   std::unique_ptr<sarif_reporting_descriptor_reference>
   make_reporting_descriptor_reference_object_for_cwe_id (int cwe_id);
@@ -2066,10 +2069,41 @@ sarif_builder::make_result_object (const diagnostic_info &diagnostic,
   auto result_obj = std::make_unique<sarif_result> (idx_within_parent);
 
   /* "ruleId" property (SARIF v2.1.0 section 3.27.5).  */
-  /* Ideally we'd have an option_name for these.  */
-  if (char *option_text
-	= m_context.make_option_name (diagnostic.m_option_id,
-				      orig_diag_kind, diagnostic.m_kind))
+  /* A rule carried in the diagnostic metadata takes precedence: Crug's
+     stable diagnostic codes live there, and a code such as "crug-UAM-001"
+     is a more useful ruleId than the -W option name.  */
+  if (diagnostic.m_metadata
+      && diagnostic.m_metadata->get_num_rules () > 0)
+    {
+      /* The diagnostic carries a rule from its metadata (Crug's stable
+	 diagnostic codes use this).  Use the rule description as the
+	 ruleId and list the rule in this run's reportingDescriptors.  */
+      const diagnostics::metadata::rule &rule
+	= diagnostic.m_metadata->get_rule (0);
+      char *rule_id = rule.make_description ();
+      if (rule_id)
+	{
+	  result_obj->set_string ("ruleId", rule_id);
+	  if (m_rule_id_set.contains (rule_id))
+	    free (rule_id);
+	  else
+	    {
+	      m_rule_id_set.add (rule_id);
+	      m_rules_arr->append<sarif_reporting_descriptor>
+		(make_reporting_descriptor_object_for_rule (rule, rule_id));
+	    }
+	}
+      else
+	{
+	  char *kind_rule_id
+	    = make_rule_id_for_diagnostic_kind (orig_diag_kind);
+	  result_obj->set_string ("ruleId", kind_rule_id);
+	  free (kind_rule_id);
+	}
+    }
+  else if (char *option_text
+	   = m_context.make_option_name (diagnostic.m_option_id,
+					 orig_diag_kind, diagnostic.m_kind))
     {
       /* Lazily create reportingDescriptor objects for and add to m_rules_arr.
 	 Set ruleId referencing them.  */
@@ -2111,8 +2145,6 @@ sarif_builder::make_result_object (const diagnostic_info &diagnostic,
 	}
 
       diagnostic.m_metadata->maybe_add_sarif_properties (*result_obj);
-
-      /* We don't yet support diagnostics::metadata::rule.  */
     }
 
   /* "level" property (SARIF v2.1.0 section 3.27.10).  */
@@ -2195,6 +2227,29 @@ make_reporting_descriptor_object_for_warning (const diagnostic_info &diagnostic,
     {
       reporting_desc->set_string ("helpUri", option_url);
       free (option_url);
+    }
+
+  return reporting_desc;
+}
+
+/* Make a "reportingDescriptor" object (SARIF v2.1.0 section 3.49)
+   for RULE, whose description is RULE_ID.  */
+
+std::unique_ptr<sarif_reporting_descriptor>
+sarif_builder::
+make_reporting_descriptor_object_for_rule (const diagnostics::metadata::rule &rule,
+					   const char *rule_id)
+{
+  auto reporting_desc = std::make_unique<sarif_reporting_descriptor> ();
+
+  /* "id" property (SARIF v2.1.0 section 3.49.3).  */
+  reporting_desc->set_string ("id", rule_id);
+
+  /* "helpUri" property (SARIF v2.1.0 section 3.49.12).  */
+  if (char *url = rule.make_url ())
+    {
+      reporting_desc->set_string ("helpUri", url);
+      free (url);
     }
 
   return reporting_desc;
