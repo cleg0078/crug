@@ -542,7 +542,11 @@ the whole flow end to end. The Phase 24 gate (amendment A-27) runs six commands:
 `crugc --version` inside the image, the three smoke programs and
 `make check-PACKAGING`. It passes 6/6 at `723e694` (logs under
 `docs/crug/gates/phase-24/723e694/`), so the phase is closed; M23 itself is
-decided in Phase 25 (conflict C1).
+decided in Phase 25 (conflict C1). The closing push (`2858961`) is green:
+multi-os run 26 and kernel-compat run 39 both succeeded. The first push of the
+phase turned the `kernel-compat` job red because the mode sweep left
+`gcc/crugc` at `0644`, so the launcher could not run; the fix commit restores
+`0755` and the suite passes 21/21 again.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
