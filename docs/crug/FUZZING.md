@@ -172,6 +172,27 @@ point of the window is the calendar, not a burst of pushes. The 30-day window
 is the ratified choice in RELEASE-POLICY 3.3; shortening it is an amendment to
 that policy, not a gate edit.
 
+### Diagnosing a failed CI run
+
+The job's log is only downloadable with credentials, so a failure that was not
+captured leaves no evidence. When a scheduled or push run fails and its cause is
+not obvious from the job summary, re-add a temporary capture to
+`.github/workflows/fuzz-nightly.yml`, run it, read the log, and revert:
+
+1. change `permissions` to `contents: write`;
+2. redirect the two checks into `ci-logs/` (`make check-FUZZ FUZZ_BUDGET=2000
+   > ci-logs/fuzz.log 2>&1`, likewise `make check-SANITIZER`) - or `tee` if
+   the step sets `set -o pipefail`, because a bare `make ... | tee` reports
+   tee's exit status and would hide a failing check;
+3. add an `if: always()` step that checks out an orphan branch
+   (`git checkout --orphan ci-debug-fuzz`, `git rm -rf --cached .`),
+   `git add -f ci-logs`, commits and force-pushes it;
+4. fetch it (`git fetch origin '+refs/heads/ci-debug-*:refs/remotes/origin/ci-debug-*'`)
+   and read `ci-logs/fuzz.log` and `ci-logs/sanitizer.log`;
+5. delete the branch (`git push origin --delete ci-debug-fuzz`) and revert the
+   workflow in a follow-up commit. The window counts the workflow as it is on
+   `main`, so never leave the capture in place.
+
 ## 7. Triage: from a finding to a regression test
 
 Every finding follows one path: reproduce, classify, ledger, fix, regression,

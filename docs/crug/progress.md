@@ -1,7 +1,7 @@
 # CRUG Project Status
 
 Status: living snapshot, updated after every phase.
-Last updated: 2026-10-20
+Last updated: 2026-10-21
 
 ## Where the project stands
 
@@ -516,7 +516,9 @@ versioning, deprecation, the GCC baseline, the supported platform matrix, the
 supported C dialects and the kernel support policy, each pointing at the phase or
 ADR that owns the number. The Phase 23 gate (amendment A-26) runs three commands:
 the nineteen-document existence loop, `make check-DOCS`, and a loop that requires
-all nine compatibility items.
+all nine compatibility items. It passes 3/3 at `81516d7` (logs under
+`docs/crug/gates/phase-23/81516d7/`), so the phase is closed; M23 itself is
+decided in Phase 25 (conflict C1).
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -629,6 +631,7 @@ superseding ADR and owner ratification.
 | -  | The v1 matrix is Linux (x86-64 and AArch64), Windows x86-64 and macOS arm64; BSD is a post-1.0 policy decision, and bare-metal and RISC-V are not in v1 | ADR 0012 D2; a later phase or RFC |
 | -  | The Windows port does not swap the TEB stack bounds, and the runtime never grows a stack, so v1 is safe by construction; a growable stack must add the swap | ADR 0012 D9; a later stack-growth phase |
 | -  | The Windows and Darwin backends have no native test host in this development tree: Windows is cross-built and run under Wine on Linux, macOS only through the `macos-arm64` CI job (green at `f086068`, run 39355413321) | owner adds the `multi-os` jobs to the required checks on `main` (branch protection currently requires only `kernel-compat`) |
+| -  | One nightly-job failure has no captured log: the push-triggered `fuzz-nightly` run 4 at `83870e5` failed after 15m 34s, while a diagnostic run of the identical checks (`5c0bc64`, run 5) passed with a clean log (8,000 compiler inputs, 20,000 channel runs, the ASan/UBSan and TSan arms); the failure is unexplained and does not reproduce. Push runs are not part of the M22 window | a scheduled-run failure will be diagnosed with the log-publishing recipe in `docs/crug/FUZZING.md` section 6 |
 | -  | A task is pinned to the worker that first ran it, so there is no work stealing: an idle worker cannot take work from a busy one | ADR 0009 amendment A-1; a scheduler design that re-establishes cached `_Thread_local` addresses |
 | -  | The version macros `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` asked for by RFC-0001 section 10 are not defined | ADR 0013 (versioning); the feature macros exist today |
 | -  | The alias fact is local to a callee's parameters: an unannotated caller is not checked, and no fact is derived for constructs whose ownership is untracked (owning payload enums inside aggregates, owned payloads in `option`/`result`) | ADR 0010 D8; a later ownership increment for aggregates |
