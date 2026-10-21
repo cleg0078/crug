@@ -31,7 +31,7 @@
 #   WORK=dir   scratch directory        (default build/kernel-perf)
 #
 # The last line printed has the shape
-#   kernel-perf: 438 object(s): 437 identical, 1 explained, 0 differing (bytes N, text N, symbols N)
+#   kernel-perf: 438 object(s): 436 identical, 2 explained, 0 differing (bytes N, text N, symbols N)
 # where the aggregate numbers are totals over the Crug build. When the full
 # build artefacts exist their sizes are recorded on the line before it.
 #
