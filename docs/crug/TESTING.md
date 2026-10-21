@@ -44,7 +44,7 @@ DejaGnu is bootstrapped, not installed: there is no `runtest` and no sudo. Each 
 | `make check-C_COMPAT`, `check-GNU_C_COMPAT` | Option matrices and 50 GNU C files | Three matrices plus two checks, zero FAIL; 50 GNU C files, zero FAIL. |
 | `make check-CRUG_FLAGS` | `crug.dg/flags` (3) and flag scripts | Every flag alone, macro closure, accepted pairs, the three kernel conflicts, unknown-option rejection. |
 | `make check-MULTI_OS` | `scripts/check-multi-os.sh` | One line naming platform and counts; the cross arm runs aarch64 under qemu. |
-| `make check-KERNEL` | `kernel/` | K1-K7 stage lines ending with the boot smoke; the object diff reports 437 identical and 1 explained. |
+| `make check-KERNEL` | `kernel/` | K1-K7 stage lines ending with the boot smoke; the object diff reports 436 identical and 2 explained. |
 | `make check-KERNEL_COMPAT` | `scripts/test-kernel-compat.sh` | 21 work items over the pinned kernel tree; the CI job runs this target. |
 | `make check-PAL` | `libcrug/pal` and the contract header | The contract case count, zero failed, with the fake PAL skipping one host-only case. |
 | `make check-DIAGNOSTICS` | `crug.dg/diagnostics` | The golden comparison (50 match, 0 drifted) and the SARIF arm. |
@@ -67,7 +67,7 @@ The migration corpus is `migration/`: eight programs, `migration/expected/*.out`
 
 The documentation corpus is six marked examples in `docs/crug/MIGRATION-EXAMPLES.md`, each marked with `<!-- example: NAME flags: ... -->`, a fenced C block, `<!-- expect -->` and the exact stdout; `scripts/check-docs-examples.sh` extracts, compiles, runs and compares. Nothing in the page is trusted, including the flags.
 
-The kernel corpus is the pinned object list plus `kernel/object-diff-allow.txt`. Every allowed difference is one row with its explanation; the gate accepts 437 identical objects and exactly one explained difference, so a new difference is either a bug or a reviewed allowlist row, never a count edit.
+The kernel corpus is the pinned object list plus `kernel/object-diff-allow.txt`. Every allowed difference is one row with its explanation; the gate accepts 436 identical objects and exactly two explained differences (the build timestamp object and the compiler identification object), so a new difference is either a bug or a reviewed allowlist row, never a count edit.
 
 The fuzz corpus is 45 committed seeds under `fuzz/compiler/corpus`: parser 12, ownership 10, borrow 11, ffi 12, adapted from the DejaGnu fixtures. Findings and reproducers go under `build/fuzz/findings` and are never committed until triaged; a real finding becomes a ledger entry with a severity before the fix lands, per `docs/crug/RELEASE-POLICY.md` section 3.1.
 

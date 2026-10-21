@@ -104,10 +104,13 @@ reads the runtime counters. Thresholds:
 `kernel/KERNEL-CORPUS.md` built by `gcc/crugc` with the same corpus
 built by the wrapped GCC driver.
 
-- **Threshold:** 437 of 438 objects byte-identical. The one explained object
-  is `init/version-timestamp.o`, whose `UTS_VERSION` embeds build time and
-  build number; its reason must be recorded in
-  `kernel/object-diff-allow.txt`.
+- **Threshold:** 436 of 438 objects byte-identical. The two explained objects
+  are `init/version-timestamp.o`, whose `UTS_VERSION` embeds build time and
+  build number, and `init/version.o`, whose compiler identification comes from
+  `$CC --version` (`crugc 0.1.0` for the launcher, `xgcc (GCC) 16.2.0` for the
+  reference driver); both reasons must be recorded in
+  `kernel/object-diff-allow.txt`, and `CONFIG_CC_VERSION_TEXT` is filtered from
+  the configuration comparison because it carries the same identification.
 - **Also identical:** `.text` size, symbol counts and the disassembly hash
   for all 438 objects.
 - **Sizes recorded:** vmlinux and bzImage byte sizes.
@@ -233,3 +236,4 @@ the qualification gates enforce.
 | A-1 | 2026-10-20 | Initial ratification for M21 and the M23 quality thresholds. The dispatch gate compares against pthread-per-task, not against the allocation-free pool; the pool ratio is recorded. | An allocation-free pool is not the C baseline a project starts from, and a 64 KiB stack per task is a design decision of the runtime (ADR 0008), not an overhead of the language. The zero-cost claims are gated exactly; the pool ratio is evidence for future stack-pooling work. |
 | A-2 | 2026-10-20 | Ratified the M22 fuzz budgets (300 compiler inputs per target, 2000 sequence/20000 channel-run runtime defaults, 2000 inputs nightly), the sanitizer scope and the 30-consecutive-scheduled-run nightly window. | Phase 22 is the first phase whose evidence is statistical rather than a fixed command output: a budget makes the run reproducible, and a window makes "continuously running" falsifiable. The window length is release management's call (roadmap section 26) and 30 days is the weakest defensible choice. |
 | A-3 | 2026-10-21 | Phase 25 mechanics: the P1 threshold is 2, the waiver rows live in `docs/crug/KNOWN-ISSUES.md` section 4 and are read by `scripts/count-open-p1.sh`, and the release-candidate gate runs the archive, ledger, nightly-window, kernel, port/performance and freeze checks. | Section 4 fixed the numbers but not where a waiver is recorded or who signs it, so the gate could not distinguish a waived P1 from an unwaived one; the phase-25 checks also needed the RC tag and the scheduled-run window named as evidence rather than implied. |
+| A-4 | 2026-10-22 | The kernel byte-identity threshold is 436 of 438 objects with two explained objects, not 437 with one. | Phase 24 made `crugc --version` report the launcher's identity and the kernel embeds that string in `init/version.o`, so the object joined `init/version-timestamp.o` as an explained difference; the old count could no longer be printed. The threshold is a claim about codegen, and no compiler or runtime object changed, so the substance of 2.6 is unchanged. |

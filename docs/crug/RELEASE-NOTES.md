@@ -51,7 +51,7 @@ the upstream testsuite remains the compatibility floor.
 | Plain-C parity | 114 source/option pairs byte-identical to unmodified GCC 16.2 | `bench/run.py --pristine` |
 | Runtime | dispatch ratio 0.82 of pthread-per-task, 67.7 KiB per task against 8,032 KiB | `docs/crug/PERFORMANCE.md` |
 | Channels | 197 ns per round trip, 42.5M elements/s, 4,224 bytes per channel | `docs/crug/PERFORMANCE.md` |
-| Kernel | 2,980 translation units, 0 errors, 437 of 438 objects byte-identical, boot to a freestanding `/init` | `docs/crug/KERNEL-BASELINE.md` |
+| Kernel | 2,980 translation units, 0 errors, 436 of 438 objects byte-identical (the two explained objects record the build timestamp and the compiler identification), boot to a freestanding `/init` | `docs/crug/KERNEL-BASELINE.md` |
 | Ports | 12-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
 | Fuzzing and sanitizers | six harnesses, 0 crashes, ASan/UBSan/LSan clean, TSan on the OS-thread channel arm | `docs/crug/FUZZING.md` |
 | Defects | 0 open P0, 0 open P1 at this tag | `docs/crug/KNOWN-ISSUES.md` |

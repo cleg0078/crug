@@ -134,8 +134,8 @@ the wrapped driver.
 
 | check | result |
 |---|---|
-| byte-identical objects | 437 of 438 |
-| explained difference | `init/version-timestamp.o` (its `UTS_VERSION` embeds build time and build number; reason recorded in `kernel/object-diff-allow.txt`) |
+| byte-identical objects | 436 of 438 |
+| explained differences | `init/version-timestamp.o` (its `UTS_VERSION` embeds build time and build number) and `init/version.o` (the `$CC --version` identification that `scripts/mkcompile_h` copies: `crugc 0.1.0` for the launcher against `xgcc (GCC) 16.2.0` for the reference driver); both reasons are in `kernel/object-diff-allow.txt`, and the two `.config` files differ only in `CONFIG_CC_VERSION_TEXT`, which the script filters |
 | disassembly | 0 of 438 differ |
 | `.text` size | 0 of 438 differ (3,580,580 bytes total) |
 | symbols | 43,309 total (26,798 defined, 16,511 undefined), 0 objects differ |

@@ -120,10 +120,12 @@ Phase 19 measured the tree in stages. K1 compiled eight header probes; K2
 compiled twelve selected translation units; K3 built `lib/` as 106 objects;
 K4 built 438 objects from nine directories (`arch/x86/mm` 20,
 `drivers/base` 29, `fs` 65, `init` 8, `ipc` 11, `kernel` 76,
-`lib` 106, `mm` 75, `net/core` 48). 437 of the 438 objects are
-byte-identical to the reference build; the only difference is
-`init/version-timestamp.o`, which embeds the build time and is listed in
-`kernel/object-diff-allow.txt`.
+`lib` 106, `mm` 75, `net/core` 48). 436 of the 438 objects are
+byte-identical to the reference build; the two differences are explained in
+`kernel/object-diff-allow.txt`: `init/version-timestamp.o` embeds the build time
+and build number, and `init/version.o` embeds the compiler identification that
+`scripts/mkcompile_h` copies from `$CC --version` (`crugc 0.1.0` for the
+launcher, `xgcc (GCC) 16.2.0` for the reference driver).
 
 K5 built the whole tree: 2,980 compiler invocations, zero errors and zero
 warnings, `vmlinux` 51,420,536 bytes, `bzImage` 14,783,488 bytes and
@@ -171,7 +173,7 @@ pinned tree builds and boots.
 | `make check-KERNEL_COMPAT` | `kernel-compat: 21/21 work items PASS` |
 | `make check-kernel-objects` | `kernel-objects: 20 objects, __crug_=0, libcrug=0` |
 | `scripts/check-kernel-freestanding.sh` | `freestanding: no runtime symbols, no init_array` |
-| `scripts/kernel-object-diff.sh` | every object identical or explained; 437/438 identical |
+| `scripts/kernel-object-diff.sh` | every object identical or explained; 436/438 identical |
 | `scripts/check-p0-open.sh --kernel` | no open kernel P0, every fixed P0/P1 has a regression id |
 | `scripts/kernel-stage.sh K1` ... `K7` | each stage prints its observable and exits 0 |
 

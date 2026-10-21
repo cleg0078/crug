@@ -166,9 +166,10 @@ comparison in the project. `--plain-c --check` re-checks the recorded baseline
 dispatch ratio 0.82; 67.7 KiB of memory per task against 8032.1 KiB for a
 pthread) and runs the channel arms (197 ns per round trip, 42.5M elements/s,
 4224 B per channel). `scripts/check-kernel-perf.sh` compares the 438-object
-kernel corpus: 437 objects byte-identical, the timestamp object explained in
-`kernel/object-diff-allow.txt`, and the disassembly, `.text` sizes and symbol
-counts identical for all 438. The thresholds are ratified in
+kernel corpus: 436 objects byte-identical, the two explained objects in
+`kernel/object-diff-allow.txt` (one records the build timestamp, the other the
+compiler identification the kernel copies from `$CC --version`), and the
+disassembly, `.text` sizes and symbol counts identical for all 438. The thresholds are ratified in
 [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) and the measured
 results and method are in [docs/crug/PERFORMANCE.md](docs/crug/PERFORMANCE.md);
 `make check-PERFORMANCE` runs all five checks and writes the report.

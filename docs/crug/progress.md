@@ -38,8 +38,8 @@ same optimised machine code as their plain-C twins at three optimisation levels
 (12 of 12 comparisons, 0 added instructions and 0 added calls), plain C stays
 byte-identical to an unmodified GCC 16.2 (114 of 114 pairs), 200 tasks dispatch
 faster than pthread-per-task with 67.7 KiB of memory per task instead of
-8032.1 KiB, and the 438-object kernel corpus keeps 437 identical objects plus
-one explained timestamp. Phase 22 fuzzes the front end and the runtime state
+8032.1 KiB, and the 438-object kernel corpus keeps 436 identical objects plus
+two explained ones (the build timestamp and the compiler identification). Phase 22 fuzzes the front end and the runtime state
 machines and gates the sanitizer arms, Phase 23 freezes the 45-page
 documentation set against a section manifest, Phase 24 ships the tarball, the
 SBOM and the image, and Phase 25 tags the release candidate
@@ -398,10 +398,14 @@ that prints `crug-boot-ok` exactly once and powers off, and K7 compiles fifteen
 pinned aarch64 objects with a cross compiler configured from this same tree
 (`--target=aarch64-linux-gnu --without-headers`) and checks that they are
 AArch64 relocatables. `scripts/kernel-object-diff.sh` rebuilds the corpus with
-the wrapped GCC driver and compares object bytes: 437 of 438 are identical, and
-the single difference is `init/version-timestamp.o`, whose `UTS_VERSION` embeds
-the build time and build number; `kernel/object-diff-allow.txt` carries that
-explanation, so an unexplained difference still fails. Kernel code remains plain
+the wrapped GCC driver and compares object bytes: 436 of 438 are identical, and
+the two differences are explained in `kernel/object-diff-allow.txt`:
+`init/version-timestamp.o` embeds the build time and build number, and
+`init/version.o` embeds the compiler identification that `scripts/mkcompile_h`
+reads from `$CC --version` (`crugc 0.1.0` for the launcher, `xgcc (GCC) 16.2.0`
+for the reference driver). The script filters `CONFIG_CC_VERSION_TEXT` out of
+the `.config` comparison for the same reason, so an unexplained difference still
+fails. Kernel code remains plain
 GNU C - no ownership lowering, no drop insertion, no `__crug_` symbol and no
 libcrug dependency (ADR 0017, proposed) - and `scripts/check-p0-open.sh
 --kernel` reads the new defect ledger `docs/crug/KNOWN-ISSUES.md` (no open P0).
@@ -453,9 +457,9 @@ instructions and 0 added calls; 114 of 114 pristine objects byte-identical;
 every non-LTO baseline object identical (timing ratios 0.916-1.012, which is
 host noise); Crug dispatch 1.88 ms against 2.30 ms for pthread-per-task
 (ratio 0.818) with 67.7 KiB of memory per task against 8032.1 KiB; channels at
-197 ns per round trip and 42.5M elements/s with 4224 B per channel; and 437 of
-438 kernel objects byte-identical with the timestamp object explained in
-`kernel/object-diff-allow.txt`. The thresholds are ratified in the new
+197 ns per round trip and 42.5M elements/s with 4224 B per channel; and 436 of
+438 kernel objects byte-identical with the timestamp and
+compiler-identification objects explained in `kernel/object-diff-allow.txt`. The thresholds are ratified in the new
 [docs/crug/RELEASE-POLICY.md](RELEASE-POLICY.md) (Section 2, amendment A-1:
 dispatch compares against pthread-per-task and the allocation-free pool ratio is
 recorded only, because a 64 KiB stack per task is a runtime design decision,
@@ -654,7 +658,7 @@ superseding ADR and owner ratification.
 | A value could cross a task or channel boundary unchecked, so the ownership model appeared to bless data races | `gcc/c/crug-send-sync.cc` (`Send`/`Sync` inference, thread affinity, FFI widening), CONC-024..027, ten dg cases, `scripts/check-send-sync.sh`, `make check-SEND_SYNC`; `docs/crug/SEND-SYNC.md`; ADR 0026; phase-17 gate A-20 |
 | The cost of moving to a newer GCC was unmeasured, so the pin could not be revised on evidence | docs/crug/GCC-UPGRADE.md (9 files/32 hunks versus 7 new sources/5,021 lines; 31/32 hunk contexts clean on master, 23/23 symbols, 8/8 pins; 31-check matrix) + scripts/fork-delta.sh, scripts/check-gcc-drift.sh, scripts/verify-upgrade.sh + ADR 0022 (Proposed) |
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
-| The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
+| The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (436 identical, 2 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 | The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
 | The tree could build and boot a kernel but could not be installed, so nothing it claimed could reach a machine without a toolchain checkout | `VERSION`, the seven-line `gcc/crugc --version`, `scripts/package.sh` (pruned, stripped, deterministic tarball 142,961,854 bytes / 971 files), `scripts/make-sbom.py` (SPDX 2.3), `scripts/check-release.sh`, `packaging/Dockerfile` (`crug/pkg:0.1.0`), `packaging/smoke/` (three programs), `scripts/check-packaging.sh`, `make package`/`make package-image`/`make check-PACKAGING`, `CHANGELOG.md` and `docs/crug/BUILD-INSTRUCTIONS.md`; phase-24 gate A-27 |
 | The documentation tree had 30 ad-hoc pages, eleven of the documents the gate names did not exist, and no page's section list was written down, so a page could be empty, drift, or promise a post-1.0 feature as present | `docs/crug/REQUIRED-DOC-SECTIONS.md` (43 rows), `scripts/check-docs.sh` + `make check-DOCS` (title, `Status:`, the required sections, the every-page-is-listed rule and the paragraph-level post-1.0 claim scan), eleven new pages (LANGUAGE, GRAMMAR, BORROWING, UNSAFE, C-FFI, CONCURRENCY, FREESTANDING, TESTING, COMPILER-INTERNALS, MIGRATION) and `COMPATIBILITY-POLICY.md`; phase-23 gate A-26 |

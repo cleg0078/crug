@@ -222,10 +222,15 @@ No qemu version is part of the pin; a later boot record names its own.
     `crug-boot-ok` once, clean poweroff.
   - `K7` — 15 aarch64 objects compiled with the cross compiler and checked to be
     AArch64 relocatables.
-  - `scripts/kernel-object-diff.sh` — 437 of the 438 objects byte-identical to
-    the same objects built by the wrapped GCC driver; the single difference is
-    `init/version-timestamp.o`, whose `UTS_VERSION` embeds the build time and
-    build number, and `kernel/object-diff-allow.txt` records that reason.
+  - `scripts/kernel-object-diff.sh` — 436 of the 438 objects byte-identical to
+    the same objects built by the wrapped GCC driver. Two objects embed text that
+    cannot match: `init/version-timestamp.o` carries the build timestamp and
+    build number in `UTS_VERSION`, and `init/version.o` carries the compiler
+    identification that `scripts/mkcompile_h` reads from `$CC --version`
+    (`crugc 0.1.0` for the launcher, `xgcc (GCC) 16.2.0` for the reference
+    driver) plus the same timestamp; `kernel/object-diff-allow.txt` records both
+    reasons. The two `.config` files likewise differ only in
+    `CONFIG_CC_VERSION_TEXT`, which the script filters before comparing them.
 - Not claimed: no `class K0` or `stage K0` result, no ownership contracts in kernel
   code, and no codegen-parity performance claim (that is Phase 21). A gate claim
   needs archived command output per `docs/crug/EXIT-GATES.md` section 2.
@@ -239,3 +244,12 @@ No qemu version is part of the pin; a later boot record names its own.
   `rdinit=/init`; stage K7 pins the arm64 `defconfig` and the cross compiler
   described in section 5; section 8 records the measured Phase 19 results. The pin
   itself (tag `v6.18.57`, commit `2ff600d`, size, digest) did not change.
+- **A-2 (2026-10-22, Phase 25).** Phase 24 made `crugc --version` report the
+  launcher's own identity, and the kernel copies that string into
+  `init/version.o`, so that object joined `init/version-timestamp.o` as an
+  explained difference: the count is 436 identical and 2 explained, not 437 and
+  1. Section 8 and `kernel/object-diff-allow.txt` record both reasons, and
+  `scripts/kernel-object-diff.sh` now ignores `CONFIG_CC_VERSION_TEXT` when it
+  compares the two `.config` files, because that line carries the same
+  identification. No compiler or runtime object changed; the boot and the
+  build measurements are unaffected.
