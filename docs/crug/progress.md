@@ -518,7 +518,9 @@ ADR that owns the number. The Phase 23 gate (amendment A-26) runs three commands
 the nineteen-document existence loop, `make check-DOCS`, and a loop that requires
 all nine compatibility items. It passes 3/3 at `81516d7` (logs under
 `docs/crug/gates/phase-23/81516d7/`), so the phase is closed; M23 itself is
-decided in Phase 25 (conflict C1).
+decided in Phase 25 (conflict C1). The closing push (`bbb2fed`) is green:
+`multi-os` run 22, `kernel-compat` run 35 and `fuzz-nightly` run 6 (a push run,
+not part of the M22 window) all succeeded.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
