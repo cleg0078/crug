@@ -587,6 +587,17 @@ one unexplained difference. Both version objects are now explained in
 `kernel/object-diff-allow.txt`, `scripts/kernel-object-diff.sh` filters the
 matching `CONFIG_CC_VERSION_TEXT` line out of the configuration comparison, and
 the count is 436 identical and 2 explained (amendment A-29), so check 5 is green.
+The candidate's CI is green at `1ae249c`: `multi-os` run 30, `kernel-compat`
+run 43 and, for the first time since the window was reset, the push-triggered
+`fuzz-nightly` run 10, which runs the full nightly job (baseline build, the
+fuzz target at budget 2000 and the sanitizer suite). Two earlier nightly runs
+(8 and 9) had died before a single check ran, on a step that read
+`/proc/sys/vm/mmap_rnd_bits` unconditionally although the knob is absent on
+some runner images, and the failure capture published nothing because those
+steps precede every build; the step now treats the knob as optional and the
+capture publishes crash artefacts, saved inputs and the runner facts as well
+as the check logs (`42f2c92`, `1ae249c`). The first scheduled run after the
+reset therefore starts the window with evidence to look at if it fails.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -722,7 +733,7 @@ superseding ADR and owner ratification.
 | -  | No Windows x86-64 or macOS ARM64 binary package is built: the release tarball and the image are Linux x86-64 only, because this tree has no packaging host for the other two ports (Windows is cross-built and run under Wine, macOS only through the `macos-arm64` CI job) | a packaging increment on a Windows and a macOS host; the ports themselves landed in Phase 18 |
 | -  | The container image is Linux x86-64 only and `make package-image` recompiles the baseline inside the builder stage, so an image build costs a full bootstrap and the image and tarball are deterministic in their tar metadata but not proven byte-for-byte reproducible across builds | a reproducible-build increment; `scripts/package.sh` pins tar metadata and strips the binaries, not the compiler's object ordering |
 | -  | `dist/` is unsigned and has no transparency record: `SHA256SUMS` proves integrity against the published file only, and there is no release key or Sigstore bundle | a release-signing increment owned by the repository owner |
-| -  | The first scheduled `fuzz-nightly` run (run 7, 2026-10-21T08:39:24Z, 21m 7s) failed with no captured log and reset the M22 window to 0 of 30; the failure is unexplained and push runs since then pass | the log-publishing step added in `c9d2c7b0` will capture the next failure; RELEASE-POLICY section 3.3 |
+| -  | The first scheduled `fuzz-nightly` run (run 7, 2026-10-21T08:39:24Z, 21m 7s) failed with no captured log and reset the M22 window to 0 of 30; the failure is unexplained, because the same tree had passed the same budget in push run 6 and the compiler arm is deterministic, so it was the runtime arm or the runner. Push runs 8 and 9 then failed before any check ran, on a step that read `/proc/sys/vm/mmap_rnd_bits` unconditionally; that step now treats the knob as optional, and the failure capture publishes crash artefacts and the runner facts, not just the check logs (`42f2c92`, `1ae249c`) | the next failing run will be replayable from `ci-failure-logs`; RELEASE-POLICY section 3.3 |
 
 
 ## Next actions, in dependency order
