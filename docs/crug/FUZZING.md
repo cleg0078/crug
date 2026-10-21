@@ -176,23 +176,35 @@ that policy, not a gate edit.
 
 A failed run must leave evidence. The job itself publishes it: the two check
 steps pipe their output into `ci-logs/` under `set -o pipefail`, and an
-`if: failure()` step checks out an orphan branch `ci-failure-logs`, copies
-`ci-logs/` (plus the harness logs under `build/fuzz` and `build/sanitizer`)
-and force-pushes it. That branch is written only by a failure, so a green run
-leaves the repository untouched; the workflow keeps `contents: write` solely
-for this step.
+`if: failure()` step checks out an orphan branch `ci-failure-logs`, copies the
+check logs plus every artefact the harness left behind under `build/fuzz` and
+`build/sanitizer` (`*.log`, `*.txt`, crash, timeout, leak and OOM artefacts,
+saved inputs), writes a `ci-logs/README` header with the commit, the runner's
+CPU count, the gcc and clang versions and the `vm.mmap_rnd_bits` value, and
+force-pushes the branch. That branch is written only by a failure, so a green
+run leaves the repository untouched; the workflow keeps `contents: write`
+solely for this step.
 
 To read a failure:
 
     git fetch origin ci-failure-logs:ci-failure-logs
-    git show ci-failure-logs:ci-logs/README
-    git show ci-failure-logs:ci-logs/fuzz.log
-    git show ci-failure-logs:ci-logs/sanitizer.log
+    git ls-tree -r --name-only origin/ci-failure-logs
+    git show origin/ci-failure-logs:ci-logs/README
+    git show origin/ci-failure-logs:ci-logs/fuzz.log
 
-The branch always holds the newest failure. The older manual recipe (re-add a
-temporary capture, force-push a `ci-debug-*` branch, delete it afterwards) is
-only needed for a run that predates this step; never leave a debug capture in
-the workflow, because the window counts the workflow as it is on `main`.
+The branch always holds the newest failure. A run that failed before the
+capture step existed cannot be diagnosed after the fact: scheduled run 7
+(2026-10-21, commit `0f831d7`) failed in the fuzz step and left no log, and
+its tree had already passed the same budget in push run 6 six hours earlier,
+so the failure was in the runtime arm or on the runner and stays unexplained.
+What is known is that the current tree passes the nightly budget locally
+(`make check-FUZZ FUZZ_BUDGET=2000`: 8,000 compiler inputs and 20,000 channel
+runs, no crash), and the next failure will arrive with its inputs.
+
+The older manual recipe (re-add a temporary capture, force-push a
+`ci-debug-*` branch, delete it afterwards) is no longer needed; never leave a
+debug capture in the workflow, because the window counts the workflow as it is
+on `main`.
 
 ## 7. Triage: from a finding to a regression test
 

@@ -97,13 +97,30 @@ jobs:
           # download, so publish the check logs to a branch.  See
           # docs/crug/FUZZING.md section 6.
           mkdir -p ci-logs
+          # Copy the check logs and every artefact the harness left behind:
+          # a report is only useful when its input can be replayed.
           for d in build/fuzz build/sanitizer; do
-            if [ -d "$d" ]; then
-              find "$d" -maxdepth 2 -name '*.log' -exec cp -t ci-logs {} + 2>/dev/null || true
-            fi
+            [ -d "$d" ] || continue
+            tag=$(printf '%s' "$d" | tr '/' '-')
+            mkdir -p "ci-logs/$tag"
+            find "$d" -maxdepth 3 \
+              \( -name '*.log' -o -name '*.txt' -o -name 'crash-*' \
+                 -o -name 'timeout-*' -o -name 'leak-*' -o -name 'oom-*' \
+                 -o -name 'FAIL-*' -o -name '*.input' \) \
+              -exec cp -t "ci-logs/$tag" {} + 2>/dev/null || true
           done
-          printf 'fuzz-nightly failure log for %s (run %s)\n' \
-            "${{ github.sha }}" "${{ github.run_number }}" > ci-logs/README
+          {
+            printf 'fuzz-nightly failure log for %s (run %s)\n' \
+              "${{ github.sha }}" "${{ github.run_number }}"
+            printf 'date: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'cpus: %s\n' "$(nproc)"
+            printf 'gcc: %s\n' "$(gcc --version | head -n 1)"
+            printf 'clang: %s\n' "$(clang --version | head -n 1)"
+            printf 'mmap_rnd_bits: %s\n' \
+              "$(cat /proc/sys/vm/mmap_rnd_bits 2>/dev/null || echo unavailable)"
+            printf 'reproduce: make check-FUZZ FUZZ_BUDGET=2000 && make check-SANITIZER\n'
+            printf 'logs: ci-logs/build-fuzz/, ci-logs/build-sanitizer/\n'
+          } > ci-logs/README
           git config user.email ci-failure@example.invalid
           git config user.name ci-failure
           git checkout --orphan ci-failure-logs
