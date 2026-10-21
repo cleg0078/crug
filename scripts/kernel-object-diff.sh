@@ -93,15 +93,32 @@ ref_make () {
 	make -C "$KSRC" O="$REF" -j"$JOBS" CC="$REF_CC" "$@"
 }
 
-if [ ! -f "$REF/.config" ] || ! cmp -s "$KO/.config" "$REF/.config"; then
+# The two configurations differ in exactly one line by construction:
+# CONFIG_CC_VERSION_TEXT records the compiler identification, and the candidate
+# build goes through the crugc launcher while the reference build calls the
+# driver directly.  Everything else must match, so filter that line out and
+# compare the rest; a difference anywhere else is a real configuration drift.
+config_normal () {
+	awk '!/^CONFIG_CC_VERSION_TEXT=/' "$1"
+}
+configs_match () {
+	config_normal "$KO/.config" >"$STAGES/ko.config"
+	config_normal "$REF/.config" >"$STAGES/ref.config"
+	cmp -s "$STAGES/ko.config" "$STAGES/ref.config"
+}
+
+if [ ! -f "$REF/.config" ] || ! configs_match; then
 	say "configuring the reference directory: x86_64_defconfig in $REF"
 	mkdir -p "$REF" || die "cannot create $REF"
 	ref_make x86_64_defconfig >"$STAGES/ref-defconfig.log" 2>&1 \
 		|| { tail -n 20 "$STAGES/ref-defconfig.log" >&2
 		     die "the reference defconfig failed"; }
 fi
-cmp -s "$KO/.config" "$REF/.config" \
+configs_match \
 	|| die "$KO and $REF do not share a configuration; rerun stage K5 after a config change"
+if ! cmp -s "$KO/.config" "$REF/.config"; then
+	say "config: identical except CONFIG_CC_VERSION_TEXT (candidate launcher versus reference driver; kernel/object-diff-allow.txt explains the objects that embed it)"
+fi
 
 say "building the reference: $total object(s) with $REF_CC"
 while IFS= read -r o; do

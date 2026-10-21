@@ -5,7 +5,13 @@
 # Every line excuses exactly one object of the pinned corpus in
 # kernel/KERNEL-CORPUS.md. Comments and blank lines are ignored.
 #
-# Empty on purpose: the launcher adds no flag for plain C, so the pinned corpus
-# compiles byte for byte like GCC 16.2.0. Add a line only together with the
-# change that makes the difference intentional.
-init/version-timestamp.o  embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times (the rest of the corpus is byte-identical)
+# Two objects embed text that cannot be equal across the two builds:
+# init/version-timestamp.o holds the build timestamp and build number, and
+# init/version.o holds the compiler identification that the kernel's
+# scripts/mkcompile_h copies out of `$CC --version`, which is `crugc 0.1.0`
+# for the candidate build (the launcher intercepts --version since Phase 24)
+# and `xgcc (GCC) 16.2.0` for the reference corpus built with the driver
+# directly.  Both objects also carry the build timestamp.  Everything else is
+# byte-identical, so a new difference is either a bug or a reviewed row here.
+init/version-timestamp.o  embeds the build timestamp and build number in UTS_VERSION; the two builds necessarily run at different times
+init/version.o  embeds the build timestamp and the compiler identification that scripts/mkcompile_h reads from $CC --version, which differs because the candidate build goes through the crugc launcher ('crugc 0.1.0') and the reference corpus is built with the wrapped driver directly ('xgcc (GCC) 16.2.0')
