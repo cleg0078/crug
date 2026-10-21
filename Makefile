@@ -348,6 +348,17 @@ package-image: ## build the container image crug/pkg:<version> from packaging/Do
 check-PACKAGING: ## verify the release artefacts, the SBOM and the image smoke programs
 	@scripts/check-packaging.sh
 
+##@ Release candidate
+
+check-RC: ## run the Phase 25 release-candidate checks (archives, ledger, nightly window, matrix)
+	@scripts/check-gate-archives.sh
+	@scripts/check-p0-open.sh
+	@scripts/count-open-p1.sh --max=2
+	@scripts/check-regressions.sh
+	@sh scripts/check-fuzz-nightly.sh --window 30
+	@$(MAKE) --no-print-directory check-MULTI_OS check-FFI
+	@echo 'check-RC: run scripts/kernel-stage.sh K5 and K6, and make check-PERFORMANCE, before tagging'
+
 ##@ Examples
 
 # The directory `make examples` reads.  Override it to build any other tree of
@@ -404,5 +415,6 @@ distclean: ## remove build/ and sources/ entirely
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
 	check-DIAGNOSTICS check-docs-examples check-DOCS pristine-xgcc check-PERFORMANCE \
 	check-FUZZ check-SANITIZER package package-image check-PACKAGING \
+	check-RC \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

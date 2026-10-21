@@ -67,3 +67,20 @@ K-002   P1       compiler fixed gcc/testsuite/crug.dg/ownership/error-mark-body.
   worker that first runs it (ADR 0009 amendment A-1); the regression is
   `scripts/check-multi-os-ports.sh` (2/4/8 workers on Windows and AArch64) plus
   `libcrug/tests/tasks_main.c`.
+
+## 4. P1 waivers
+
+`docs/crug/RELEASE-POLICY.md` section 4 allows at most two open P1 findings at
+the release-candidate tag. Each one needs a waiver row here, signed by the
+project owner: the row names the entry, who signed it, the date the decision was
+taken, the affected scope and the reason the finding is acceptable for the
+candidate. `scripts/count-open-p1.sh --max=2` reads this table; an open P1 with
+no row, a row with no signature, and a row that does not name an open P1 all
+fail the check. There is no waiver mechanism for 1.0 (`--max=0`).
+
+```
+<!-- waivers:begin -->
+| id | signed by | date | scope | reason |
+|----|-----------|------|-------|--------|
+<!-- waivers:end -->
+```
