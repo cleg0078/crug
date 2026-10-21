@@ -576,7 +576,17 @@ says so: the M22 nightly window stands at 0 of 30 scheduled successes because
 the first scheduled run (run 7) failed and reset it, so the phase-22 archive is
 not green either, and check 1 therefore reports 24 green and 1 open. M23 stays
 open until that window fills; the gate is run and archived anyway so the
-distance to the milestone is a measurement, not an opinion.
+distance to the milestone is a measurement, not an opinion. The candidate gate
+was run at `ab975db`: checks 2, 4, 5 and 6 pass and checks 1 and 3 fail exactly
+as described, so the archive records 4 of 6 (logs under
+`docs/crug/gates/phase-25/ab975db/`). That run earned its keep: check 5 caught a
+real regression that no other check covers, because the Phase 24 `crugc
+--version` interception changes the compiler identification string that the
+kernel writes into `init/version.o`, which made the Phase 19 object diff report
+one unexplained difference. Both version objects are now explained in
+`kernel/object-diff-allow.txt`, `scripts/kernel-object-diff.sh` filters the
+matching `CONFIG_CC_VERSION_TEXT` line out of the configuration comparison, and
+the count is 436 identical and 2 explained (amendment A-29), so check 5 is green.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
