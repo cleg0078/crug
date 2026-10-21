@@ -540,7 +540,9 @@ must build and run inside it; `make package`, `make package-image` and
 the whole flow end to end. The Phase 24 gate (amendment A-27) runs six commands:
 `make package`, the `dist/` checksum and SBOM check, `make package-image`,
 `crugc --version` inside the image, the three smoke programs and
-`make check-PACKAGING`.
+`make check-PACKAGING`. It passes 6/6 at `723e694` (logs under
+`docs/crug/gates/phase-24/723e694/`), so the phase is closed; M23 itself is
+decided in Phase 25 (conflict C1).
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
