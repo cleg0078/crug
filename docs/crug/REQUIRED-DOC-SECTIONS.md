@@ -46,6 +46,7 @@ semicolons. Rows are parsed by `scripts/check-docs.sh`; keep the format.
 | docs/crug/ABI.md | ## 1. How a row gets frozen ; ## 6. Versioning |
 | docs/crug/BORROW.md | ## 1. What the checker implements ; ## 2. The rules ; ## 5. What Phase 6 does not do |
 | docs/crug/BORROWING.md | ## 1. What a borrow is ; ## 2. The rules ; ## 3. Lifetimes and last use ; ## 4. Borrows across calls ; ## 5. Diagnostics ; ## 6. Limits |
+| docs/crug/BUILD-INSTRUCTIONS.md | ## 1. Prerequisites ; ## 2. Build from source ; ## 3. Build the release artefacts ; ## 4. Build and use the container image ; ## 5. Install tree layout ; ## 6. Verify ; ## 7. Supported hosts |
 | docs/crug/C2CRUG.md | ## 1. Modes ; ## 3. The proof ; ## 7. Limits |
 | docs/crug/CHANNELS.md | ## 1. The surface ; ## 4. Runtime API ; ## 5. Limits |
 | docs/crug/COMPATIBILITY-POLICY.md | ## 1. Language versioning ; ## 2. Crug ABI versioning ; ## 3. .crugffi versioning ; ## 4. libcrug ABI policy ; ## 5. Feature deprecation ; ## 6. GCC baseline policy ; ## 7. Supported platforms ; ## 8. Supported C dialects ; ## 9. Kernel support policy ; ## 10. Summary and amendments |

@@ -109,9 +109,10 @@ depend on a guessed layout for any of these types.
 - The `chan T` row is frozen: a channel is one pointer whatever the element
   type is, asserted by `gcc/testsuite/crug.dg/channels/chan-layout.c`; the
   element size is a run-time argument, so no element layout enters the ABI.
-- `crugc --version` must eventually print compiler, language and Crug
-  ABI versions separately (Phase 25 packaging check); until the first frozen row
-  the ABI version is reported as `0` (pre-stable).
+- `crugc --version` prints compiler, language and Crug ABI versions
+  separately (Phase 24 packaging check); the Crug ABI version is `1` since the
+  first frozen row landed in Phase 10, and `0` remains the pre-stable value for
+  any branch that has no frozen row.
 
 ## 7. Test obligations
 

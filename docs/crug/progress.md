@@ -501,6 +501,7 @@ those does not fail on a missing sanitizer runtime. The first scheduled run is
 03:17 UTC.
 Phase 23 freezes the documentation set. The manifest
 [docs/crug/REQUIRED-DOC-SECTIONS.md](REQUIRED-DOC-SECTIONS.md) lists 43 documents
+at the Phase 23 gate (44 since `BUILD-INSTRUCTIONS.md` was added in Phase 24)
 and the `## ` sections each one must carry (a page without a row is itself a
 violation); `scripts/check-docs.sh` (run by
 `make check-DOCS`) enforces the manifest, a title, a `Status:` line and a
@@ -521,6 +522,25 @@ all nine compatibility items. It passes 3/3 at `81516d7` (logs under
 decided in Phase 25 (conflict C1). The closing push (`bbb2fed`) is green:
 `multi-os` run 22, `kernel-compat` run 35 and `fuzz-nightly` run 6 (a push run,
 not part of the M22 window) all succeeded.
+Phase 24 turns the tree into a release. `VERSION` holds `0.1.0`, and
+`gcc/crugc --version` now prints seven lines: `crugc 0.1.0`, the GCC baseline, the
+language version, the Crug ABI version, the runtime ABI version, the `.crugffi`
+metadata version and the PAL version (RFC 0001 section 8.2 asks for the first five
+separately; the last two were added because they are frozen contracts too).
+`scripts/package.sh` installs the compiler into a staged tree with `DESTDIR`, adds
+`include/crug`, `lib/libcrug.a` and the licence texts, prunes the C++ front end,
+strips the binaries and writes a deterministic tarball
+(`crug-0.1.0-linux-x86_64.tar.gz`, 142,961,854 bytes, 971 files), an SPDX 2.3 SBOM
+and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` checks the versions, the
+checksums, the SBOM shape and the tarball listing. `packaging/Dockerfile` builds the
+multi-stage image `crug/pkg:0.1.0` from the same tree, and the three smoke programs
+in `packaging/smoke/` (plain C, ownership with `move`, a `go`/`chan` runtime sample)
+must build and run inside it; `make package`, `make package-image` and
+`make check-PACKAGING` are the entry points and `scripts/check-packaging.sh` runs
+the whole flow end to end. The Phase 24 gate (amendment A-27) runs six commands:
+`make package`, the `dist/` checksum and SBOM check, `make package-image`,
+`crugc --version` inside the image, the three smoke programs and
+`make check-PACKAGING`.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -604,6 +624,7 @@ superseding ADR and owner ratification.
 | The runtime was one operating system and one ABI, so the portability promise was untested and the first Windows user would have found a Linux scheduler | `libcrug/pal/windows` and `libcrug/pal/darwin`, `libcrug/arch/x86_64/windows` and `libcrug/arch/aarch64`, a host-detecting `libcrug/Makefile`, `make check-MULTI_OS`, `scripts/check-multi-os-ports.sh` (Linux AArch64 under qemu and Windows x86-64 under Wine, 2/4/8 workers each), `.github/workflows/multi-os.yml` (four jobs), `docs/crug/PORTABILITY.md` and ADR 0012; the 2+ worker crash the new ports exposed was fixed by pinning a task to its first worker (ADR 0009 amendment A-1), and the macOS port's 16 KiB pages required PAL v1.1's `crug_pal_page_size` (ADR 0011 A-1); `multi-os` runs are green (39355413321 at `f086068`; the first green run was 39354431681 at `b964c75`), four jobs each; phase-18 gate A-21 |
 | The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (437 identical, 1 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 | The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
+| The tree could build and boot a kernel but could not be installed, so nothing it claimed could reach a machine without a toolchain checkout | `VERSION`, the seven-line `gcc/crugc --version`, `scripts/package.sh` (pruned, stripped, deterministic tarball 142,961,854 bytes / 971 files), `scripts/make-sbom.py` (SPDX 2.3), `scripts/check-release.sh`, `packaging/Dockerfile` (`crug/pkg:0.1.0`), `packaging/smoke/` (three programs), `scripts/check-packaging.sh`, `make package`/`make package-image`/`make check-PACKAGING`, `CHANGELOG.md` and `docs/crug/BUILD-INSTRUCTIONS.md`; phase-24 gate A-27 |
 | The documentation tree had 30 ad-hoc pages, eleven of the documents the gate names did not exist, and no page's section list was written down, so a page could be empty, drift, or promise a post-1.0 feature as present | `docs/crug/REQUIRED-DOC-SECTIONS.md` (43 rows), `scripts/check-docs.sh` + `make check-DOCS` (title, `Status:`, the required sections, the every-page-is-listed rule and the paragraph-level post-1.0 claim scan), eleven new pages (LANGUAGE, GRAMMAR, BORROWING, UNSAFE, C-FFI, CONCURRENCY, FREESTANDING, TESTING, COMPILER-INTERNALS, MIGRATION) and `COMPATIBILITY-POLICY.md`; phase-23 gate A-26 |
 | "It fails safely" was an assertion: nothing fuzzed the front end, no sanitizer result was gated, and the P0/P1 ledger had no checker | six harnesses under `fuzz/` (parser, ownership, borrow and `.crugffi` targets; scheduler and channel state machines), `make check-FUZZ`, `make check-SANITIZER` (ASan/UBSan/LSan plus a TSan OS-thread arm), `scripts/check-p0-open.sh`, `scripts/check-regressions.sh`, `.github/workflows/fuzz-nightly.yml`, `scripts/check-fuzz-nightly.sh`, `docs/crug/FUZZING.md`, ADR 0028 (Proposed), RELEASE-POLICY section 3 (amendment A-2); the compiler harness found and closed K-002; phase-22 gate A-25 |
 
@@ -649,21 +670,24 @@ superseding ADR and owner ratification.
 | -  | The fuzz and sanitizer arms run on Linux x86-64 only and are not part of `make check-MULTI_OS`, so a Windows- or Darwin-specific runtime bug would not be seen by `make check-FUZZ` | a later qualification increment that runs the runtime harnesses on the other ports |
 | -  | The docs checker enforces structure, not truth: a wrong sentence under the right heading with a `Status:` line passes, so accuracy still rests on the phase review | prose review in every phase; `docs/crug/REQUIRED-DOC-SECTIONS.md` section 4 |
 | -  | The documentation set is Markdown-only: no man pages, no generated HTML site and no `--help`-to-docs pipeline, and the ADRs remain the only decision record | a later documentation increment; `TOOLING.md` covers the tool-facing contract only |
-| -  | `COMPATIBILITY-POLICY.md` states promises, not mechanisms: there is no `__CRUG_LANGUAGE_VERSION__`, no `-std=crug*` value and no deprecation machinery yet, and `crugc --version` does not print the three versions | ADR 0013 and Phase 24/25 (the version-reporting gate line) |
+| -  | `COMPATIBILITY-POLICY.md` states promises, not mechanisms: there is no `__CRUG_LANGUAGE_VERSION__`, no `-std=crug*` value and no deprecation machinery yet; `crugc --version` prints the compiler, language, Crug ABI, runtime ABI, FFI and PAL versions since Phase 24, but nothing consumes them and `-std=crug*` does not exist | ADR 0013; the `-std=crug*` value and the deprecation machinery are still open |
+| -  | No Windows x86-64 or macOS ARM64 binary package is built: the release tarball and the image are Linux x86-64 only, because this tree has no packaging host for the other two ports (Windows is cross-built and run under Wine, macOS only through the `macos-arm64` CI job) | a packaging increment on a Windows and a macOS host; the ports themselves landed in Phase 18 |
+| -  | The container image is Linux x86-64 only and `make package-image` recompiles the baseline inside the builder stage, so an image build costs a full bootstrap and the image and tarball are deterministic in their tar metadata but not proven byte-for-byte reproducible across builds | a reproducible-build increment; `scripts/package.sh` pins tar metadata and strips the binaries, not the compiler's object ordering |
+| -  | `dist/` is unsigned and has no transparency record: `SHA256SUMS` proves integrity against the published file only, and there is no release key or Sigstore bundle | a release-signing increment owned by the repository owner |
+| -  | The first scheduled `fuzz-nightly` run (run 7, 2026-10-21T08:39:24Z, 21m 7s) failed with no captured log and reset the M22 window to 0 of 30; the failure is unexplained and push runs since then pass | the log-publishing step added in `c9d2c7b0` will capture the next failure; RELEASE-POLICY section 3.3 |
 
 
 ## Next actions, in dependency order
 
-1. **Open Phase 24 (packaging and distribution)**: Phase 23 froze the document set
-   and wrote the compatibility policy, so the tree now says what it promises. Phase
-   24 delivers the installable artifact: a container image `crug/pkg:<version>`
-   whose `crugc --version` prints the compiler, language and runtime ABI versions
-   separately, the three sample programs built and run from that image,
-   `SHA256SUMS` and an SPDX SBOM with the license notices, a
-   `docs/crug/BUILD-INSTRUCTIONS.md` and a complete `CHANGELOG.md`, plus the
-   checksum/SBOM process ADR the gate's prerequisite names. The version macros
-   `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` are part
-   of that work (they are still open in `progress.md`).
+1. **Open Phase 25 (release candidate)**: the release artefacts exist, so the
+   next phase qualifies them: run the whole matrix (multi-OS, FFI, performance,
+   fuzz and sanitizers, the kernel stages), decide M23 (conflict C1) against
+   `docs/crug/RELEASE-POLICY.md` section 3, tag the release candidate, and write
+   the release notes. The Phase 25 gate in `docs/crug/EXIT-GATES.md` is still the
+   draft form - it must be rewritten into runnable CHECK lines with its amendment
+   before it can be adjudicated, and the version macros
+   `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` remain
+   open.
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status

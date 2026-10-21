@@ -23,7 +23,7 @@ stability of that surface.
   says "this compiler has the Crug extensions", not which version of them.
   There is no `__CRUG_LANGUAGE_VERSION__` and no `-fcrug-language=` switch
   in v1; a program cannot yet ask for an older dialect. That selector is
-  Phase 25 packaging work if it is wanted, not a v1 feature.
+  future work if it is wanted, not a v1 feature.
 - Each production is behind its own flag (`docs/crug/FLAGS.md` section 1).
   With all flags off the compiler is upstream GCC 16.2: same macros, same
   parses, same object code. That identity is the Phase 1 check
@@ -55,10 +55,10 @@ target and of the runtime ABI. The registry is `docs/crug/ABI.md` section 3.
 - A change to a recorded size, alignment, offset, field name or tag value is
   an **ABI change**. It bumps the Crug-native ABI version, adds a row to
   `ABI.md` section 8, and needs a migration note.
-- Version **0** is the pre-stable value. `crugc --version` reports the GCC
-  version today; printing compiler, language and Crug ABI versions separately
-  is the Phase 25 packaging check. Until that check runs, no program may parse
-  an ABI version out of the driver.
+- Version **0** is the pre-stable value. `crugc --version` prints the compiler,
+  language, Crug ABI, runtime ABI, FFI metadata and PAL versions separately
+  (the Phase 24 packaging check); a program or installer may parse those
+  lines.
 - Adding a new Crug-native type does not change version 1. The version changes
   only when an existing row moves.
 

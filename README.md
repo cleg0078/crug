@@ -193,7 +193,7 @@ are ratified in [docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md)
 section 3 and the operator's guide is [docs/crug/FUZZING.md](docs/crug/FUZZING.md).
 Phase 23 freezes the documentation set. The manifest
 [docs/crug/REQUIRED-DOC-SECTIONS.md](docs/crug/REQUIRED-DOC-SECTIONS.md) names the
-43 documents and the sections each one must carry, and `make check-DOCS` (run by
+44 documents and the sections each one must carry, and `make check-DOCS` (run by
 `scripts/check-docs.sh`) fails on a missing document, a missing title or
 `Status:` line, a missing section, or a paragraph that presents a roadmap §32
 post-1.0 feature as present. The eleven pages that were missing are written: the
@@ -209,6 +209,8 @@ language reference ([LANGUAGE.md](docs/crug/LANGUAGE.md),
 promises the set implies - language, ABI, `.crugffi` and libcrug versioning,
 deprecation, the GCC baseline, platforms, C dialects and the kernel policy - and
 each item points at the phase or ADR that owns its number.
+Phase 24 packages what the earlier phases built. `VERSION` holds `0.1.0`, and `gcc/crugc --version` now reports the compiler, language, Crug ABI, runtime ABI, FFI metadata and PAL versions on separate lines (RFC 0001 section 8.2). `scripts/package.sh` builds a release from the pinned tree: it installs the compiler with `DESTDIR`, adds the Crug headers, `lib/libcrug.a` and the licence texts, prunes the C++ front end, strips the binaries, and writes a deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, 142,961,854 bytes, 971 files), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` verifies the versions, checksums, SBOM and tarball shape. `packaging/Dockerfile` builds the multi-stage image `crug/pkg:0.1.0` from the same tree (builder: the baseline plus `scripts/package.sh --stage /stage`; runtime: `binutils`, `libc6-dev`, `libzstd1` and `/opt/crug`), and the three smoke programs in `packaging/smoke/` (plain C, ownership with `move`, a `go`/`chan` runtime sample) must build and run inside it. `make package`, `make package-image` and `make check-PACKAGING` run the flow; the build and install guide is [docs/crug/BUILD-INSTRUCTIONS.md](docs/crug/BUILD-INSTRUCTIONS.md) and the version promises are [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md). Windows x86-64 and macOS ARM64 binary packages are not built yet (no packaging host in this environment); they are recorded as open in [docs/crug/progress.md](docs/crug/progress.md).
+
 See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -382,12 +384,16 @@ qualification enforces. `make check-FUZZ` runs the six Phase 22 harnesses and
 ([docs/crug/FUZZING.md](docs/crug/FUZZING.md) is the operator's guide);
 `scripts/check-p0-open.sh` and `scripts/check-regressions.sh` enforce the defect
 ledger, and `scripts/check-fuzz-nightly.sh` reports the nightly window.
-`make check-DOCS` checks the 43-document set against
+`make check-DOCS` checks the 44-document set against
 [docs/crug/REQUIRED-DOC-SECTIONS.md](docs/crug/REQUIRED-DOC-SECTIONS.md): each
 document exists with a title, a `Status:` line and its required sections, and no
 document presents a post-1.0 roadmap feature as present
 (`scripts/check-docs.sh`); [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md)
-states the compatibility promises the set implies.
+states the compatibility promises the set implies. `make package` writes the
+release tarball, the SPDX SBOM and the checksums into `dist/`;
+`make package-image` builds `crug/pkg:<version>` from `packaging/Dockerfile`;
+`make check-PACKAGING` runs the whole flow end to end, including the three smoke
+programs inside the image.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
