@@ -1,0 +1,5 @@
+phase-25 #3 rc=1
+cmd: sh scripts/check-fuzz-nightly.sh --window 30
+expected: exit 0, printing `fuzz-nightly: 30 consecutive scheduled success(es), window 30` (RELEASE-POLICY 3.3 and 4; exit 1 means the window is not met and exit 2 means the data is unavailable, and neither is evidence of success).
+---
+fuzz-nightly: 0 consecutive scheduled success(es), window 30, earliest none, latest none

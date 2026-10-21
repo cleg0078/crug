@@ -1,0 +1,7 @@
+phase-25 #2 rc=0
+cmd: ./scripts/check-p0-open.sh && ./scripts/count-open-p1.sh --max=2 && ./scripts/check-regressions.sh
+expected: exit 0, printing `check-p0-open: 0 open P0 (0 fixed P0/P1 without a regression id)`, `count-open-p1: 0 open P1 (max 2, 0 waived)` and the `check-regressions:` summary (0 open P0, at most 2 waived open P1, and every fixed P0/P1 still has its regression test).
+---
+check-p0-open: 0 open P0 (0 fixed P0/P1 without a regression id)
+count-open-p1: 0 open P1 (max 2, 0 waived)
+check-regressions: 2 fixed P0/P1 entr(ies), 0 without a regression test

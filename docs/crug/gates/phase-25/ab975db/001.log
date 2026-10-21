@@ -1,0 +1,6 @@
+phase-25 #1 rc=1
+cmd: ./scripts/check-gate-archives.sh
+expected: exit 0, printing `check-gate-archives: 25 phase(s) required: 25 green, 0 open, 0 missing` (all prior milestone blockers closed, section 30).
+---
+check-gate-archives: phase-22 has no green archive: d791347:1/4 failed
+check-gate-archives: 25 phase(s) required: 24 green, 1 open, 0 missing

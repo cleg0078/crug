@@ -1,0 +1,11 @@
+phase-25 #4 rc=0
+cmd: ./scripts/kernel-stage.sh K5 && ./scripts/kernel-stage.sh K6
+expected: exit 0, printing `K5: full build ok:` and `K6: boot smoke ok: 6.18.57 banner, /init ran, crug-boot-ok once, clean poweroff` (full primary kernel build and boot smoke at the candidate commit).
+---
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K5: full kernel build with CC=/home/cleg/MyDev/crug/gcc/crugc
+kernel-stage: K5: full build ok: 3089 object(s), 0 error line(s), vmlinux 51420536 bytes
+kernel-stage: pin ok: linux-6.18.57 digest verified
+kernel-stage: K6: building the freestanding /init and an initramfs
+kernel-stage: K6: booting with qemu-system-x86_64 (2 GiB, 2 CPUs, serial console)
+kernel-stage: K6: boot smoke ok: 6.18.57 banner, /init ran, crug-boot-ok once, clean poweroff
