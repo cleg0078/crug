@@ -201,6 +201,12 @@ What is known is that the current tree passes the nightly budget locally
 (`make check-FUZZ FUZZ_BUDGET=2000`: 8,000 compiler inputs and 20,000 channel
 runs, no crash), and the next failure will arrive with its inputs.
 
+Two push runs then failed even earlier: runs 8 and 9 died on the ASLR step,
+because `/proc/sys/vm/mmap_rnd_bits` does not exist on every runner image and
+the step read it unconditionally. That step now treats the knob as optional
+(the sanitizer script already falls back to `setarch -R`), so a runner
+difference cannot fail the job before a single check has run.
+
 The older manual recipe (re-add a temporary capture, force-push a
 `ci-debug-*` branch, delete it afterwards) is no longer needed; never leave a
 debug capture in the workflow, because the window counts the workflow as it is

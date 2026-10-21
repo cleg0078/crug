@@ -75,9 +75,12 @@ jobs:
           # clang 18 TSan cannot map its shadow with 32-bit mmap entropy on
           # ubuntu-24.04 runners; 28 bits is the documented workaround.  The
           # sanitizer script falls back to setarch -R if this write is refused,
-          # so a runner with a read-only /proc must not fail the job here.
-          sudo sysctl -w vm.mmap_rnd_bits=28 || true
-          cat /proc/sys/vm/mmap_rnd_bits
+          # so a runner with a read-only /proc must not fail the job here: the
+          # knob is absent on some runner images, and runs 8 and 9 failed on
+          # the read alone before any check had run.
+          sudo sysctl -w vm.mmap_rnd_bits=28 2>/dev/null || true
+          cat /proc/sys/vm/mmap_rnd_bits 2>/dev/null \
+            || echo 'mmap_rnd_bits: unavailable; the sanitizer script falls back to setarch -R'
       - name: Configure and build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
       - name: Run the fuzz target for a fixed budget
