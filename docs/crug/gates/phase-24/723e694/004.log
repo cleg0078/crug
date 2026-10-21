@@ -1,0 +1,11 @@
+phase-24 #4 rc=0
+cmd: docker run --rm crug/pkg:$(cat VERSION) crugc --version
+expected: exit 0, printing `crugc $(cat VERSION)`, `compiler: GCC 16.2.0`, `language version: $(cat VERSION)`, `Crug ABI version: 1` and `runtime ABI version: 1` (the version lines §8.2 of RFC 0001 requires, reported separately).
+---
+crugc 0.1.0
+compiler: GCC 16.2.0
+language version: 0.1.0
+Crug ABI version: 1
+runtime ABI version: 1
+FFI metadata version: 1.0
+PAL version: 1.1
