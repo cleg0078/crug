@@ -77,6 +77,7 @@ semicolons. Rows are parsed by `scripts/check-docs.sh`; keep the format.
 | docs/crug/PERFORMANCE.md | ## 1. Method and hardware ; ## 7. What this does not claim |
 | docs/crug/PORTABILITY.md | ## 1. Two axes, one core ; ## 2. The v1 matrix ; ## 8. Where platform code may live |
 | docs/crug/progress.md | ## Where the project stands ; ## Still open ; ## Next actions, in dependency order |
+| docs/crug/RELEASE-NOTES.md | ## 1. What this candidate is ; ## 2. Highlights ; ## 3. Qualification evidence ; ## 4. Install and verify ; ## 5. Known limitations ; ## 6. Compatibility and support ; ## 7. What is not in this candidate |
 | docs/crug/RELEASE-POLICY.md | ## 1. How a threshold is ratified ; ## 6. Amendments |
 | docs/crug/SAFE-TYPES.md | ## 1. What is implemented ; ## 2. Layouts (frozen, x86_64-pc-linux-gnu) ; ## 8. Checked indexing |
 | docs/crug/SCOPE.md | ## 1. The statement ; ## 5. Limits |

@@ -39,8 +39,13 @@ same optimised machine code as their plain-C twins at three optimisation levels
 byte-identical to an unmodified GCC 16.2 (114 of 114 pairs), 200 tasks dispatch
 faster than pthread-per-task with 67.7 KiB of memory per task instead of
 8032.1 KiB, and the 438-object kernel corpus keeps 437 identical objects plus
-one explained timestamp. The `kernel-compat`
-CI job builds the pinned baseline on every push and is a required check on `main`.
+one explained timestamp. Phase 22 fuzzes the front end and the runtime state
+machines and gates the sanitizer arms, Phase 23 freezes the 45-page
+documentation set against a section manifest, Phase 24 ships the tarball, the
+SBOM and the image, and Phase 25 tags the release candidate
+`v0.1.0-rc1` - with M23 left open, because the nightly reliability window is
+still filling. The `kernel-compat` CI job builds the pinned baseline on every
+push and is a required check on `main`.
 Four specification
 documents exist (10,513 lines): the RFC, the master specification, the Rust memory
 gaps analysis, and the production roadmap. An analysis of those documents produced
@@ -547,6 +552,27 @@ multi-os run 26 and kernel-compat run 39 both succeeded. The first push of the
 phase turned the `kernel-compat` job red because the mode sweep left
 `gcc/crugc` at `0644`, so the launcher could not run; the fix commit restores
 `0755` and the suite passes 21/21 again.
+Phase 25 assembles the release candidate and states plainly that milestone M23
+is not closed. The candidate is tagged `v0.1.0-rc1`;
+`docs/crug/RELEASE-NOTES.md` is the page for it (what it is, the qualification
+evidence, install and verify, the limitations) and `CHANGELOG.md` carries the
+`[0.1.0-rc1]` entry. Two checkers turn claims into commands:
+`scripts/count-open-p1.sh --max=2` applies the release-policy P1 threshold and
+reads the waiver rows in `docs/crug/KNOWN-ISSUES.md` section 4, so an open P1
+without a signed waiver fails, and `scripts/check-gate-archives.sh` replays
+every archived gate log exactly as `scripts/gate.sh` adjudicates it (the
+expectation text says `exit N`; the log must record that status), so no archive
+can claim a pass its log does not show. `make check-RC` runs the six Phase 25
+checks. The Phase 25 gate (amendment A-28) checks the archives, the P0/P1
+ledger, the 30-day nightly window, the kernel K5/K6 stages, the multi-OS, FFI
+and performance matrices, and the freeze against the candidate tag
+(`git diff --name-only v0.1.0-rc1..HEAD` over `gcc/c`, `gcc/c-family` and
+`libcrug` must be empty). Two of the six cannot pass today and the repository
+says so: the M22 nightly window stands at 0 of 30 scheduled successes because
+the first scheduled run (run 7) failed and reset it, so the phase-22 archive is
+not green either, and check 1 therefore reports 24 green and 1 open. M23 stays
+open until that window fills; the gate is run and archived anyway so the
+distance to the milestone is a measurement, not an opinion.
 The ABI question now has a policy: ADR 0006 (Accepted 2026-10-19) fixes two ABI classes,
 erasure rules, boundary moves and versioning, and creates the normative registry
 `docs/crug/ABI.md`. The registry records the C-ABI-transparent guarantees that
@@ -633,6 +659,7 @@ superseding ADR and owner ratification.
 | The tree could build and boot a kernel but could not be installed, so nothing it claimed could reach a machine without a toolchain checkout | `VERSION`, the seven-line `gcc/crugc --version`, `scripts/package.sh` (pruned, stripped, deterministic tarball 142,961,854 bytes / 971 files), `scripts/make-sbom.py` (SPDX 2.3), `scripts/check-release.sh`, `packaging/Dockerfile` (`crug/pkg:0.1.0`), `packaging/smoke/` (three programs), `scripts/check-packaging.sh`, `make package`/`make package-image`/`make check-PACKAGING`, `CHANGELOG.md` and `docs/crug/BUILD-INSTRUCTIONS.md`; phase-24 gate A-27 |
 | The documentation tree had 30 ad-hoc pages, eleven of the documents the gate names did not exist, and no page's section list was written down, so a page could be empty, drift, or promise a post-1.0 feature as present | `docs/crug/REQUIRED-DOC-SECTIONS.md` (43 rows), `scripts/check-docs.sh` + `make check-DOCS` (title, `Status:`, the required sections, the every-page-is-listed rule and the paragraph-level post-1.0 claim scan), eleven new pages (LANGUAGE, GRAMMAR, BORROWING, UNSAFE, C-FFI, CONCURRENCY, FREESTANDING, TESTING, COMPILER-INTERNALS, MIGRATION) and `COMPATIBILITY-POLICY.md`; phase-23 gate A-26 |
 | "It fails safely" was an assertion: nothing fuzzed the front end, no sanitizer result was gated, and the P0/P1 ledger had no checker | six harnesses under `fuzz/` (parser, ownership, borrow and `.crugffi` targets; scheduler and channel state machines), `make check-FUZZ`, `make check-SANITIZER` (ASan/UBSan/LSan plus a TSan OS-thread arm), `scripts/check-p0-open.sh`, `scripts/check-regressions.sh`, `.github/workflows/fuzz-nightly.yml`, `scripts/check-fuzz-nightly.sh`, `docs/crug/FUZZING.md`, ADR 0028 (Proposed), RELEASE-POLICY section 3 (amendment A-2); the compiler harness found and closed K-002; phase-22 gate A-25 |
+| The release candidate had no gate of its own: the phase-25 draft named commands that did not exist, no archived gate log was ever replayed, and the P1 threshold had no waiver record | `docs/crug/RELEASE-NOTES.md` and the `[0.1.0-rc1]` changelog entry, the annotated tag `v0.1.0-rc1`, `scripts/count-open-p1.sh` (threshold from `docs/crug/RELEASE-POLICY.md` section 4, waivers in `docs/crug/KNOWN-ISSUES.md` section 4), `scripts/check-gate-archives.sh` (replays every archive verdict), `make check-RC`, the phase-25 gate rewrite (six runnable checks) and amendment A-28 |
 
 ## Still open
 
@@ -670,7 +697,8 @@ superseding ADR and owner ratification.
 | -  | The zero-cost matrix covers four constructs (`own` with drop, `move`, `ref`, `mut`); `scope`, `chan`, payload enums and `match` are measured only indirectly through the concurrency and kernel arms, and a new construct must add a pair under `bench/zero-cost/` | a later performance increment; the matrix is the extension point |
 | -  | Dispatch and memory are compared against pthread-per-task with the allocation-free pool recorded only: Crug stays about 14x slower than the pool because every task reserves and commits a 64 KiB guarded stack, and stack pooling is future work needing its own ADR | ADR 0008 and RELEASE-POLICY.md amendment A-1 |
 | -  | The kernel codegen arm compares objects and disassembly only: no runtime speed measurement of the booted kernel is made, so `PERFORMANCE.md` does not claim kernel throughput | a later phase with a kernel benchmark harness |
-| -  | The 30-nightly-run reliability window is calendar time, not code: the `fuzz-nightly` workflow has not yet been scheduled for 30 days, so the Phase 22 gate reports "window not met" (exit 1/2) and stays red until the runs accumulate | `.github/workflows/fuzz-nightly.yml` on `main` plus calendar time (cron `17 3 * * *`); RELEASE-POLICY section 3.3 |
+| -  | The 30-nightly-run reliability window is calendar time, not code: `scripts/check-fuzz-nightly.sh --window 30` reports 0 consecutive scheduled success(es) at the candidate, because the first scheduled run (run 7) failed and reset the window, so the phase-22 archive records a failed check and `scripts/check-gate-archives.sh` reports 24 green and 1 open | `.github/workflows/fuzz-nightly.yml` on `main` plus calendar time (cron `17 3 * * *`); RELEASE-POLICY section 3.3 |
+| -  | M23 is not awarded: `v0.1.0-rc1` is a candidate, not the release, because the reliability window and the phase-22 archive are not green; the Phase 25 gate is run and archived anyway so the distance to the milestone is measured, and it fails checks 1 and 3 by construction | 30 consecutive scheduled nightly successes, then a phase-25 gate re-run at the candidate tree; RELEASE-POLICY section 4 |
 | -  | The compiler fuzz harness is mutational, not grammar-aware: it has no coverage measurement, an 8 KiB input cap, a 10 s timeout, and adding or renaming a seed changes the deterministic mutant stream | a later fuzzing increment; `fuzz/compiler/README.md` documents the corpus contract |
 | -  | ThreadSanitizer cannot see the fiber switch: task-stack races, task-to-task happens-before, the scheduler queue and scope state are covered by ASan+UBSan only, and `libcrug/core/chan.c` keeps one `malloc`ed receive buffer per thread with no release entry point | ADR 0028 (Proposed) and its `__tsan_create_fiber`/`__tsan_switch_to_fiber` exit criteria; a fiber-hook increment |
 | -  | The fuzz and sanitizer arms run on Linux x86-64 only and are not part of `make check-MULTI_OS`, so a Windows- or Darwin-specific runtime bug would not be seen by `make check-FUZZ` | a later qualification increment that runs the runtime harnesses on the other ports |
@@ -685,15 +713,18 @@ superseding ADR and owner ratification.
 
 ## Next actions, in dependency order
 
-1. **Open Phase 25 (release candidate)**: the release artefacts exist, so the
-   next phase qualifies them: run the whole matrix (multi-OS, FFI, performance,
-   fuzz and sanitizers, the kernel stages), decide M23 (conflict C1) against
-   `docs/crug/RELEASE-POLICY.md` section 3, tag the release candidate, and write
-   the release notes. The Phase 25 gate in `docs/crug/EXIT-GATES.md` is still the
-   draft form - it must be rewritten into runnable CHECK lines with its amendment
-   before it can be adjudicated, and the version macros
-   `__CRUG_VERSION_*`, `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` remain
-   open.
+1. **Close M23 (conflict C1)**: the candidate `v0.1.0-rc1` is tagged and the
+   Phase 25 gate runs, but M23 stays open for calendar time. Two things must
+   become true, in this order: the `fuzz-nightly` workflow accumulates 30
+   consecutive scheduled successes (`scripts/check-fuzz-nightly.sh --window 30`
+   must print `30 consecutive scheduled success(es)`), which also turns the
+   phase-22 archive green so `scripts/check-gate-archives.sh` reports 25 green;
+   then `scripts/gate.sh --run phase-25 --timeout 3600` is re-run and archived,
+   and only then is M23 awarded and the `[0.1.0]` entry cut from the candidate
+   tree. Nothing in the code needs to change; the rebuild of the candidate is
+   the freeze check (`git diff --name-only v0.1.0-rc1..HEAD -- gcc/c
+   gcc/c-family libcrug`). The version macros `__CRUG_VERSION_*`,
+   `__CRUG_RUNTIME_ABI__` and `__CRUG_FFI_VERSION__` remain open.
 2. **Ratify ADR 0017, ADR 0021, ADR 0022 and ADR 0019/0020** as the owner: the
    kernel ownership policy, the strict policy, the baseline upgrade policy and the
    two borrow policies are implemented and measured but still carry Status

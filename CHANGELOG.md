@@ -6,11 +6,16 @@ All notable changes to Crug are recorded here. The format follows
 runtime ABI, FFI metadata and PAL versions are versioned separately, as
 `gcc/crugc --version` reports.
 
-## [0.1.0] - 2026-10-21
+## [0.1.0-rc1] - 2026-10-21
 
 The first release candidate of Crug, a C dialect carried by a pinned GCC 16.2
 baseline. Crug is plain C when no Crug flag is given: every extension is opt-in
 and the GCC 16.2 testsuite remains the compatibility floor.
+
+This tag is the candidate, not the 1.0 release: the reliability window of
+[docs/crug/RELEASE-POLICY.md](docs/crug/RELEASE-POLICY.md) section 4 is still
+filling, so milestone M23 is open and the stable `[0.1.0]` entry will be cut
+from the same tree once the window and the phase-22 gate are green.
 
 ### Added
 

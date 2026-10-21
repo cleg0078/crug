@@ -211,6 +211,19 @@ deprecation, the GCC baseline, platforms, C dialects and the kernel policy - and
 each item points at the phase or ADR that owns its number.
 Phase 24 packages what the earlier phases built. `VERSION` holds `0.1.0`, and `gcc/crugc --version` now reports the compiler, language, Crug ABI, runtime ABI, FFI metadata and PAL versions on separate lines (RFC 0001 section 8.2). `scripts/package.sh` builds a release from the pinned tree: it installs the compiler with `DESTDIR`, adds the Crug headers, `lib/libcrug.a` and the licence texts, prunes the C++ front end, strips the binaries, and writes a deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, 142,961,854 bytes, 971 files), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` verifies the versions, checksums, SBOM and tarball shape. `packaging/Dockerfile` builds the multi-stage image `crug/pkg:0.1.0` from the same tree (builder: the baseline plus `scripts/package.sh --stage /stage`; runtime: `binutils`, `libc6-dev`, `libzstd1` and `/opt/crug`), and the three smoke programs in `packaging/smoke/` (plain C, ownership with `move`, a `go`/`chan` runtime sample) must build and run inside it. `make package`, `make package-image` and `make check-PACKAGING` run the flow; the build and install guide is [docs/crug/BUILD-INSTRUCTIONS.md](docs/crug/BUILD-INSTRUCTIONS.md) and the version promises are [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md). Windows x86-64 and macOS ARM64 binary packages are not built yet (no packaging host in this environment); they are recorded as open in [docs/crug/progress.md](docs/crug/progress.md).
 
+Phase 25 assembles the release candidate `v0.1.0-rc1` and does not pretend the
+milestone is closed. The candidate pages are
+[docs/crug/RELEASE-NOTES.md](docs/crug/RELEASE-NOTES.md) (what the candidate is,
+the qualification evidence, install and verify, the known limitations) and
+[CHANGELOG.md](CHANGELOG.md); `make check-RC` runs the six Phase 25 checks,
+and `scripts/check-gate-archives.sh` replays every archived gate log the way
+`scripts/gate.sh` adjudicates it, so an archive cannot claim a pass its log does
+not show. Two of the six checks cannot pass today, and the repository says so:
+`scripts/check-fuzz-nightly.sh --window 30` reports the M22 window at 0 of 30
+scheduled successes because the first scheduled run failed and reset it, so the
+phase-22 archive is not green either, and `docs/crug/progress.md` records both.
+M23 stays open until the window fills; no gate result claims otherwise.
+
 See
 [docs/crug/progress.md](docs/crug/progress.md) for what is decided, what is
 open, and what to do next.
@@ -394,6 +407,12 @@ release tarball, the SPDX SBOM and the checksums into `dist/`;
 `make package-image` builds `crug/pkg:<version>` from `packaging/Dockerfile`;
 `make check-PACKAGING` runs the whole flow end to end, including the three smoke
 programs inside the image.
+`make check-RC` runs the Phase 25 release-candidate checks: it replays the gate
+archives, the P0/P1 ledger, the regression map and the nightly window, then the
+multi-os and FFI matrices, and prints the kernel and performance commands that
+need the long budget. `scripts/count-open-p1.sh --max=2` applies the
+release-policy threshold and reads the waiver rows in
+[docs/crug/KNOWN-ISSUES.md](docs/crug/KNOWN-ISSUES.md) section 4.
 `make check-GOROUTINES` runs the `go`/`yield` dg suite, five runtime programs,
 the 100000-task stress run and the `strace` clone count;
 `docs/crug/TASKS.md` and `docs/crug/GOROUTINES.md` describe them.
