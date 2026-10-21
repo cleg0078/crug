@@ -26,7 +26,9 @@ on:
       - '.github/workflows/fuzz-nightly.yml'
 
 permissions:
-  contents: read
+  # contents: write is only used by the failure step below, which publishes the
+  # logs of a failed run to the ci-failure-logs branch.
+  contents: write
 
 concurrency:
   group: fuzz-nightly-${{ github.ref }}
@@ -71,13 +73,41 @@ jobs:
       - name: Relax ASLR entropy for ThreadSanitizer
         run: |
           # clang 18 TSan cannot map its shadow with 32-bit mmap entropy on
-          # ubuntu-24.04 runners; 28 bits is the documented workaround.
-          if [ -w /proc/sys/vm/mmap_rnd_bits ]; then
-            echo 28 | sudo tee /proc/sys/vm/mmap_rnd_bits
-          fi
+          # ubuntu-24.04 runners; 28 bits is the documented workaround.  The
+          # sanitizer script falls back to setarch -R if this write is refused,
+          # so a runner with a read-only /proc must not fail the job here.
+          sudo sysctl -w vm.mmap_rnd_bits=28 || true
+          cat /proc/sys/vm/mmap_rnd_bits
       - name: Configure and build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
       - name: Run the fuzz target for a fixed budget
-        run: make check-FUZZ FUZZ_BUDGET=2000
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          make check-FUZZ FUZZ_BUDGET=2000 2>&1 | tee ci-logs/fuzz.log
       - name: Run the sanitizer suite
-        run: make check-SANITIZER
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          make check-SANITIZER 2>&1 | tee ci-logs/sanitizer.log
+      - name: Keep the logs of a failed run
+        if: failure()
+        run: |
+          # A failed run must leave evidence: the job log needs a token to
+          # download, so publish the check logs to a branch.  See
+          # docs/crug/FUZZING.md section 6.
+          mkdir -p ci-logs
+          for d in build/fuzz build/sanitizer; do
+            if [ -d "$d" ]; then
+              find "$d" -maxdepth 2 -name '*.log' -exec cp -t ci-logs {} + 2>/dev/null || true
+            fi
+          done
+          printf 'fuzz-nightly failure log for %s (run %s)\n' \
+            "${{ github.sha }}" "${{ github.run_number }}" > ci-logs/README
+          git config user.email ci-failure@example.invalid
+          git config user.name ci-failure
+          git checkout --orphan ci-failure-logs
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git add -f ci-logs
+          git commit -q -m "ci-failure: fuzz-nightly run ${{ github.run_number }}"
+          git push -f origin ci-failure-logs

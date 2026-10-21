@@ -174,24 +174,25 @@ that policy, not a gate edit.
 
 ### Diagnosing a failed CI run
 
-The job's log is only downloadable with credentials, so a failure that was not
-captured leaves no evidence. When a scheduled or push run fails and its cause is
-not obvious from the job summary, re-add a temporary capture to
-`.github/workflows/fuzz-nightly.yml`, run it, read the log, and revert:
+A failed run must leave evidence. The job itself publishes it: the two check
+steps pipe their output into `ci-logs/` under `set -o pipefail`, and an
+`if: failure()` step checks out an orphan branch `ci-failure-logs`, copies
+`ci-logs/` (plus the harness logs under `build/fuzz` and `build/sanitizer`)
+and force-pushes it. That branch is written only by a failure, so a green run
+leaves the repository untouched; the workflow keeps `contents: write` solely
+for this step.
 
-1. change `permissions` to `contents: write`;
-2. redirect the two checks into `ci-logs/` (`make check-FUZZ FUZZ_BUDGET=2000
-   > ci-logs/fuzz.log 2>&1`, likewise `make check-SANITIZER`) - or `tee` if
-   the step sets `set -o pipefail`, because a bare `make ... | tee` reports
-   tee's exit status and would hide a failing check;
-3. add an `if: always()` step that checks out an orphan branch
-   (`git checkout --orphan ci-debug-fuzz`, `git rm -rf --cached .`),
-   `git add -f ci-logs`, commits and force-pushes it;
-4. fetch it (`git fetch origin '+refs/heads/ci-debug-*:refs/remotes/origin/ci-debug-*'`)
-   and read `ci-logs/fuzz.log` and `ci-logs/sanitizer.log`;
-5. delete the branch (`git push origin --delete ci-debug-fuzz`) and revert the
-   workflow in a follow-up commit. The window counts the workflow as it is on
-   `main`, so never leave the capture in place.
+To read a failure:
+
+    git fetch origin ci-failure-logs:ci-failure-logs
+    git show ci-failure-logs:ci-logs/README
+    git show ci-failure-logs:ci-logs/fuzz.log
+    git show ci-failure-logs:ci-logs/sanitizer.log
+
+The branch always holds the newest failure. The older manual recipe (re-add a
+temporary capture, force-push a `ci-debug-*` branch, delete it afterwards) is
+only needed for a run that predates this step; never leave a debug capture in
+the workflow, because the window counts the workflow as it is on `main`.
 
 ## 7. Triage: from a finding to a regression test
 

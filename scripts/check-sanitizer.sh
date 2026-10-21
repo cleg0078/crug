@@ -70,9 +70,25 @@ if ! clang -O1 -g -std=c11 -fsanitize=thread -fno-omit-frame-pointer \
   cat "$build/probe-tsan.log"
   tool_missing "clang cannot build with -fsanitize=thread"
 fi
+tsan_launch=''
 if ! "$build/probe-tsan" >>"$build/probe-tsan.log" 2>&1; then
-  cat "$build/probe-tsan.log"
-  tool_missing "the clang TSan runtime does not run on this host"
+  # A host with 5-level paging and 32-bit mmap entropy cannot map TSan's
+  # shadow unless the address space is randomised less (vm.mmap_rnd_bits) or
+  # the process runs without ASLR.  When the sysctl is unavailable, retry under
+  # setarch -R, which asks the kernel for ADDR_NO_RANDOMIZE before exec.
+  if command -v setarch >/dev/null 2>&1 \
+     && grep -Eq 'unexpected memory mapping|ADDR_NO_RANDOMIZE|CHECK failed' \
+        "$build/probe-tsan.log"; then
+    tsan_launch="setarch $(uname -m) -R"
+    say "sanitizer: TSan needs ADDR_NO_RANDOMIZE; running the TSan arm under $tsan_launch"
+    if ! $tsan_launch "$build/probe-tsan" >>"$build/probe-tsan.log" 2>&1; then
+      cat "$build/probe-tsan.log"
+      tool_missing "the clang TSan runtime does not run on this host"
+    fi
+  else
+    cat "$build/probe-tsan.log"
+    tool_missing "the clang TSan runtime does not run on this host"
+  fi
 fi
 
 # ---- Arm 1: the existing task/scope sanitizer suite. ----
@@ -365,7 +381,7 @@ clang $tsan_flags $includes \
   "$build/chan_stubs.c" -pthread -o "$build/san_stress_tsan" \
   || report "cannot build the OS-thread channel arm with TSan"
 log="$build/tsan-os-thread-channel.log"
-if TSAN_OPTIONS= "$build/san_stress_tsan" >"$log" 2>&1; then
+if TSAN_OPTIONS= $tsan_launch "$build/san_stress_tsan" >"$log" 2>&1; then
   rc=0
 else
   rc=$?
