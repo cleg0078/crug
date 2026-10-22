@@ -539,19 +539,41 @@ separately; the last two were added because they are frozen contracts too).
 `scripts/package.sh` installs the compiler into a staged tree with `DESTDIR`, adds
 `include/crug`, `lib/libcrug.a` and the licence texts, prunes the C++ front end,
 strips the binaries and writes a deterministic tarball
-(`crug-0.1.0-linux-x86_64.tar.gz`, 142,961,854 bytes, 971 files), an SPDX 2.3 SBOM
-and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` checks the versions, the
-checksums, the SBOM shape and the tarball listing. `packaging/Dockerfile` builds the
+(`crug-0.1.0-linux-x86_64.tar.gz`, 142,956,505 bytes, 971 files), a Debian package
+(`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes, 442,424 KiB installed), an SPDX 2.3
+SBOM and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` checks the versions,
+the checksums, the SBOM shape and the tarball listing. `packaging/Dockerfile` builds the
 multi-stage image `crug/pkg:0.1.0` from the same tree, and the three smoke programs
 in `packaging/smoke/` (plain C, ownership with `move`, a `go`/`chan` runtime sample)
-must build and run inside it; `make package`, `make package-image` and
-`make check-PACKAGING` are the entry points and `scripts/check-packaging.sh` runs
-the whole flow end to end. The Phase 24 gate (amendment A-27) runs six commands:
-`make package`, the `dist/` checksum and SBOM check, `make package-image`,
-`crugc --version` inside the image, the three smoke programs and
-`make check-PACKAGING`. It passes 6/6 at `723e694` (logs under
-`docs/crug/gates/phase-24/723e694/`), so the phase is closed; M23 itself is
-decided in Phase 25 (conflict C1). The closing push (`2858961`) is green:
+must build and run inside it; `make package`, `make package-deb`,
+`make package-image` and `make check-PACKAGING` are the entry points and
+`scripts/check-packaging.sh` runs the whole flow end to end. The Debian package
+came later and is built from the same stage by `scripts/build-deb.sh`:
+`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes (442,424 KiB installed), which
+measures its `Depends` line from the payload - `libc6 (>= 2.38)` from the highest
+`GLIBC_*` symbol version, one package per `NEEDED` soname, plus `binutils` and
+`libc6-dev` because compiling needs the assembler, the linker and the headers -
+installs the tree under `/opt/crug` and adds `/usr/bin/crugc`,
+`/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a`.
+`scripts/check-deb.sh` checks the control fields, the payload allow-list, owners
+and modes, the generated `md5sums`, the measured dependency floor and the three
+smoke programs, and `scripts/check-packaging.sh` installs the package with `apt`
+in a clean `ubuntu:24.04`, runs the three programs through `/usr/bin/crugc` and
+removes it again. The package exposed a launcher defect: `gcc/crugc` did not
+follow its own symlink, so `/usr/bin/crugc` looked for `/usr/gcc`, found the host
+compiler and used it silently. The launcher now resolves itself with
+`readlink -f`, reads `share/doc/crug/VERSION` from an installed tree, and accepts
+a sibling `gcc` only when the prefix carries `libexec/gcc`, `lib/gcc` or
+`lib64/gcc`; `scripts/check-crugc-launcher.sh` (5 cases) pins that contract.
+`scripts/check-release.sh` also had to relax its CHANGELOG rule to accept
+`[<version>-rcN]`, which the Phase 25 rename had broken. The Phase 24 gate
+(amendment A-27, extended by A-30) runs eight commands: `make package`, the
+`dist/` checksum, SBOM and package check, `make check-DEB`, `make check-launcher`,
+`make package-image`, `crugc --version` inside the image, the three smoke
+programs and `make check-PACKAGING`. It passed 6/6 at `723e694` (logs under
+`docs/crug/gates/phase-24/723e694/`) before the package existed; the rerun with
+the package is archived under `docs/crug/gates/phase-24/`. M23 itself is decided
+in Phase 25 (conflict C1). The closing push (`2858961`) is green:
 multi-os run 26 and kernel-compat run 39 both succeeded. The first push of the
 phase turned the `kernel-compat` job red because the mode sweep left
 `gcc/crugc` at `0644`, so the launcher could not run; the fix commit restores
@@ -682,6 +704,7 @@ superseding ADR and owner ratification.
 | The kernel was pinned but never compiled, so the kernel claim rested on microtests and `class K0` was untestable | `scripts/kernel-stage.sh` stages K1-K7 (8 header probes, 12 translation units, `lib/` whole, the 438-object pinned corpus, the full build, the QEMU boot, 15 aarch64 objects with a cross compiler from this tree), `kernel/KERNEL-CORPUS.md`, `kernel/boot/init.c`, `kernel/probes/`, `scripts/kernel-object-diff.sh` (436 identical, 2 explained) + `kernel/object-diff-allow.txt`, `scripts/check-p0-open.sh` + `docs/crug/KNOWN-ISSUES.md` (0 open P0), `make check-KERNEL`; ADR 0017 (Proposed); phase-19 gate A-22 |
 | The zero-cost and no-regression claims were measured only for the alias-facts row, so "no hidden runtime overhead" was unfalsifiable | `bench/run.py` five qualification modes (zero-cost matrix, pristine parity, recorded baseline, concurrency and channels, kernel codegen), `bench/zero-cost/`, `bench/concurrency/`, `bench/channels/`, `scripts/check-kernel-perf.sh`, `scripts/build-pristine.sh`, `make check-PERFORMANCE`, `docs/crug/PERFORMANCE.md`, `docs/crug/RELEASE-POLICY.md` (ratified thresholds); phase-21 gate A-24 |
 | The tree could build and boot a kernel but could not be installed, so nothing it claimed could reach a machine without a toolchain checkout | `VERSION`, the seven-line `gcc/crugc --version`, `scripts/package.sh` (pruned, stripped, deterministic tarball 142,961,854 bytes / 971 files), `scripts/make-sbom.py` (SPDX 2.3), `scripts/check-release.sh`, `packaging/Dockerfile` (`crug/pkg:0.1.0`), `packaging/smoke/` (three programs), `scripts/check-packaging.sh`, `make package`/`make package-image`/`make check-PACKAGING`, `CHANGELOG.md` and `docs/crug/BUILD-INSTRUCTIONS.md`; phase-24 gate A-27 |
+| The release could be unpacked but not installed, and the launcher did not survive a symlink, so `/usr/bin/crugc` silently compiled with the host GCC | `scripts/build-deb.sh` (measured `Depends`, `/opt/crug` plus the three `/usr` links, mode and mtime normalisation, generated `md5sums`, `dpkg-deb -Zxz`), `packaging/debian/`, `scripts/check-deb.sh`, the `apt` install-and-remove smoke in `scripts/check-packaging.sh`, the `readlink -f` launcher resolution and `scripts/check-crugc-launcher.sh`, and `make package-deb`, `make check-DEB`, `make check-launcher`; phase-24 gate amendment A-30 |
 | The documentation tree had 30 ad-hoc pages, eleven of the documents the gate names did not exist, and no page's section list was written down, so a page could be empty, drift, or promise a post-1.0 feature as present | `docs/crug/REQUIRED-DOC-SECTIONS.md` (43 rows), `scripts/check-docs.sh` + `make check-DOCS` (title, `Status:`, the required sections, the every-page-is-listed rule and the paragraph-level post-1.0 claim scan), eleven new pages (LANGUAGE, GRAMMAR, BORROWING, UNSAFE, C-FFI, CONCURRENCY, FREESTANDING, TESTING, COMPILER-INTERNALS, MIGRATION) and `COMPATIBILITY-POLICY.md`; phase-23 gate A-26 |
 | "It fails safely" was an assertion: nothing fuzzed the front end, no sanitizer result was gated, and the P0/P1 ledger had no checker | six harnesses under `fuzz/` (parser, ownership, borrow and `.crugffi` targets; scheduler and channel state machines), `make check-FUZZ`, `make check-SANITIZER` (ASan/UBSan/LSan plus a TSan OS-thread arm), `scripts/check-p0-open.sh`, `scripts/check-regressions.sh`, `.github/workflows/fuzz-nightly.yml`, `scripts/check-fuzz-nightly.sh`, `docs/crug/FUZZING.md`, ADR 0028 (Proposed), RELEASE-POLICY section 3 (amendment A-2); the compiler harness found and closed K-002; phase-22 gate A-25 |
 | The release candidate had no gate of its own: the phase-25 draft named commands that did not exist, no archived gate log was ever replayed, and the P1 threshold had no waiver record | `docs/crug/RELEASE-NOTES.md` and the `[0.1.0-rc1]` changelog entry, the annotated tag `v0.1.0-rc1`, `scripts/count-open-p1.sh` (threshold from `docs/crug/RELEASE-POLICY.md` section 4, waivers in `docs/crug/KNOWN-ISSUES.md` section 4), `scripts/check-gate-archives.sh` (replays every archive verdict), `make check-RC`, the phase-25 gate rewrite (six runnable checks) and amendment A-28 |
@@ -733,6 +756,8 @@ superseding ADR and owner ratification.
 | -  | No Windows x86-64 or macOS ARM64 binary package is built: the release tarball and the image are Linux x86-64 only, because this tree has no packaging host for the other two ports (Windows is cross-built and run under Wine, macOS only through the `macos-arm64` CI job) | a packaging increment on a Windows and a macOS host; the ports themselves landed in Phase 18 |
 | -  | The container image is Linux x86-64 only and `make package-image` recompiles the baseline inside the builder stage, so an image build costs a full bootstrap and the image and tarball are deterministic in their tar metadata but not proven byte-for-byte reproducible across builds | a reproducible-build increment; `scripts/package.sh` pins tar metadata and strips the binaries, not the compiler's object ordering |
 | -  | `dist/` is unsigned and has no transparency record: `SHA256SUMS` proves integrity against the published file only, and there is no release key or Sigstore bundle | a release-signing increment owned by the repository owner |
+| -  | The Debian package is built, installed with `apt` in a clean `ubuntu:24.04` and removed again, but it is not in a repository and not signed: a user downloads the file and runs `apt-get install ./crug_<version>-1_amd64.deb`, and there is no source package, no release key and no `dput` step | a release-channel increment (repository, signing, source package) |
+| -  | The package's `Depends` line is measured at build time from the payload, not from a written support policy: a new `NEEDED` library or a higher `GLIBC_*` symbol changes it silently, so the Ubuntu 24.04 / Debian 13 floor is a consequence of the binary, not a decision | a written policy for the packaged host versions |
 | -  | The first scheduled `fuzz-nightly` run (run 7, 2026-10-21T08:39:24Z, 21m 7s) failed with no captured log and reset the M22 window to 0 of 30; the failure is unexplained, because the same tree had passed the same budget in push run 6 and the compiler arm is deterministic, so it was the runtime arm or the runner. Push runs 8 and 9 then failed before any check ran, on a step that read `/proc/sys/vm/mmap_rnd_bits` unconditionally; that step now treats the knob as optional, and the failure capture publishes crash artefacts and the runner facts, not just the check logs (`42f2c92`, `1ae249c`) | the next failing run will be replayable from `ci-failure-logs`; RELEASE-POLICY section 3.3 |
 
 
@@ -758,6 +783,14 @@ superseding ADR and owner ratification.
    is green (run 39355413321 at `f086068`, four jobs), but branch protection
    currently requires only `kernel-compat`, so a port can regress without
    blocking a merge. The change needs the repository owner's token.
+4. **Publish the Debian package** (delivery work, does not block M23):
+   `make package-deb` now produces an installable `crug_0.1.0-1_amd64.deb`, and
+   `make check-DEB` plus the apt install-and-remove smoke in
+   `scripts/check-packaging.sh` verify it, but the file lives in `dist/` only.
+   A repository (or a signed download page), a release key and a `debian/`
+   source package are the release-channel increment; the package is `amd64`
+   only and the `Depends` line is measured from the payload rather than
+   promised by a host-support policy.
 
 ## Working rules
 

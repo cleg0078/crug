@@ -1,13 +1,56 @@
-# CRUG container image (Phase 24)
+# CRUG packages: the Debian package and the container image (Phase 24)
 
-The image `crug/pkg:<version>` (version read from the repository `VERSION`
-file, currently `0.1.0`) contains the installed Crug compiler and runtime:
+Two installable artefacts are built from one install tree, so they contain the
+same compiler: `dist/crug_<version>-<revision>_amd64.deb` and the container
+image `crug/pkg:<version>`. The version is read from the repository `VERSION`
+file, currently `0.1.0`.
+
+The install tree itself (`/opt/crug`, the tarball root) contains:
 
     /opt/crug/bin/crugc          the compiler launcher (seven-line --version)
     /opt/crug/include/crug/      task.h, chan.h, crug_pal.h
     /opt/crug/lib/libcrug.a      the runtime (task, channels, stack, PAL)
     /opt/crug/share/doc/crug/    LICENSE, NOTICE, CHANGELOG.md, VERSION and the
                                  smoke sources
+
+## The Debian package
+
+    $ make package-deb          # or: scripts/build-deb.sh
+
+`make package-deb` runs `scripts/package.sh` first unless the stage is already
+there (`--reuse-stage`), so the package is never built from a stale tree.
+`make package` builds the tarball, the package, the SBOM and the checksums
+together.
+
+| Path in the package | Contents |
+|---------------------|----------|
+| `/opt/crug/` | The complete install tree listed above. |
+| `/usr/bin/crugc` | Absolute link to `/opt/crug/bin/crugc`. |
+| `/usr/include/crug/` | Link to `/opt/crug/include/crug`. |
+| `/usr/lib/x86_64-linux-gnu/libcrug.a` | Link to `/opt/crug/lib/libcrug.a`. |
+| `/usr/share/doc/crug/` | `copyright` (DEP-5) and `changelog.Debian.gz`. |
+
+The control file is generated from `packaging/debian/control.in`. The
+`Depends` line is measured while the package is built: `libc6 (>= X)` where X
+is the highest `GLIBC_*` symbol version in any ELF file of the payload, plus
+one package per `NEEDED` soname, plus `binutils` and `libc6-dev` because
+compiling needs the assembler, the linker and the system headers. There are no
+maintainer scripts, no `postinst` and no `prerm`; the package only places
+files and links.
+
+    $ sudo apt-get install -y ./dist/crug_0.1.0-1_amd64.deb
+    $ crugc --version
+    $ sudo apt-get remove crug
+
+`make check-DEB` verifies the package without installing it: control fields,
+the payload allow-list (nothing may land in `/usr/bin/gcc` or any
+`/usr/bin/x86_64-*`), owners and modes (root/root, no setuid, no group or
+other write), the generated `md5sums`, the declared `Depends` against the
+sonames and the GLIBC floor re-measured from the package, the packaged
+launcher's seven version lines, and the three smoke programs compiled and run
+from an extraction. `make check-PACKAGING` also installs the package with
+`apt` in a clean `ubuntu:24.04`, runs the three programs through
+`/usr/bin/crugc`, and removes it again.
 
 It is a multi-stage build: `ubuntu:24.04` as builder installs the build
 dependencies, copies the repository, runs `make baseline JOBS=$(nproc)`,

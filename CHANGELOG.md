@@ -6,6 +6,25 @@ All notable changes to Crug are recorded here. The format follows
 runtime ABI, FFI metadata and PAL versions are versioned separately, as
 `gcc/crugc --version` reports.
 
+## [Unreleased]
+
+### Added
+
+- **Debian package.** `make package-deb` builds
+  `dist/crug_0.1.0-1_amd64.deb` from the same install tree as the tarball and
+  the image, with a `Depends` line measured from the payload (`libc6 (>= 2.38)`,
+  `libgcc-s1`, `libstdc++6`, `libzstd1`, `binutils`, `libc6-dev`) and the
+  `/usr/bin/crugc`, `/usr/include/crug` and
+  `/usr/lib/x86_64-linux-gnu/libcrug.a` links. `make check-DEB` verifies the
+  package, and `make check-PACKAGING` installs it with `apt` in a clean
+  `ubuntu:24.04` and removes it again.
+
+### Fixed
+
+- **Launcher resolution.** `gcc/crugc` follows its own symlink, so an installed
+  `/usr/bin/crugc` runs the packaged compiler instead of silently falling back
+  to the host GCC; `make check-launcher` pins the contract.
+
 ## [0.1.0-rc1] - 2026-10-21
 
 The first release candidate of Crug, a C dialect carried by a pinned GCC 16.2

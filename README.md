@@ -293,16 +293,26 @@ ABI, FFI metadata and PAL versions on separate lines (RFC 0001 section 8.2).
 `scripts/package.sh` builds a release from the pinned tree: it installs the
 compiler with `DESTDIR`, adds the Crug headers, `lib/libcrug.a` and the licence
 texts, prunes the C++ front end, strips the binaries, and writes a
-deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, 142,961,854 bytes, 971
-files), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`;
+deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, 142,956,505 bytes, 971
+files), a Debian package (`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes, 442,424
+KiB installed), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`;
 `scripts/check-release.sh` verifies the versions, checksums, SBOM and tarball
-shape. `packaging/Dockerfile` builds the multi-stage image `crug/pkg:0.1.0`
+shape, and `scripts/check-deb.sh` verifies the package itself: control fields,
+a payload allow-list, owners and modes, the generated `md5sums`, and the
+`Depends` line re-measured from the payload (`libc6 (>= 2.38)`, `libgcc-s1`,
+`libstdc++6`, `libzstd1`, `binutils`, `libc6-dev`). The package installs the
+tree under `/opt/crug` and adds `/usr/bin/crugc`, `/usr/include/crug` and
+`/usr/lib/x86_64-linux-gnu/libcrug.a`; `gcc/crugc` follows its own symlink,
+so `/usr/bin/crugc` runs the packaged compiler instead of the host GCC, and
+`make check-launcher` pins that. `packaging/Dockerfile` builds the multi-stage image `crug/pkg:0.1.0`
 from the same tree (builder: the baseline plus
 `scripts/package.sh --stage /stage`; runtime: `binutils`, `libc6-dev`,
 `libzstd1` and `/opt/crug`), and the three smoke programs in `packaging/smoke/`
 (plain C, ownership with `move`, a `go`/`chan` runtime sample) must build and
-run inside it. `make package`, `make package-image` and `make check-PACKAGING`
-run the flow; the build and install guide is
+run inside it, and `make check-PACKAGING` also installs the Debian package with
+`apt` in a clean `ubuntu:24.04` and removes it again. `make package`,
+`make package-deb`, `make package-image` and `make check-PACKAGING` run the
+flow; the build and install guide is
 [docs/crug/BUILD-INSTRUCTIONS.md](docs/crug/BUILD-INSTRUCTIONS.md) and the
 version promises are
 [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md). Windows
@@ -532,10 +542,14 @@ no document presents a post-1.0 roadmap feature as present
 [docs/crug/COMPATIBILITY-POLICY.md](docs/crug/COMPATIBILITY-POLICY.md) states
 the compatibility promises the set implies.
 
-`make package` writes the release tarball, the SPDX SBOM and the checksums into
-`dist/`; `make package-image` builds `crug/pkg:<version>` from
-`packaging/Dockerfile`; `make check-PACKAGING` runs the whole flow end to end,
-including the three smoke programs inside the image.
+`make package` writes the release tarball, the Debian package, the SPDX SBOM
+and the checksums into `dist/`; `make package-deb` builds the package on its
+own; `make package-image` builds `crug/pkg:<version>` from
+`packaging/Dockerfile`; `make check-DEB` verifies the package layout,
+dependencies and smoke programs without installing it; `make check-launcher`
+pins the launcher's driver resolution; `make check-PACKAGING` runs the whole
+flow end to end, including the three smoke programs inside the image and the
+`apt` install of the package in a clean container.
 
 `make check-RC` runs the Phase 25 release-candidate checks: it replays the gate
 archives, the P0/P1 ledger, the regression map and the nightly window, then the

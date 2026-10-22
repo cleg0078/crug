@@ -1,6 +1,6 @@
 # Crug compiler internals
 
-Status: **Phases 0-22 implemented and measured, 2026-10-20.** The fork delta and every attachment point on this page were read from the tree with `scripts/fork-delta.sh`; timings are from the reference host (Linux x86-64, 20 logical CPUs).
+Status: **Phases 0-25 implemented and measured, 2026-10-22.** The fork delta and every attachment point on this page were read from the tree with `scripts/fork-delta.sh`; timings are from the reference host (Linux x86-64, 20 logical CPUs).
 
 ## 1. Repository layout
 
@@ -19,7 +19,7 @@ The repository root is the GCC top level. There is no separate fork directory: t
 | `scripts/`, `docs/crug/`, `spec/` | Checkers and gate tooling; documentation and ADRs under `docs/crug/adr/`; RFC text under `spec/`. |
 | `build/`, `tools/`, `out/` | Build output, the DejaGnu bootstrap and scratch trees; all ignored, never committed. |
 
-The driver `gcc/crugc` is a 39-line POSIX shell wrapper. It resolves a real driver in the order `CRUGC_REAL_DRIVER`, `build/obj/gcc/xgcc`, `gcc/xgcc`, `gcc/gcc`, executes it with `-B<dir>`, and otherwise prints `crugc: no GCC driver found` and exits 1. It adds no behavior of its own: behavior lives in the compiler modules, so a wrapper change is not a language change.
+The driver `gcc/crugc` is a 105-line POSIX shell wrapper, and since Phase 24 it is the installed entry point, so it also has to survive being reached through a symlink. It resolves its own path with `readlink -f` when the host has it, then reads the version from `$root/VERSION` when present, else from `$root/share/doc/crug/VERSION` (the installed layout), else from the value baked into the script. It resolves a real driver in the order `CRUGC_REAL_DRIVER` (which must be executable, or the launcher exits 1), `$root/build/obj/gcc/xgcc`, `$here/xgcc` (both executed with `-B<dir>/`), and `$here/gcc` only when `$root` carries a `libexec/gcc`, `lib/gcc` or `lib64/gcc` directory, which is what marks an install tree. The last condition is the Phase 24 fix: without it a `/usr/bin/crugc` symlink resolved `$here/gcc` to the host `/usr/bin/gcc` and silently compiled with a compiler that has no Crug. Otherwise it prints `crugc: no Crug GCC driver found` with three hint lines and exits 1. `--version` is the only behavior of its own (seven lines: launcher, compiler, language, Crug ABI, runtime ABI, FFI metadata and PAL versions); `scripts/check-crugc-launcher.sh` pins the five cases. Behavior lives in the compiler modules, so a wrapper change is not a language change.
 
 ## 2. The fork delta
 
@@ -39,7 +39,7 @@ Measured on 2026-10-20 (`HEAD 7b7f8dbb94da`, 155 commits since tag `releases/gcc
 | `gcc/diagnostics/sarif-sink.cc` | 4 | 61 | 6 | Carry the stable code into SARIF as `ruleId`. |
 | `gcc/Makefile.in`, `gcc/c/Make-lang.in` | 2 | 4 | 2 | Object lists for the Crug modules. |
 
-New sources: `crug-ownership.cc` 4,620 and `.h` 143 (moves, drop placement, borrow checker, intrinsics, dumps); `crug-safe.cc` 900 and `.h` 158 (slices, option/result, ADT payload enums, bounds checks, match helpers); `crug-ffi.cc` 1,289 and `.h` 72 (sidecar parse and contract); `crug-common.cc` 117 and `.h` 63 (feature bits, option closure); `crug-diagnostics.cc` 73 and `.h` 38 (coded diagnostics); `crug-tasks.cc` 529 and `.h` 70 (`go`, `yield`, `scope`); `crug-chan.cc` 469 and `.h` 64 (channel types and select); `crug-send-sync.cc` 295 and `.h` 50 (Send/Sync, thread affinity); `gcc/crugc` 39.
+New sources: `crug-ownership.cc` 4,620 and `.h` 143 (moves, drop placement, borrow checker, intrinsics, dumps); `crug-safe.cc` 900 and `.h` 158 (slices, option/result, ADT payload enums, bounds checks, match helpers); `crug-ffi.cc` 1,289 and `.h` 72 (sidecar parse and contract); `crug-common.cc` 117 and `.h` 63 (feature bits, option closure); `crug-diagnostics.cc` 73 and `.h` 38 (coded diagnostics); `crug-tasks.cc` 529 and `.h` 70 (`go`, `yield`, `scope`); `crug-chan.cc` 469 and `.h` 64 (channel types and select); `crug-send-sync.cc` 295 and `.h` 50 (Send/Sync, thread affinity); `gcc/crugc` 105 (launcher, version, driver resolution).
 
 The totals are worth reading correctly. The 63 hunks are the rebase surface; the 8,989 lines are not, because a new upstream tree never touches files it does not have. Section 6 records what a version bump actually costs.
 

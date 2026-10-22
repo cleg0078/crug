@@ -1,9 +1,10 @@
 # Building and installing Crug
 
-Status: **Phase 24 implemented 2026-10-21.** This page is the build and release
-guide for Crug 0.1.0 on Linux x86-64: the source build, the release artefacts
-made by `scripts/package.sh`, the container image, the install tree, the
-verification commands and the supported hosts. The image mechanics are in the
+Status: **Phase 24 implemented 2026-10-21; the Debian package added 2026-10-22.**
+This page is the build and release guide for Crug 0.1.0 on Linux x86-64: the
+source build, the release artefacts made by `scripts/package.sh`, the
+container image, the Debian package, the install tree, the verification
+commands and the supported hosts. The image mechanics are in the
 [packaging README](../../packaging/README.md); the other hosts are in
 [PORTABILITY.md](PORTABILITY.md). The version is read from
 [the VERSION file](../../VERSION) and reported by `crugc --version`.
@@ -88,18 +89,20 @@ bytes), and then writes the artefacts into `dist/`:
 
 | Artefact | Contents |
 |----------|----------|
-| `dist/crug-0.1.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.1.0/`, which is the `/opt/crug` tree: 142961854 bytes, 971 files. |
+| `dist/crug-0.1.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.1.0/`, which is the `/opt/crug` tree: 142956505 bytes, 971 files. |
+| `dist/crug_0.1.0-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: 93363584 bytes, 442424 KiB installed. |
 | `dist/crug-0.1.0.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages and one entry per file. |
 | `dist/LICENSE`, `dist/NOTICE` | The licence texts shipped with the release. |
-| `dist/SHA256SUMS` | The SHA-256 of the four artefacts above, in `sha256sum` format. |
+| `dist/SHA256SUMS` | The SHA-256 of the five artefacts above, in `sha256sum` format. |
 
 The run reports the runtime build, the install, the prune-and-strip step and
 the writing steps as it goes, and ends with these lines:
 
     package: pruned and stripped (cc1 482261136 -> 53540752 bytes)
-    package: crug-0.1.0-linux-x86_64.tar.gz 142961854 bytes, 971 files
+    package: crug-0.1.0-linux-x86_64.tar.gz 142956505 bytes, 971 files
     package: dist/crug-0.1.0.spdx.json
-    package: SHA256SUMS: 4 artefact(s)
+    deb: dist/crug_0.1.0-1_amd64.deb 93363584 bytes, 976 files, installed-size 442424 KiB
+    package: SHA256SUMS: 5 artefact(s)
 
 The tar is built deterministically: sorted names, `--mtime=@0`, owner and group
 0, numeric owner, and `gzip -n`; the GNU ar archive it contains is
@@ -107,13 +110,30 @@ deterministic as well. Flags override the defaults:
 
     $ scripts/package.sh --version 0.1.0 --out dist --stage build/package/crug-0.1.0
     $ scripts/package.sh --skip-build     # fail rather than build missing inputs
+    $ CRUG_DEB=skip scripts/package.sh --skip-build   # tarball only, no Debian package
+
+The Debian package is built by `scripts/build-deb.sh`, which `package.sh` runs
+after the stage exists (so the package is never stale). It measures the
+payload before writing the control file:
+
+    deb: measuring the payload dependencies
+    deb: depends: libc6 (>= 2.38), libgcc-s1, libstdc++6, libzstd1, binutils, libc6-dev
+
+`libc6 (>= 2.38)` is the highest `GLIBC_*` symbol version found in any ELF
+file of the payload; the other names come from the `NEEDED` sonames the tree
+links against, and `binutils` and `libc6-dev` are added because `crugc`
+runs `as`/`ld` and compiles against the system headers. `scripts/check-deb.sh`
+re-measures both from the built package and fails when the declared line
+disagrees with it.
 
 `scripts/check-release.sh` then checks version consistency across
 [VERSION](../../VERSION), [CHANGELOG.md](../../CHANGELOG.md) and
-`gcc/crugc --version`, the checksums, the SBOM fields and the tarball
-entries, and prints:
+`gcc/crugc --version` (a release-candidate entry named `[<version>-rcN]`
+counts for that version), that `SHA256SUMS` lists exactly the tarball, the
+Debian package, the SBOM and the two licence texts, the checksums, the SBOM
+fields and the tarball entries, and prints:
 
-    check-release: 21 check(s), 0 problem(s)
+    check-release: 24 check(s), 0 problem(s)
 
 ## 4. Build and use the container image
 
@@ -155,12 +175,46 @@ The driver is configured with `--prefix=/opt/crug`, the prefix the release
 artefacts are built for; keep the tree there and put `/opt/crug/bin` on
 `PATH`, then `crugc --version` works without further setup.
 
+### The Debian package
+
+The package installs the same tree under `/opt/crug`, so nothing in it is
+compiled for a different layout, and adds four entries outside that tree:
+
+    $ sudo apt-get install -y ./dist/crug_0.1.0-1_amd64.deb
+
+| Path | Contents |
+|------|----------|
+| `/opt/crug/` | The complete install tree of section 5 (compiler, `cc1`, runtime headers and `libcrug.a`). |
+| `/usr/bin/crugc` | Absolute link to `/opt/crug/bin/crugc`; the launcher follows its own symlinks, so this runs the packaged compiler. |
+| `/usr/include/crug/` | Link to `/opt/crug/include/crug`, so `#include <crug/task.h>` works without `-I`. |
+| `/usr/lib/x86_64-linux-gnu/libcrug.a` | Link to `/opt/crug/lib/libcrug.a`, so `-lcrug` works without `-L`. |
+| `/usr/share/doc/crug/` | `copyright`, `changelog.Debian.gz` and the licence texts. |
+
+The package declares `libc6 (>= 2.38)`, `libgcc-s1`, `libstdc++6`, `libzstd1`,
+`binutils` and `libc6-dev`: the first is measured from the payload, the next
+three from its `NEEDED` entries, and the last two are what compiling needs
+(`as`, `ld` and the C headers). There are no maintainer scripts, so
+`apt-get remove crug` deletes the links and the tree and nothing else.
+
+    $ crugc --version
+    $ crugc hello.c -o hello && ./hello
+    $ crugc -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug runtime-sample.c -L/opt/crug/lib -lcrug -pthread -o runtime && ./runtime
+
+`make check-DEB` verifies the package itself: control fields, the payload
+allow-list, owners and modes, the generated `md5sums`, the measured
+dependency floor, the packaged launcher's seven version lines and the three
+smoke programs compiled and run from an extraction. `make check-PACKAGING`
+additionally installs the package with `apt` in a clean `ubuntu:24.04`,
+runs the same three programs through `/usr/bin/crugc`, and removes the
+package again.
+
 ## 6. Verify
 
 From the repository root, after `scripts/package.sh`:
 
     $ cd dist && sha256sum -c SHA256SUMS
     crug-0.1.0-linux-x86_64.tar.gz: OK
+    crug_0.1.0-1_amd64.deb: OK
     crug-0.1.0.spdx.json: OK
     LICENSE: OK
     NOTICE: OK
@@ -182,8 +236,10 @@ extracted launcher:
 
 `make check-PACKAGING` runs the full Phase 24 acceptance flow: it rebuilds
 the artefacts, runs `check-release.sh`, checks the SBOM and the tarball
-listing independently, and runs the image version command and the three smoke
-programs (it builds the image when it is absent).
+listing independently, runs the image version command and the three smoke
+programs (it builds the image when it is absent), and installs the Debian
+package with `apt` in a clean `ubuntu:24.04` before removing it again. The
+last line is `packaging: OK`.
 
 ## 7. Supported hosts
 
