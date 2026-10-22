@@ -10,8 +10,9 @@
 #
 #   <out>/crug-<version>-linux-x86_64.tar.gz   the install tree (prefix crug-<version>/)
 #   <out>/crug-<version>.spdx.json             SPDX 2.3 SBOM (scripts/make-sbom.py)
+#   <out>/crug_<version>-<rev>_amd64.deb       the Debian package (scripts/build-deb.sh)
 #   <out>/LICENSE, <out>/NOTICE                the licence texts
-#   <out>/SHA256SUMS                           checksums of the four artefacts
+#   <out>/SHA256SUMS                           checksums of the five artefacts
 #
 # The tar is deterministic by construction: sorted names, zeroed mtimes and
 # ownership, and gzip -n.
@@ -261,14 +262,28 @@ python3 "$ROOT/scripts/make-sbom.py" \
   || fail "writing the SPDX SBOM failed"
 chmod 0644 "$out/crug-$version.spdx.json"
 
-# ---- the licence copies and the checksums ------------------------------------
+# ---- the licence copies ------------------------------------------------------
 install -m 0644 "$ROOT/LICENSE" "$out/LICENSE" || fail "cannot install LICENSE into $out"
 install -m 0644 "$ROOT/NOTICE" "$out/NOTICE" || fail "cannot install NOTICE into $out"
-( cd "$out" && sha256sum "$tarball" "crug-$version.spdx.json" LICENSE NOTICE >SHA256SUMS ) \
-  || fail "cannot write SHA256SUMS"
-chmod 0644 "$out/SHA256SUMS"
+
+# ---- the Debian package ------------------------------------------------------
+# scripts/build-deb.sh assembles the .deb from this same stage and writes the
+# checksums for every artefact, so the tarball, the image and the package ship
+# one compiler.  CRUG_DEB=skip stages the tree only: build-deb.sh uses it to
+# avoid rebuilding the package a second time.
+if [ "${CRUG_DEB:-build}" = skip ]; then
+  say "skipping the Debian package (CRUG_DEB=skip)"
+  ( cd "$out" && sha256sum "$tarball" "crug-$version.spdx.json" LICENSE NOTICE >SHA256SUMS ) \
+    || fail "cannot write SHA256SUMS"
+  chmod 0644 "$out/SHA256SUMS"
+else
+  say "building the Debian package (scripts/build-deb.sh --reuse-stage)"
+  "$ROOT/scripts/build-deb.sh" --version "$version" --out "$out" --stage "$stage" \
+    --reuse-stage || fail "scripts/build-deb.sh failed"
+fi
 
 say "$tarball $bytes bytes, $files files"
 say "dist/crug-$version.spdx.json"
-say "SHA256SUMS: 4 artefact(s)"
+n=$(wc -l <"$out/SHA256SUMS" | tr -d ' ')
+say "SHA256SUMS: $n artefact(s)"
 exit 0

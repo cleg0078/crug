@@ -339,13 +339,22 @@ crugc: ## print the in-tree driver and its version
 
 ##@ Packaging
 
-package: ## build the release tarball, the checksums and the SPDX SBOM into dist/
+package: ## build the release tarball, the Debian package, the checksums and the SPDX SBOM into dist/
 	@scripts/package.sh
+
+package-deb: ## build the Debian package dist/crug_<version>-<revision>_amd64.deb
+	@scripts/build-deb.sh
 
 package-image: ## build the container image crug/pkg:<version> from packaging/Dockerfile
 	@packaging/build-image.sh
 
-check-PACKAGING: ## verify the release artefacts, the SBOM and the image smoke programs
+check-DEB: ## verify the Debian package layout, dependencies and smoke programs
+	@scripts/check-deb.sh
+
+check-launcher: ## verify that bin/crugc finds a Crug driver through a symlink
+	@scripts/check-crugc-launcher.sh
+
+check-PACKAGING: ## verify the release artefacts, the SBOM, the image and the Debian package
 	@scripts/check-packaging.sh
 
 ##@ Release candidate
@@ -414,7 +423,7 @@ distclean: ## remove build/ and sources/ entirely
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
 	check-DIAGNOSTICS check-docs-examples check-DOCS pristine-xgcc check-PERFORMANCE \
-	check-FUZZ check-SANITIZER package package-image check-PACKAGING \
-	check-RC \
+	check-FUZZ check-SANITIZER package package-deb package-image check-DEB check-launcher \
+	check-PACKAGING check-RC \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

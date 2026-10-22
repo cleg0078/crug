@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: crug
+Source: https://github.com/cleg0078/crug
+Comment: Crug is a fork of GCC 16.2.0.  The compiler sources keep the
+ upstream notices, and the whole distributed tree is licensed under the GNU
+ General Public License version 3 or later.
+Files: *
+Copyright: 2026 the Crug authors
+ 2026 the GCC developers (GCC 16.2.0)
+License: GPL-3+
+ The complete licence text is available in /usr/share/common-licenses/GPL-3.
+ .
+ The compiler is a modified GCC 16.2.0, which is GPLv3 or later.  The crugc
+ driver and the Crug runtime library libcrug are GPLv3 or later as well.
+ NOTICE, installed as /opt/crug/share/doc/crug/NOTICE, records how each
+ installed part is licensed.

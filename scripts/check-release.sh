@@ -3,10 +3,11 @@
 # Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
 #
 # Reads VERSION, CHANGELOG.md, gcc/crugc --version, dist/SHA256SUMS,
-# dist/crug-<version>.spdx.json and the release tarball, and checks that they
-# all name the same version, that every checksum verifies, that the SBOM is a
-# parseable SPDX 2.3 document, and that the tarball carries the files the
-# Phase 24 gate looks for. It changes nothing.
+# dist/crug-<version>.spdx.json, the release tarball and the Debian package,
+# and checks that they all name the same version, that every checksum
+# verifies, that the SBOM is a parseable SPDX 2.3 document, and that the
+# tarball carries the files the Phase 24 gate looks for. It changes nothing;
+# scripts/check-deb.sh inspects the package itself.
 #
 # Usage: scripts/check-release.sh
 #
@@ -76,13 +77,19 @@ if [ ! -s "$ROOT/CHANGELOG.md" ]; then
   problem 'CHANGELOG.md is missing or empty'
 else
   changelog_version=$(sed -n \
-    's/^##[[:space:]]*\[\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
+    's/^##[[:space:]]*\[\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\([^]]*\)\].*/\1\2/p' \
     "$ROOT/CHANGELOG.md" | sed -n '1p')
-  if [ -z "$changelog_version" ]; then
-    problem 'CHANGELOG.md opens with no "## [x.y.z]" release entry'
-  elif [ "$changelog_version" != "$version" ]; then
-    problem "CHANGELOG.md names $changelog_version but VERSION names $version"
-  fi
+  # A release candidate entry names $version-rcN while VERSION keeps the
+  # release number, so accept both forms.
+  case $changelog_version in
+    "$version"|"$version"-rc[0-9]*) ;;
+    "")
+      problem 'CHANGELOG.md opens with no "## [x.y.z]" release entry'
+      ;;
+    *)
+      problem "CHANGELOG.md names $changelog_version but VERSION names $version"
+      ;;
+  esac
 fi
 
 checked
@@ -124,10 +131,20 @@ if [ ! -s "$out/SHA256SUMS" ]; then
 fi
 
 checked
-expected_names=$(printf '%s\n' "$tarball_name" "$sbom_name" LICENSE NOTICE | LC_ALL=C sort)
+deb_name=
+for candidate in "$out"/crug_"$version"-*_amd64.deb; do
+  [ -f "$candidate" ] || continue
+  [ -z "$deb_name" ] || problem "more than one Debian package in $out"
+  [ -n "$deb_name" ] || deb_name=$(basename "$candidate")
+done
+[ -n "$deb_name" ] || problem "no $out/crug_$version-<revision>_amd64.deb (run scripts/package.sh)"
+
+checked
+expected_names=$(printf '%s\n' "$tarball_name" "$sbom_name" LICENSE NOTICE "$deb_name" \
+  | sed '/^$/d' | LC_ALL=C sort)
 listed_names=$(awk '{ print $2 }' "$out/SHA256SUMS" | sed 's/^\*//' | LC_ALL=C sort)
 if [ "$expected_names" != "$listed_names" ]; then
-  problem "SHA256SUMS does not list exactly $tarball_name, $sbom_name, LICENSE and NOTICE"
+  problem "SHA256SUMS does not list exactly $tarball_name, $sbom_name, the Debian package, LICENSE and NOTICE"
 fi
 
 checked
@@ -144,6 +161,16 @@ checked
 [ -s "$out/LICENSE" ] || problem "missing or empty $out/LICENSE"
 checked
 [ -s "$out/NOTICE" ] || problem "missing or empty $out/NOTICE"
+checked
+if [ -z "$deb_name" ] || [ ! -s "$out/$deb_name" ]; then
+  problem "missing or empty $out/${deb_name:-crug_$version-<revision>_amd64.deb}"
+fi
+checked
+if [ -n "$deb_name" ]; then
+  deb_bytes=$(wc -c <"$out/$deb_name" | tr -d ' ')
+  [ "$deb_bytes" -gt 10000000 ] \
+    || problem "the Debian package is only $deb_bytes bytes, which is too small for a compiler"
+fi
 
 # ---- 3. the SBOM ---------------------------------------------------------------
 checked

@@ -7,6 +7,8 @@
 #   3. the SBOM and the tarball listing, checked here independently
 #   4. the container image: build it when absent, then run "crugc --version"
 #      and the three smoke programs (plain C, ownership, runtime) inside it.
+#   5. the Debian package: install it with apt in a clean ubuntu:24.04, run
+#      the three smoke programs through /usr/bin/crugc, then remove it again.
 #
 # Exit status: 0 everything passed, 1 a check failed, 2 a missing tool/artefact
 # that is not a verdict (docker absent, python3 absent, image directory absent).
@@ -150,6 +152,56 @@ if command -v docker >/dev/null 2>&1; then
   fi
 else
   say "packaging: docker absent, image checks skipped (not a pass, not a failure)"
+fi
+
+# ---- 5. install the Debian package in a clean container. ----
+if command -v docker >/dev/null 2>&1; then
+  deb=
+  for candidate in "$dist"/crug_"$version"-*_amd64.deb; do
+    [ -f "$candidate" ] || continue
+    deb=$(basename "$candidate")
+  done
+  if [ -z "$deb" ]; then
+    bad "no $dist/crug_$version-<revision>_amd64.deb to install"
+  else
+    say "packaging: installing $deb in a clean ubuntu:24.04"
+    docker run --rm --network host \
+      -v "$dist:/pkg:ro" -v "$root/packaging/smoke:/w:ro" -w /tmp \
+      ubuntu:24.04 sh -c '
+set -e
+deb=$1
+apt-get update -qq >/dev/null 2>&1
+apt-get install -y -qq "/pkg/$deb" >/dev/null 2>&1
+crugc --version > version.txt
+test "$(grep -c . version.txt)" -eq 7
+grep -qx "crugc '"$version"'" version.txt
+grep -qx "compiler: GCC 16.2.0" version.txt
+grep -qx "Crug ABI version: 1" version.txt
+dpkg -L crug | grep -qx /opt/crug/bin/crugc
+test -L /usr/bin/crugc
+test "$(readlink -f /usr/bin/crugc)" = /opt/crug/bin/crugc
+crugc /w/hello.c -o hello
+[ "$(./hello)" = "hello from crug" ]
+echo "deb-smoke: hello ok"
+crugc /w/hello-own.c -fcrug-ownership -o hello-own
+[ "$(./hello-own)" = "own-ok value=42" ]
+echo "deb-smoke: hello-own ok"
+crugc /w/runtime-sample.c -fcrug-goroutines -fcrug-channels \
+  -I/opt/crug/include/crug -L/opt/crug/lib -lcrug -pthread -o runtime
+[ "$(./runtime)" = "runtime-ok sum=7" ]
+echo "deb-smoke: runtime ok"
+apt-get remove -y -qq crug >/dev/null 2>&1 || true
+test ! -e /usr/bin/crugc
+test ! -e /opt/crug/bin/crugc
+' sh "$deb" >"$build/deb-install.log" 2>&1
+    deb_ok=$(grep -c "^deb-smoke: .* ok\$" "$build/deb-install.log" 2>/dev/null || echo 0)
+    say "packaging: deb install smoke: $deb_ok/3 ok"
+    if [ "$deb_ok" -ne 3 ]; then
+      bad "the Debian install smoke failed (see $build/deb-install.log)"
+    fi
+  fi
+else
+  say "packaging: docker absent, Debian install smoke skipped"
 fi
 
 say "packaging: $artefacts artefact set(s) verified, tarball $(wc -c <"$tarball" 2>/dev/null || echo 0) bytes"

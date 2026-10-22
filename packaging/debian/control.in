@@ -1,0 +1,25 @@
+Package: crug
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: devel
+Priority: optional
+Homepage: https://github.com/cleg0078/crug
+Description: Crug: ownership, goroutines and safe types for C
+ Crug is a dialect of C, implemented as a fork of GCC 16.2.0, that adds
+ Rust-style ownership with automatic destruction, borrows with non-lexical
+ lifetimes, goroutines, channels, structured scope and safe core types to
+ ordinary C.  It keeps the GNU C dialect and the C ABI unchanged: every
+ Crug option is opt-in and a program without Crug constructs compiles to
+ the same object code as with the unmodified compiler.
+ .
+ This package installs the Crug compiler driver (crugc), the C front end
+ and the GCC internals it needs, the C headers and libgcc, the Crug runtime
+ headers (include/crug) and the static Crug runtime library (libcrug.a).
+ .
+ Compile a C program with "crugc file.c -o prog"; add the Crug options for
+ ownership and the rest, for example "crugc -fcrug-ownership file.c -o prog".
+ Runtime programs link the static library: "crugc -fcrug-goroutines file.c
+ -lcrug -pthread -o prog".
