@@ -1,0 +1,9 @@
+phase-24 #2 rc=0
+cmd: (cd dist && sha256sum -c SHA256SUMS && test -s crug-$(cat ../VERSION).spdx.json && test -s crug_$(cat ../VERSION)-1_amd64.deb && test -s LICENSE && test -s NOTICE)
+expected: exit 0, printing `OK` once per artefact.
+---
+crug-0.1.0-linux-x86_64.tar.gz: OK
+crug-0.1.0.spdx.json: OK
+crug_0.1.0-1_amd64.deb: OK
+LICENSE: OK
+NOTICE: OK

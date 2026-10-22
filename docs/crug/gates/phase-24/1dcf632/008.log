@@ -1,0 +1,28 @@
+phase-24 #8 rc=0
+cmd: make check-PACKAGING
+expected: exit 0, printing `packaging: image smoke: 3/3 ok`, `packaging: deb install smoke: 3/3 ok` and `packaging: OK` (the whole flow end to end: artefacts, checksums, SBOM shape, tarball shape, image, and the Debian package installed with `apt` in a clean `ubuntu:24.04` and removed again).
+---
+packaging: version 0.1.0
+package: building the host and target directories the install walks (all-target all-host)
+package: building the Crug runtime (make -C libcrug PAL=linux)
+package: installing the compiler into /home/cleg/MyDev/crug/build/package/crug-0.1.0/opt/crug (DESTDIR)
+package: pruning the C++ front end and stripping the compiler
+package: pruned and stripped (cc1 482261136 -> 53540752 bytes)
+package: writing /home/cleg/MyDev/crug/dist/crug-0.1.0-linux-x86_64.tar.gz (deterministic tar, gzip -n)
+package: writing the SPDX SBOM /home/cleg/MyDev/crug/dist/crug-0.1.0.spdx.json
+package: building the Debian package (scripts/build-deb.sh --reuse-stage)
+deb: measuring the payload dependencies
+deb: assembling /home/cleg/MyDev/crug/build/package/deb-0.1.0-1
+deb: building /home/cleg/MyDev/crug/dist/crug_0.1.0-1_amd64.deb (dpkg-deb -Zxz -z6 --root-owner-group)
+deb: dist/crug_0.1.0-1_amd64.deb 93362984 bytes, 976 files, installed-size 442424 KiB
+deb: depends: libc6 (>= 2.38), libgcc-s1, libstdc++6, libzstd1, binutils, libc6-dev
+deb: SHA256SUMS: 5 artefact(s)
+package: crug-0.1.0-linux-x86_64.tar.gz 142958591 bytes, 971 files
+package: dist/crug-0.1.0.spdx.json
+package: SHA256SUMS: 5 artefact(s)
+check-release: 24 check(s), 0 problem(s)
+packaging: image smoke: 3/3 ok
+packaging: installing crug_0.1.0-1_amd64.deb in a clean ubuntu:24.04
+packaging: deb install smoke: 3/3 ok
+packaging: 5 artefact set(s) verified, tarball 142958591 bytes
+packaging: OK

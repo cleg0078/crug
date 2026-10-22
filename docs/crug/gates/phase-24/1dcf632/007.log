@@ -1,0 +1,7 @@
+phase-24 #7 rc=0
+cmd: for t in hello.c hello-own.c runtime-sample.c; do case $t in hello-own.c) f='-fcrug-ownership';; runtime-sample.c) f='-fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug -L/opt/crug/lib -lcrug -pthread';; *) f=;; esac; docker run --rm -v "$PWD/packaging/smoke:/w" -w /w crug/pkg:$(cat VERSION) sh -c "crugc $t $f -o /tmp/smoke && /tmp/smoke" || exit 1; done
+expected: exit 0, printing `hello from crug`, `own-ok value=42` and `runtime-ok sum=7` (§29 acceptance: plain C, ownership, runtime sample).
+---
+hello from crug
+own-ok value=42
+runtime-ok sum=7

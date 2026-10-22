@@ -1,0 +1,5 @@
+phase-24 #4 rc=0
+cmd: make check-launcher
+expected: exit 0, printing `check-crugc-launcher: 5 case(s), 0 failure(s)` (the launcher follows a symlink into an install tree, reads the installed `VERSION`, and refuses to fall back to a host `/usr/bin/gcc`; that fallback silently compiled with the system GCC before this check existed).
+---
+check-crugc-launcher: 5 case(s), 0 failure(s)

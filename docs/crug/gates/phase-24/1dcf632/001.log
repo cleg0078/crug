@@ -1,0 +1,21 @@
+phase-24 #1 rc=0
+cmd: make package
+expected: exit 0, printing `package: crug-$(cat VERSION)-linux-x86_64.tar.gz <bytes> bytes, <n> files`, `deb: dist/crug_$(cat VERSION)-<revision>_amd64.deb <bytes> bytes, <n> files, installed-size <kb> KiB` and `package: SHA256SUMS: 5 artefact(s)` (the tarball, the Debian package, the SPDX SBOM, the two licence texts and the checksum file).
+---
+package: building the host and target directories the install walks (all-target all-host)
+package: building the Crug runtime (make -C libcrug PAL=linux)
+package: installing the compiler into /home/cleg/MyDev/crug/build/package/crug-0.1.0/opt/crug (DESTDIR)
+package: pruning the C++ front end and stripping the compiler
+package: pruned and stripped (cc1 482261136 -> 53540752 bytes)
+package: writing /home/cleg/MyDev/crug/dist/crug-0.1.0-linux-x86_64.tar.gz (deterministic tar, gzip -n)
+package: writing the SPDX SBOM /home/cleg/MyDev/crug/dist/crug-0.1.0.spdx.json
+package: building the Debian package (scripts/build-deb.sh --reuse-stage)
+deb: measuring the payload dependencies
+deb: assembling /home/cleg/MyDev/crug/build/package/deb-0.1.0-1
+deb: building /home/cleg/MyDev/crug/dist/crug_0.1.0-1_amd64.deb (dpkg-deb -Zxz -z6 --root-owner-group)
+deb: dist/crug_0.1.0-1_amd64.deb 93362976 bytes, 976 files, installed-size 442428 KiB
+deb: depends: libc6 (>= 2.38), libgcc-s1, libstdc++6, libzstd1, binutils, libc6-dev
+deb: SHA256SUMS: 5 artefact(s)
+package: crug-0.1.0-linux-x86_64.tar.gz 142958591 bytes, 971 files
+package: dist/crug-0.1.0.spdx.json
+package: SHA256SUMS: 5 artefact(s)

@@ -1,0 +1,14 @@
+phase-24 #3 rc=0
+cmd: make check-DEB
+expected: exit 0, printing `check-deb: 0 problem(s)` and `check-deb: OK` (control fields, payload allow-list, owners and modes, the generated `md5sums`, the declared `Depends` against the sonames and the GLIBC symbol floor measured from the payload, the packaged launcher's seven version lines, and the three smoke programs compiled and run from the extraction).
+---
+check-deb: checking /home/cleg/MyDev/crug/dist/crug_0.1.0-1_amd64.deb
+check-deb: compiled hello.c
+check-deb: smoke hello: ok
+check-deb: compiled hello-own.c
+check-deb: smoke hello-own: ok
+check-deb: compiled runtime.c
+check-deb: smoke runtime: ok
+check-deb: installed entry point: /usr/bin/crugc -> /opt/crug/bin/crugc
+check-deb: 0 problem(s)
+check-deb: OK
