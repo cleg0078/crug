@@ -89,8 +89,8 @@ bytes), and then writes the artefacts into `dist/`:
 
 | Artefact | Contents |
 |----------|----------|
-| `dist/crug-0.1.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.1.0/`, which is the `/opt/crug` tree: 142956505 bytes, 971 files. |
-| `dist/crug_0.1.0-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: 93363584 bytes, 442424 KiB installed. |
+| `dist/crug-0.1.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.1.0/`, which is the `/opt/crug` tree: about 143 MB in 971 files. |
+| `dist/crug_0.1.0-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: about 93 MB, 432 MiB installed. |
 | `dist/crug-0.1.0.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages and one entry per file. |
 | `dist/LICENSE`, `dist/NOTICE` | The licence texts shipped with the release. |
 | `dist/SHA256SUMS` | The SHA-256 of the five artefacts above, in `sha256sum` format. |
@@ -99,12 +99,14 @@ The run reports the runtime build, the install, the prune-and-strip step and
 the writing steps as it goes, and ends with these lines:
 
     package: pruned and stripped (cc1 482261136 -> 53540752 bytes)
-    package: crug-0.1.0-linux-x86_64.tar.gz 142956505 bytes, 971 files
+    package: crug-0.1.0-linux-x86_64.tar.gz 142958591 bytes, 971 files
     package: dist/crug-0.1.0.spdx.json
-    deb: dist/crug_0.1.0-1_amd64.deb 93363584 bytes, 976 files, installed-size 442424 KiB
+    deb: dist/crug_0.1.0-1_amd64.deb 93362984 bytes, 976 files, installed-size 442424 KiB
     package: SHA256SUMS: 5 artefact(s)
 
-The tar is built deterministically: sorted names, `--mtime=@0`, owner and group
+The byte counts and the installed size move by a few bytes between builds (the
+package is not byte-reproducible), so read them from the run; the transcript
+above is the 2026-10-22 build. The tar is built deterministically: sorted names, `--mtime=@0`, owner and group
 0, numeric owner, and `gzip -n`; the GNU ar archive it contains is
 deterministic as well. Flags override the defaults:
 

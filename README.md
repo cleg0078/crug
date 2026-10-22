@@ -293,9 +293,9 @@ ABI, FFI metadata and PAL versions on separate lines (RFC 0001 section 8.2).
 `scripts/package.sh` builds a release from the pinned tree: it installs the
 compiler with `DESTDIR`, adds the Crug headers, `lib/libcrug.a` and the licence
 texts, prunes the C++ front end, strips the binaries, and writes a
-deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, 142,956,505 bytes, 971
-files), a Debian package (`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes, 442,424
-KiB installed), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`;
+deterministic tarball (`crug-0.1.0-linux-x86_64.tar.gz`, about 143 MB, 971
+files), a Debian package (`crug_0.1.0-1_amd64.deb`, about 93 MB, 432 MiB
+installed), an SPDX 2.3 SBOM and `SHA256SUMS` into `dist/`;
 `scripts/check-release.sh` verifies the versions, checksums, SBOM and tarball
 shape, and `scripts/check-deb.sh` verifies the package itself: control fields,
 a payload allow-list, owners and modes, the generated `md5sums`, and the

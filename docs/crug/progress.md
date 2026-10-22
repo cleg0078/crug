@@ -539,8 +539,8 @@ separately; the last two were added because they are frozen contracts too).
 `scripts/package.sh` installs the compiler into a staged tree with `DESTDIR`, adds
 `include/crug`, `lib/libcrug.a` and the licence texts, prunes the C++ front end,
 strips the binaries and writes a deterministic tarball
-(`crug-0.1.0-linux-x86_64.tar.gz`, 142,956,505 bytes, 971 files), a Debian package
-(`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes, 442,424 KiB installed), an SPDX 2.3
+(`crug-0.1.0-linux-x86_64.tar.gz`, about 143 MB, 971 files), a Debian package
+(`crug_0.1.0-1_amd64.deb`, about 93 MB, 432 MiB installed), an SPDX 2.3
 SBOM and `SHA256SUMS` into `dist/`; `scripts/check-release.sh` checks the versions,
 the checksums, the SBOM shape and the tarball listing. `packaging/Dockerfile` builds the
 multi-stage image `crug/pkg:0.1.0` from the same tree, and the three smoke programs
@@ -549,7 +549,7 @@ must build and run inside it; `make package`, `make package-deb`,
 `make package-image` and `make check-PACKAGING` are the entry points and
 `scripts/check-packaging.sh` runs the whole flow end to end. The Debian package
 came later and is built from the same stage by `scripts/build-deb.sh`:
-`crug_0.1.0-1_amd64.deb`, 93,363,584 bytes (442,424 KiB installed), which
+`crug_0.1.0-1_amd64.deb` (about 93 MB, 432 MiB installed), which
 measures its `Depends` line from the payload - `libc6 (>= 2.38)` from the highest
 `GLIBC_*` symbol version, one package per `NEEDED` soname, plus `binutils` and
 `libc6-dev` because compiling needs the assembler, the linker and the headers -
