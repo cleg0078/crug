@@ -571,13 +571,15 @@ a sibling `gcc` only when the prefix carries `libexec/gcc`, `lib/gcc` or
 `dist/` checksum, SBOM and package check, `make check-DEB`, `make check-launcher`,
 `make package-image`, `crugc --version` inside the image, the three smoke
 programs and `make check-PACKAGING`. It passed 6/6 at `723e694` (logs under
-`docs/crug/gates/phase-24/723e694/`) before the package existed; the rerun with
-the package is archived under `docs/crug/gates/phase-24/`. M23 itself is decided
-in Phase 25 (conflict C1). The closing push (`2858961`) is green:
-multi-os run 26 and kernel-compat run 39 both succeeded. The first push of the
-phase turned the `kernel-compat` job red because the mode sweep left
-`gcc/crugc` at `0644`, so the launcher could not run; the fix commit restores
-`0755` and the suite passes 21/21 again.
+`docs/crug/gates/phase-24/723e694/`) before the package existed, and 8/8 at
+`1dcf632` with the package (logs under `docs/crug/gates/phase-24/1dcf632/`), so
+the packaging surface is archived both with and without the Debian package. M23
+itself is decided in Phase 25 (conflict C1). The closing push (`2858961`) is
+green: multi-os run 26 and kernel-compat run 39 both succeeded, and the package
+push (`1dcf632`) is green too: multi-os run 33 and kernel-compat run 46. The
+first push of the phase turned the `kernel-compat` job red because the mode
+sweep left `gcc/crugc` at `0644`, so the launcher could not run; the fix commit
+restores `0755` and the suite passes 21/21 again.
 Phase 25 assembles the release candidate and states plainly that milestone M23
 is not closed. The candidate is tagged `v0.1.0-rc1`;
 `docs/crug/RELEASE-NOTES.md` is the page for it (what it is, the qualification
