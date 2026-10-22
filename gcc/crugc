@@ -16,7 +16,9 @@
 #   1. CRUGC_REAL_DRIVER, if set (tests use it to pin a driver).
 #   2. build/obj/gcc/xgcc of this checkout, for an out-of-tree build.
 #   3. xgcc next to this script, for an in-tree build.
-#   4. gcc next to this script, for an installed tree.
+#   4. gcc next to this script, for an installed tree (only when the same
+#      prefix also carries libexec/gcc or lib/gcc, so a symlink such as
+#      /usr/bin/crugc cannot silently select the host compiler).
 # Anything else is an error: silently falling back to the host gcc would
 # compare the wrong compilers and hide driver drift.
 set -eu
@@ -28,15 +30,32 @@ crug_runtime_abi=1
 crug_ffi=1.0
 crug_pal=1.1
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Follow symlinks: an installed /usr/bin/crugc is a link to
+# <prefix>/bin/crugc and must find <prefix>, not /usr.
+self=$0
+if command -v readlink >/dev/null 2>&1; then
+  resolved=$(readlink -f -- "$self" 2>/dev/null) || resolved=
+  if [ -n "${resolved:-}" ]; then
+    self=$resolved
+  fi
+fi
+here=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
 root=$(CDPATH= cd -- "$here/.." && pwd)
 
+# The version file sits at the top of a checkout and beside the documentation
+# of an installed tree.
 if [ -f "$root/VERSION" ]; then
   crug_version=$(cat "$root/VERSION")
+elif [ -f "$root/share/doc/crug/VERSION" ]; then
+  crug_version=$(cat "$root/share/doc/crug/VERSION")
 fi
 
 driver_b=
 if [ -n "${CRUGC_REAL_DRIVER:-}" ]; then
+  if [ ! -x "$CRUGC_REAL_DRIVER" ]; then
+    echo "crugc: CRUGC_REAL_DRIVER is not executable: $CRUGC_REAL_DRIVER" >&2
+    exit 1
+  fi
   driver=$CRUGC_REAL_DRIVER
 else
   driver=
@@ -48,11 +67,16 @@ else
     fi
   done
   if [ -z "$driver" ] && [ -x "$here/gcc" ]; then
-    driver=$here/gcc
+    if [ -d "$root/libexec/gcc" ] || [ -d "$root/lib/gcc" ] ||
+       [ -d "$root/lib64/gcc" ]; then
+      driver=$here/gcc
+    fi
   fi
   if [ -z "$driver" ]; then
-    echo "crugc: no GCC driver found" >&2
-    echo "crugc: build one with 'make baseline' (out-of-tree: build/obj/gcc/xgcc)" >&2
+    echo "crugc: no Crug GCC driver found" >&2
+    echo "crugc: looked for $root/build/obj/gcc/xgcc, $here/xgcc and the" >&2
+    echo "crugc: driver of an install tree at $here/gcc" >&2
+    echo "crugc: build one with 'make baseline' or set CRUGC_REAL_DRIVER" >&2
     exit 1
   fi
 fi
