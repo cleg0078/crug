@@ -104,7 +104,7 @@ the writing steps as it goes, and ends with these lines:
     package: pruned and stripped (cc1 480432544 -> 54540624 bytes)
     package: crug-0.2.0-linux-x86_64.tar.gz 143163019 bytes, 971 files
     package: dist/crug-0.2.0.spdx.json
-    deb: dist/crug_0.2.0-1_amd64.deb 93733800 bytes, 976 files, installed-size 443428 KiB
+    deb: dist/crug_0.2.0-1_amd64.deb 93733792 bytes, 976 files, installed-size 443428 KiB
     package: SHA256SUMS: 5 artefact(s)
 
 The byte counts and the installed size move by a few bytes between builds (the
@@ -138,7 +138,7 @@ counts for that version), that `SHA256SUMS` lists exactly the tarball, the
 Debian package, the SBOM and the two licence texts, the checksums, the SBOM
 fields and the tarball entries, and prints:
 
-    check-release: 24 check(s), 0 problem(s)
+    check-release: 25 check(s), 0 problem(s)
 
 ## 4. Build and use the container image
 

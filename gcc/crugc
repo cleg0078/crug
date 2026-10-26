@@ -28,7 +28,7 @@ crug_language=0.1.0
 crug_abi=1
 crug_runtime_abi=1
 crug_ffi=1.0
-crug_pal=1.1
+crug_pal=1.2
 
 # Follow symlinks: an installed /usr/bin/crugc is a link to
 # <prefix>/bin/crugc and must find <prefix>, not /usr.

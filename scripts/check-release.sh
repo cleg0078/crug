@@ -117,6 +117,22 @@ else
   IFS=$old_ifs
 fi
 
+checked
+pal_header=$ROOT/libcrug/pal/include/crug_pal.h
+pal_major=
+pal_minor=
+if [ -f "$pal_header" ]; then
+  pal_major=$(awk '$1 == "#define" && $2 == "CRUG_PAL_VERSION_MAJOR" { print $3; exit }' "$pal_header")
+  pal_minor=$(awk '$1 == "#define" && $2 == "CRUG_PAL_VERSION_MINOR" { print $3; exit }' "$pal_header")
+fi
+if [ -z "$pal_major" ] || [ -z "$pal_minor" ]; then
+  problem "cannot read CRUG_PAL_VERSION_MAJOR/MINOR from libcrug/pal/include/crug_pal.h"
+else
+  pal_line=$(printf '%s\n' "$crugc_out" | sed -n 's/^PAL version: //p')
+  [ "$pal_line" = "$pal_major.$pal_minor" ] \
+    || problem "gcc/crugc --version reports PAL $pal_line, but crug_pal.h declares $pal_major.$pal_minor"
+fi
+
 # ---- 2. the dist directory and its checksums ---------------------------------
 checked
 if [ ! -d "$out" ]; then

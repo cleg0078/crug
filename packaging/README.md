@@ -3,7 +3,7 @@
 Two installable artefacts are built from one install tree, so they contain the
 same compiler: `dist/crug_<version>-<revision>_amd64.deb` and the container
 image `crug/pkg:<version>`. The version is read from the repository `VERSION`
-file, currently `0.1.0`.
+file, currently `0.2.0`.
 
 The install tree itself (`/opt/crug`, the tarball root) contains:
 
@@ -38,7 +38,7 @@ compiling needs the assembler, the linker and the system headers. There are no
 maintainer scripts, no `postinst` and no `prerm`; the package only places
 files and links.
 
-    $ sudo apt-get install -y ./dist/crug_0.1.0-1_amd64.deb
+    $ sudo apt-get install -y ./dist/crug_0.2.0-1_amd64.deb
     $ crugc --version
     $ sudo apt-get remove crug
 
@@ -79,17 +79,17 @@ prints the image tag when it is done.  Override the tag with
 
 ## Version
 
-    docker run --rm crug/pkg:0.1.0 crugc --version
+    docker run --rm crug/pkg:0.2.0 crugc --version
 
 Expected output (one line per version, RFC-0001 section 8.2):
 
-    crugc 0.1.0
+    crugc 0.2.0
     compiler: GCC 16.2.0
     language version: 0.1.0
     Crug ABI version: 1
     runtime ABI version: 1
     FFI metadata version: 1.0
-    PAL version: 1.1
+    PAL version: 1.2
 
 ## The three string smoke programs
 
@@ -99,7 +99,7 @@ container and its exit status is checked.
 
 ### 1. Plain C
 
-    docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 /opt/crug/share/doc/crug/smoke/hello.c -o /tmp/hello && /tmp/hello'
+    docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 /opt/crug/share/doc/crug/smoke/hello.c -o /tmp/hello && /tmp/hello'
 
 Expected output line:
 
@@ -107,7 +107,7 @@ Expected output line:
 
 ### 2. Ownership
 
-    docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 -fcrug-ownership /opt/crug/share/doc/crug/smoke/hello-own.c -o /tmp/hello-own && /tmp/hello-own'
+    docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 -fcrug-ownership /opt/crug/share/doc/crug/smoke/hello-own.c -o /tmp/hello-own && /tmp/hello-own'
 
 Expected output line:
 
@@ -119,7 +119,7 @@ scope; the source has no `free()` call.
 
 ### 3. Runtime (go + channels)
 
-    docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug /opt/crug/share/doc/crug/smoke/runtime-sample.c -L/opt/crug/lib -lcrug -pthread -o /tmp/runtime-sample && /tmp/runtime-sample'
+    docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug /opt/crug/share/doc/crug/smoke/runtime-sample.c -L/opt/crug/lib -lcrug -pthread -o /tmp/runtime-sample && /tmp/runtime-sample'
 
 Expected output line:
 
