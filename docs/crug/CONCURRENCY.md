@@ -258,3 +258,23 @@ the crossing table, the raw-pointer rejection and the FFI override.
 
 The gate entries are in [EXIT-GATES.md](EXIT-GATES.md) phases 14, 15, 16 and
 17, with the archived output under `docs/crug/gates/`.
+
+## 9. Post-rc1 changes (2026-10-26)
+
+The runtime surface is unchanged in version: the Crug runtime ABI stays 1, and
+the new entry points are additive. A capacity-0 send completes when the
+receiver consumes its ticket rather than when the shared slot is empty
+(CHANNELS.md section 7); the select claim pair replaces the polling probe; task
+receive storage is per-task. Shutdown has a checked form returning 0/1/2/3 and
+a spawn during shutdown is fatal (TASKS.md section 9, `crug-CONC-029`); frame
+size arithmetic is checked (`crug-CONC-028`). The PAL contract moves to 1.2
+because `crug_pal_thread_join` returns `int` (ADR 0011 A-2). Re-baselined
+counts at the fix commit: goroutines 28 compiler cases + 5 programs, channels
+43 + 7, tasks 17/125, runtime Linux 6 + 1 fatal and fake 6 + 2 fatal, PAL 13/0
+on Linux. The audit's two-sender defect behind this rewrite is R4-RT-001.
+
+Staleness note (ADR 0025 D5 amendment): a select send arm's value expression
+is evaluated on every claim pass and again in the closed-send abort path, so it
+must be side-effect-free apart from the move; a select arm that sends an owned
+value is not transferred, which can produce a conservative `OWN-007` or
+`DROP-006`.

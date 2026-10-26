@@ -204,6 +204,245 @@ def test_use_after_release():
               "reason must say the pointer is used after its release")
 
 
+@case("label before a conditional release stays raw")
+def test_label_conditional():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (int c)
+            {
+              int *p = malloc (4);
+              if (c)
+              label:
+                free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw",
+              "a labelled conditional release must be raw")
+        check("conditional path" in entries[0]["reason"],
+              "reason must name the conditional path")
+        check("label" in entries[0]["reason"],
+              "reason must name the label or goto target")
+        check(transformed is None, "a labelled release must not be rewritten")
+
+
+@case("else branch release stays raw")
+def test_else_release():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (int c)
+            {
+              int *p = malloc (4);
+              if (c)
+                p[0] = 1;
+              else
+                free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw", "an else release must be raw")
+        check("conditional path" in entries[0]["reason"],
+              "reason must name the conditional path")
+        check("else" in entries[0]["reason"], "reason must name the else body")
+        check(transformed is None, "an else release must not be rewritten")
+
+
+@case("switch case release stays raw")
+def test_case_release():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (int c)
+            {
+              int *p = malloc (4);
+              switch (c)
+                {
+                case 1:
+                  free (p);
+                  break;
+                default:
+                  break;
+                }
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw", "a switch case release must be raw")
+        check("conditional path" in entries[0]["reason"],
+              "reason must name the conditional path")
+        check("switch" in entries[0]["reason"], "reason must name the switch")
+        check(transformed is None, "a switch case release must not be rewritten")
+
+
+@case("brace-less loop body release stays raw")
+def test_unbraced_loop_release():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (int n)
+            {
+              int *p = malloc (4);
+              int i;
+              for (i = 0; i < n; i++)
+                free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw",
+              "a release in a brace-less loop must be raw")
+        check("conditional path" in entries[0]["reason"],
+              "reason must name the conditional path")
+        check("for" in entries[0]["reason"], "reason must name the loop")
+        check(transformed is None, "a loop body release must not be rewritten")
+
+
+@case("null guard only covers its own early exit (R4-TOOL-002)")
+def test_unrelated_early_exit():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (int c)
+            {
+              int *p = malloc (4);
+              if (!p)
+                return 1;
+              if (c)
+                return 2;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw",
+              "an unguarded early exit must keep the release raw")
+        check("early exit" in entries[0]["reason"],
+              "reason must name the early exit")
+        check(transformed is None, "an unguarded early exit must not rewrite")
+
+
+@case("a real null guard is accepted with confidence 0.80")
+def test_valid_guard():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (void)
+            {
+              int *p = malloc (4);
+              if (!p)
+                return 1;
+              p[0] = 1;
+              free (p);
+              return 0;
+            }
+
+            int braced (void)
+            {
+              int *p = malloc (8);
+              if (NULL == p) {
+                return 1;
+              }
+              p[0] = 1;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 2, "expected two entries, got %r" % entries)
+        check(entries[0]["kind"] == "own" and entries[0]["applied"],
+              "the guarded release must be applied")
+        check(entries[0]["confidence"] == 0.80,
+              "a guarded proof must have confidence 0.80")
+        check("null guard" in entries[0]["reason"],
+              "reason must name the null guard")
+        check(entries[1]["kind"] == "own" and entries[1]["confidence"] == 0.80,
+              "the braced guard must be associated with its return")
+        check("own int *p" in transformed, "own not inserted")
+        check("drop (p)" in transformed, "free not rewritten")
+
+
+@case("a guard with an else branch does not authorize the release")
+def test_guard_with_else():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (void)
+            {
+              int *p = malloc (4);
+              if (!p)
+                return 1;
+              else
+                p[0] = 1;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw",
+              "a guard with an else branch must not authorize the release")
+        check("early exit" in entries[0]["reason"],
+              "reason must name the unproven early exit")
+        check(transformed is None, "the release must not be rewritten")
+
+
+@case("multiple declarators stay raw and keep their commas")
+def test_multiple_declarators():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int f (void)
+            {
+              char *p = malloc (4), *q = malloc (8);
+              free (p);
+              free (q);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(entries[0]["kind"] == "raw",
+              "a multiple-declarator line must be raw")
+        check("multiple declarators" in entries[0]["reason"],
+              "reason must name the multiple declarators")
+        check(transformed is None,
+              "a multiple-declarator declaration must not be rewritten")
+
+
+@case("confidence separates unconditional and guarded proofs")
+def test_confidence():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            int plain (void)
+            {
+              int *p = malloc (4);
+              free (p);
+              return 0;
+            }
+
+            int guarded (void)
+            {
+              int *p = malloc (8);
+              if (p == NULL)
+                return 1;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 2, "expected two entries, got %r" % entries)
+        check(entries[0]["kind"] == "own" and entries[0]["confidence"] == 1.0,
+              "an unconditional proof must keep confidence 1.00")
+        check(entries[1]["kind"] == "own" and entries[1]["applied"],
+              "the guarded proof must be applied")
+        check(entries[1]["confidence"] == 0.80,
+              "a guarded proof must have confidence 0.80")
+        check(transformed is not None, "both functions must be rewritten")
+
+
 @case("analyze changes nothing")
 def test_analyze():
     with tempfile.TemporaryDirectory() as tmp:

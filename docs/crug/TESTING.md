@@ -43,7 +43,7 @@ DejaGnu is bootstrapped, not installed: there is no `runtest` and no sudo. Each 
 | `make check-SEND_SYNC` | `crug.dg/send-sync` (10) | The case count plus raw pointer, thread affinity and FFI annotation rejections. |
 | `make check-C_COMPAT`, `check-GNU_C_COMPAT` | Option matrices and 50 GNU C files | Three matrices plus two checks, zero FAIL; 50 GNU C files, zero FAIL. |
 | `make check-CRUG_FLAGS` | `crug.dg/flags` (3) and flag scripts | Every flag alone, macro closure, accepted pairs, the three kernel conflicts, unknown-option rejection. |
-| `make check-MULTI_OS` | `scripts/check-multi-os.sh` | One line naming platform and counts; the cross arm runs aarch64 under qemu. |
+| `make check-MULTI_OS` | `scripts/check-multi-os-ports.sh` | One line naming platform and counts; the cross arm runs aarch64 under qemu. |
 | `make check-KERNEL` | `kernel/` | K1-K7 stage lines ending with the boot smoke; the object diff reports 436 identical and 2 explained. |
 | `make check-KERNEL_COMPAT` | `scripts/test-kernel-compat.sh` | 21 work items over the pinned kernel tree; the CI job runs this target. |
 | `make check-PAL` | `libcrug/pal` and the contract header | The contract case count, zero failed, with the fake PAL skipping one host-only case. |
@@ -133,3 +133,26 @@ For a diagnostic, follow `docs/crug/DIAGNOSTICS.md` section 7: record the origin
 For documentation, run `make check-docs-examples` after editing `MIGRATION-EXAMPLES.md` and `make check-DOCS` after any page change; a sentence offering a post-1.0 feature must say so in the same paragraph.
 
 The final checklist for a compiler change is: the owning suite, `scripts/check-diagnostics.sh` if a code was added or reworded, `make check-docs-examples` if an example changed, `scripts/gate.sh --dry-run` for the phase, then `scripts/gate.sh --run phase-N` and the archive. A new defect is a `docs/crug/KNOWN-ISSUES.md` entry with a severity before the fix lands, and a fixed P0/P1 entry names an existing regression path that `scripts/check-regressions.sh` can execute.
+
+## 7. Coverage archive
+
+Coverage is recorded as provenance, not as a threshold. `scripts/run-coverage.sh`
+builds the compiler with GCOV instrumentation, runs the crug.dg suites and writes
+`docs/crug/coverage/<HEAD>.json`: the commit, the `cc1` hash, the list of
+instrumented files, the per-file line counts and the computed totals.
+`scripts/check-coverage.sh` validates the schema, that the recorded HEAD is the
+current HEAD, the hashes and the internal arithmetic, and compares the totals
+with the ledger block in this file; a missing archive exits 2, and there is no
+minimum percentage, because the number is only meaningful next to the commit it
+was measured at. The archive is data, not a manifest document, so the
+45-document set in `docs/crug/REQUIRED-DOC-SECTIONS.md` is unchanged.
+
+The post-rc1 fix commit did **not** regenerate an archive: the GCOV build
+artifacts are not in the repository, and the archive must be produced from a
+build of the exact commit it names. The last measurement recorded before the
+fixes is 2,267 of 4,196 instrumented lines in 12 files (`cc1`
+`d8261e97...`, recipe and per-file table in `spec/fix-p1/COVERAGE.md`);
+that measurement describes the pre-fix tree and must not be quoted for the fix
+commit. Until the owner regenerates it, the weekly CI coverage job fails with
+exit 2 (data unavailable), which is the documented behaviour for an absent
+archive rather than a passing result.

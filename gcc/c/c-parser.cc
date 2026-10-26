@@ -202,16 +202,26 @@ c_parse_init (void)
     }
 }
 
+/* The number of look-ahead tokens the parser keeps in its own buffer.  The C
+   grammar needs a handful (a static assertion, an attribute, a channel
+   element type); a Crug qualifier run is separately bounded by
+   crug_qualifier_token_kind_n.  The buffer has to be at least as large as
+   the deepest chain either feature can ask for, and the shift in
+   c_parser_consume_token maintains every token in it.  */
+enum { c_parser_lookahead_tokens = 16 };
+
 /* A parser structure recording information about the state and
-   context of parsing.  Includes lexer information with up to two
-   tokens of look-ahead; more are not needed for C.  */
+   context of parsing.  Includes lexer information with look-ahead
+   tokens; the buffer is sized for the C grammar plus the Crug qualifier
+   scan (see c_parser_lookahead_tokens).  */
 struct GTY(()) c_parser {
   /* The look-ahead tokens.  */
   c_token * GTY((skip)) tokens;
   /* Buffer for look-ahead tokens.  */
-  c_token tokens_buf[4];
-  /* How many look-ahead tokens are available (0 - 4, or
-     more if parsing from pre-lexed tokens).  */
+  c_token tokens_buf[c_parser_lookahead_tokens];
+  /* How many look-ahead tokens are available (0 -
+     c_parser_lookahead_tokens, or more if parsing from pre-lexed
+     tokens).  */
   unsigned int tokens_avail;
   /* Raw look-ahead tokens, used only for checking in Objective-C
      whether '[[' starts attributes.  */
@@ -316,12 +326,19 @@ vec<omp_begin_declare_variant_map_entry, va_gc> *omp_begin_declare_variant_map;
 static tree omp_start_variant_function (c_declarator *, tree);
 static void omp_finish_variant_function (tree, tree, tree);
 
-/* Return a pointer to the Nth token in PARSERs tokens_buf.  */
+/* Return a pointer to the Nth token in PARSERs tokens_buf.  A parser that
+   reads a pre-lexed token vector keeps its tokens there instead, so N is
+   bounded by the local buffer only in the local case.  */
 
 c_token *
 c_parser_tokens_buf (c_parser *parser, unsigned n)
 {
-  return &parser->tokens_buf[n];
+  if (parser->tokens == &parser->tokens_buf[0])
+    {
+      gcc_assert (n < c_parser_lookahead_tokens);
+      return &parser->tokens_buf[n];
+    }
+  return &parser->tokens[n];
 }
 
 /* Return the error state of PARSER.  */
@@ -594,6 +611,12 @@ c_parser_peek_nth_token (c_parser *parser, unsigned int n)
   if (parser->tokens_avail >= n)
     return &parser->tokens[n - 1];
   gcc_assert (parser->tokens_avail == n - 1);
+  /* Growing the look-ahead is only possible in the local buffer; a parser
+     reading a pre-lexed token vector has that whole vector available above.
+     The local buffer is the hard bound on how far the C grammar and the
+     Crug qualifier scan may look ahead.  */
+  gcc_assert (parser->tokens == &parser->tokens_buf[0]);
+  gcc_assert (n <= c_parser_lookahead_tokens);
   c_lex_one_token (parser, &parser->tokens[n - 1]);
   parser->tokens_avail = n;
   return &parser->tokens[n - 1];
@@ -607,12 +630,24 @@ static bool c_token_starts_declspecs (c_token *);
    A qualifier is a contextual word: the lexer reports an ordinary identifier,
    the word is not declared, and the feature that owns the word is on (ADR
    0018 D1 and D2).  'own' and 'raw' belong to -fcrug-ownership; 'ref' and
-   'mut' belong to -fcrug-borrow.  A C parse always wins.  */
+   'mut' belong to -fcrug-borrow.  A C parse always wins.
+
+   The scan recurses once per qualifier word to find the declaration specifiers
+   the run introduces.  A run of more than crug_max_qualifier_lookahead
+   qualifiers is not a declarator, and stopping there keeps the recursion and
+   the look-ahead bounded (the parser's token buffer is finite).  */
+
+enum { crug_max_qualifier_lookahead = 8 };
 
 static enum crug_qualifier_kind
 crug_qualifier_token_kind_n (c_parser *parser, unsigned int n)
 {
-  c_token *token = c_parser_peek_nth_token (parser, n);
+  c_token *token;
+
+  if (n > crug_max_qualifier_lookahead)
+    return CRUG_QUAL_NONE;
+
+  token = c_parser_peek_nth_token (parser, n);
 
   if (token->type != CPP_NAME
       || token->id_kind != C_ID_ID
@@ -1180,16 +1215,12 @@ c_parser_consume_token (c_parser *parser)
   parser->last_token_location = parser->tokens[0].location;
   if (parser->tokens != &parser->tokens_buf[0])
     parser->tokens++;
-  else if (parser->tokens_avail >= 2)
-    {
-      parser->tokens[0] = parser->tokens[1];
-      if (parser->tokens_avail >= 3)
-        {
-          parser->tokens[1] = parser->tokens[2];
-          if (parser->tokens_avail >= 4)
-            parser->tokens[2] = parser->tokens[3];
-        }
-    }
+  else
+    /* Slide the whole local look-ahead down by one.  The buffer is larger
+       than the C grammar needs because the Crug qualifier scan reads a run
+       of contextual words, so every buffered token has to be kept.  */
+    for (unsigned int i = 1; i < parser->tokens_avail; i++)
+      parser->tokens[i - 1] = parser->tokens[i];
   parser->tokens_avail--;
   parser->seen_string_literal = false;
 }
@@ -1205,12 +1236,9 @@ c_parser_consume_pragma (c_parser *parser)
   gcc_assert (parser->tokens[0].type == CPP_PRAGMA);
   if (parser->tokens != &parser->tokens_buf[0])
     parser->tokens++;
-  else if (parser->tokens_avail >= 2)
-    {
-      parser->tokens[0] = parser->tokens[1];
-      if (parser->tokens_avail >= 3)
-	parser->tokens[1] = parser->tokens[2];
-    }
+  else
+    for (unsigned int i = 1; i < parser->tokens_avail; i++)
+      parser->tokens[i - 1] = parser->tokens[i];
   parser->tokens_avail--;
   parser->in_pragma = true;
 }
@@ -32949,6 +32977,9 @@ struct crug_select_arm
   tree channel;			/* the parsed channel expression        */
   tree chan_var;		/* the temporary that holds it          */
   tree value;			/* the value of a send arm              */
+  tree claim;			/* int, the claim of this arm           */
+  tree claim_var;		/* int temporary for the claim result   */
+  tree recv_temp;		/* element temporary of a receive arm   */
   tree body;			/* the parsed arm body                  */
   location_t loc;
 };
@@ -33011,8 +33042,11 @@ crug_select_cmp (enum tree_code code, tree a, tree b)
 }
 
 /* Parse the statements of one arm up to the next depth-0 'case', 'default'
-   or the closing brace.  The arm is its own scope, and the receive of a
-   binding arm happens before the first of its statements.  */
+   or the closing brace.  The arm is its own scope.  The communication of
+   the arm is not performed here: the pass claimed it just before it
+   dispatched this arm, and a second send or receive would block (ADR 0025
+   D5).  A receive with a binding only names the element the claim copied
+   into the arm's temporary.  */
 
 static tree
 crug_parse_select_arm_body (c_parser *parser, struct crug_select_arm *arm)
@@ -33021,32 +33055,18 @@ crug_parse_select_arm_body (c_parser *parser, struct crug_select_arm *arm)
   tree block = c_begin_compound_stmt (true);
   tree element;
 
-  if (arm->is_default)
-    ;
-  else if (arm->is_recv)
+  if (arm->is_recv && arm->binding != NULL_TREE)
     {
       element = crug_channel_element (TREE_TYPE (arm->channel));
-      if (arm->binding != NULL_TREE)
-	{
-	  tree var = build_decl (loc, VAR_DECL, arm->binding, element);
+      tree var = build_decl (loc, VAR_DECL, arm->binding, element);
 
-	  TREE_USED (var) = 1;
-	  DECL_CONTEXT (var) = current_function_decl;
-	  DECL_SOURCE_LOCATION (var) = loc;
-	  pushdecl (var);
-	  add_stmt (build_stmt (loc, DECL_EXPR, var));
-	  add_stmt (crug_select_assign (loc, var,
-					crug_channel_recv (loc, arm->chan_var)));
-	}
-      else
-	/* c_finish_expr_stmt already adds the statement to the current
-	   list; adding it again would receive twice (a second receive would
-	   block).  */
-	c_finish_expr_stmt (loc, crug_channel_recv (loc, arm->chan_var));
+      TREE_USED (var) = 1;
+      DECL_CONTEXT (var) = current_function_decl;
+      DECL_SOURCE_LOCATION (var) = loc;
+      pushdecl (var);
+      add_stmt (build_stmt (loc, DECL_EXPR, var));
+      add_stmt (crug_select_assign (loc, var, arm->recv_temp));
     }
-  else
-    c_finish_expr_stmt (loc, crug_channel_send (loc, arm->chan_var,
-						arm->value));
 
   while (!c_parser_next_token_is (parser, CPP_CLOSE_BRACE)
 	 && !c_parser_next_token_is (parser, CPP_EOF)
@@ -33067,7 +33087,8 @@ crug_parse_select_arm_body (c_parser *parser, struct crug_select_arm *arm)
 
 /* Parse the communication of one select arm: 'recv (ch)', 'v = recv (ch)'
    or 'send (ch, v)'.  The channel expression is copied into an artificial
-   variable here, so it is evaluated exactly once, before the poll loop.  */
+   variable here, and the claim of the arm is built here, so the channel is
+   evaluated exactly once, before the pass loop.  */
 
 static bool
 crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
@@ -33080,6 +33101,9 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 
   arm->binding = NULL_TREE;
   arm->value = NULL_TREE;
+  arm->claim = NULL_TREE;
+  arm->claim_var = NULL_TREE;
+  arm->recv_temp = NULL_TREE;
 
   if (t->type != CPP_NAME || t->value == NULL_TREE)
     {
@@ -33200,14 +33224,38 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 		  "%<move ()%>");
     }
 
+  /* The channel expression is evaluated once.  The claim of the arm runs
+     inside the pass loop; a receive claims into a temporary because only the
+     arm that wins the claim may look at the element.  */
   arm->chan_var = crug_select_local (loc, chan_type, vars);
+  arm->claim_var = crug_select_local (loc, integer_type_node, vars);
+  if (arm->is_recv)
+    {
+      tree element = crug_channel_element (chan_type);
+
+      arm->recv_temp = crug_select_local (loc, element, vars);
+      TREE_ADDRESSABLE (arm->recv_temp) = 1;
+      /* The claim writes into recv_temp through this address.  Keep the
+	 ADDR_EXPR at the pointer-to-element type; the call gimplifier adds
+	 the conversion to void * only after it has gimplified the address.
+	 Converting here first makes it materialize a whole temporary copy of
+	 the element, so the claim would fill the copy and the arm body would
+	 read stale zeroes.  */
+      arm->claim = crug_channel_recv_claim (loc, arm->chan_var,
+				build1 (ADDR_EXPR,
+					build_pointer_type (element),
+					arm->recv_temp));
+    }
+  else
+    arm->claim = crug_channel_send_claim (loc, arm->chan_var, arm->value,
+					  crug_channel_owns_element (chan_type));
   return true;
 }
 
 /* Parse 'select { case ... : ... }' and return the lowered block (ADR 0018
-   D6 R3-R5).  The lowering polls every arm once per pass, starting with a
-   rotating arm so no arm starves a waiting one, dispatches the ready arm,
-   and waits a turn before the next pass:
+   D6 R3-R5, ADR 0025 D5).  The lowering claims every arm once per pass,
+   starting with a rotating arm so no arm starves a waiting one, dispatches
+   the arm that won its claim, and waits a turn before the next pass:
 
      { ch0 = <channel expression>; ...
        while (1)
@@ -33216,17 +33264,25 @@ crug_parse_select_comm (c_parser *parser, struct crug_select_arm *arm,
 	   i = 0; start = crug_chan_select_turn () % N;
 	   while (i < N && sel < 0)
 	     { j = (start + i) % N;
-	       if (j == 0) { if (recv_ready (ch0)) sel = 0; }
-	       else if (j == 1) { ... }
+	       if (j == 0) { r0 = recv_claim (ch0, &e0); if (r0) sel = 0; }
+	       else if (j == 1) { r1 = send_claim (ch1, v1); if (r1) sel = 1; }
 	       i = i + 1; }
-	   if (sel == 0) { arm0; break; }
-	   else if (sel == 1) { arm1; break; }
-	   else { default body; break; }            or crug_chan_poll_wait ();
+	   if (sel == 0) { arm0; break; }     (r0 == 1: received; r0 == -1:
+						 closed, e0 is the zero element)
+	   else if (sel == 1) { if (r1 == -1) send_closed (ch1, v1);
+				arm1; break; }
+	   else { default body; break; }   or wait one turn (poll_wait);
 	 }
 
-   Evaluation order is fixed: the channel expressions are evaluated once,
-   the arm bodies only when their case is taken, and 'break' exits the
-   select rather than an enclosing loop.  */
+   A claim either performs the communication and returns 1 (or -1 for a
+   closed channel) or changes nothing and returns 0, so a pass never probes
+   an arm and then performs it: an arm that lost cannot lose a race it
+   already entered, a send cannot block, and a receive cannot consume two
+   values.  Evaluation order is fixed: the channel expressions are evaluated
+   once, the arm bodies only when their case is taken, and the 'break' the
+   lowering emits leaves its own loop, never a loop around the select.  An
+   arm body is parsed like any other statement, so a 'break' written in one
+   follows the C rule that it must sit inside a loop or switch.  */
 
 static tree
 crug_parse_select_statement (c_parser *parser)
@@ -33274,6 +33330,10 @@ crug_parse_select_statement (c_parser *parser)
 	  arm.channel = NULL_TREE;
 	  arm.chan_var = NULL_TREE;
 	  arm.value = NULL_TREE;
+	  arm.claim = NULL_TREE;
+	  arm.claim_var = NULL_TREE;
+	  arm.recv_temp = NULL_TREE;
+	  arm.body = NULL_TREE;
 	  arm.loc = aloc;
 	  default_body = crug_parse_select_arm_body (parser, &arm);
 	  have_default = true;
@@ -33299,6 +33359,9 @@ crug_parse_select_statement (c_parser *parser)
 	arm.channel = NULL_TREE;
 	arm.chan_var = NULL_TREE;
 	arm.value = NULL_TREE;
+	arm.claim = NULL_TREE;
+	arm.claim_var = NULL_TREE;
+	arm.recv_temp = NULL_TREE;
 	arm.body = NULL_TREE;
 	arm.loc = aloc;
 
@@ -33327,7 +33390,7 @@ crug_parse_select_statement (c_parser *parser)
   n = arms.size ();
   stmts = alloc_stmt_list ();
 
-  /* The channel expressions are evaluated once, before the poll loop.  */
+  /* The channel expressions are evaluated once, before the pass loop.  */
   for (unsigned int k = 0; k < n; k++)
     append_to_statement_list (crug_select_assign (arms[k].loc,
 						  arms[k].chan_var,
@@ -33381,21 +33444,35 @@ crug_parse_select_statement (c_parser *parser)
 					crug_select_int ((int) n))),
 				&outer);
 
+      /* The claim of every arm, in rotation order.  The first claim that
+	 settles its case sets sel, and the loop stops before it can claim
+	 another arm; a claim of 0 leaves the arm for the next pass.  */
       for (unsigned int k = n; k-- > 0; )
 	{
-	  tree ready = crug_channel_ready (arms[k].loc, arms[k].chan_var,
-					   arms[k].is_recv);
-	  tree set = crug_select_assign (arms[k].loc, sel,
-					 crug_select_int ((int) k));
-	  tree test = crug_select_if (arms[k].loc,
-				      crug_select_cmp (NE_EXPR, ready,
-						       crug_select_int (0)),
-				      set, build_empty_stmt (arms[k].loc));
+	  tree claim = arms[k].claim;
+	  tree settle = alloc_stmt_list ();
+
+	  /* An arm whose claim could not be built stays unselectable; its
+	     diagnostic has already been reported.  */
+	  if (claim == NULL_TREE || claim == error_mark_node)
+	    claim = crug_select_int (0);
+
+	  append_to_statement_list (crug_select_assign (arms[k].loc,
+							arms[k].claim_var,
+							claim),
+				    &settle);
+	  append_to_statement_list (crug_select_if (arms[k].loc,
+				    crug_select_cmp (NE_EXPR, arms[k].claim_var,
+						     crug_select_int (0)),
+				    crug_select_assign (arms[k].loc, sel,
+						crug_select_int ((int) k)),
+				    build_empty_stmt (arms[k].loc)),
+				    &settle);
 
 	  probe = crug_select_if (arms[k].loc,
 				  crug_select_cmp (EQ_EXPR, jvar,
 						   crug_select_int ((int) k)),
-				  test, probe);
+				  settle, probe);
 	}
 
       append_to_statement_list (crug_select_assign (loc, jvar,
@@ -33420,7 +33497,7 @@ crug_parse_select_statement (c_parser *parser)
       append_to_statement_list (probe_loop, &outer);
 
       /* The default (or the wait of a select with no default) is the final
-	 else, so the 'nothing ready' value of sel falls through to it.  */
+	 else, so the 'nothing claimed' value of sel falls through to it.  */
       final_else = alloc_stmt_list ();
       if (have_default)
 	{
@@ -33436,6 +33513,19 @@ crug_parse_select_statement (c_parser *parser)
 	{
 	  tree arm_body = alloc_stmt_list ();
 
+	  /* A send whose claim found the channel closed is the fatal send on
+	     a closed channel; the arm body itself runs only after a claim
+	     that accepted the value.  */
+	  if (!arms[k].is_recv)
+	    append_to_statement_list (
+		crug_select_if (arms[k].loc,
+				crug_select_cmp (EQ_EXPR, arms[k].claim_var,
+						 crug_select_int (-1)),
+				crug_channel_send_closed_abort (arms[k].loc,
+						arms[k].chan_var,
+						arms[k].value),
+				build_empty_stmt (arms[k].loc)),
+		&arm_body);
 	  append_to_statement_list (arms[k].body, &arm_body);
 	  append_to_statement_list (build1 (BREAK_STMT, void_type_node,
 					    NULL_TREE), &arm_body);

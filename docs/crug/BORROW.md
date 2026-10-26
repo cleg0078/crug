@@ -213,3 +213,16 @@ that must be rejected with a specific code. The six programs under
 
 The exit gate for Phase 6 is in docs/crug/EXIT-GATES.md (amendment A-7); the
 Phase 7 gate is in the same document (amendment A-8).
+
+## 7. Post-rc1: joins and proven disjointness (2026-10-26)
+
+Two rules close the audited holes. First, the borrow state is joined like the
+move state: when two predecessors end with different lender sets, the join keeps
+a lender live only if both sides agree, and a borrow that is live on one path and
+released on the other is rejected at the join instead of being silently dropped.
+Second, `crug-BORROW-024` replaces the old optimistic credit: a `mut`
+parameter, and any alias fact, needs a proven disjoint root. The code is
+rejected when the compiler cannot prove disjointness, when an indirect call
+passes pointer arguments (the facts stay unproven), or when a `mut` lender is
+not unique. A borrow of an empty owned value remains accepted at an FFI
+`out_owned` argument; `borrow()` of an empty owner is not a read.

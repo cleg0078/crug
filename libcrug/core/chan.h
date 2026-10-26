@@ -62,11 +62,30 @@ void *crug_chan_make (size_t capacity, size_t element_size);
 void crug_chan_send (void *chan, const void *element);
 void crug_chan_send_owned (void *chan, const void *element);
 
-/* Receive one element into a per-thread buffer and return a pointer to it.
-   The pointer is valid until the next receive on the same thread.  On a
-   closed and empty channel the buffer holds a zeroed element.  */
+/* Receive one element into a per-task buffer (a per-thread buffer on the main
+   thread) and return a pointer to it.  The pointer is valid until the next
+   receive on the same task or thread: two tasks that share a worker never
+   share the buffer.  On a closed and empty channel the buffer holds a zeroed
+   element.  */
 void *crug_chan_recv_ptr (void *chan);
 void *crug_chan_recv_owned (void *chan);
+
+/* The non-blocking claim pair the select lowering uses.  recv_claim returns 1
+   and copies the element into out when one is available, 0 when a blocking
+   receive would wait, and -1 when the channel is closed and drained (out is
+   then a zeroed element).  send_claim returns 1 when the value was accepted,
+   0 when a blocking send would wait, and -1 when the channel is closed.  For a
+   capacity-0 channel "accepted" means the value was handed to a receiver that
+   was already waiting, so a claim that returns 1 has completed the handoff.
+   Neither call yields on 0; the select calls crug_chan_poll_wait() and retries.
+   size is the caller's element size and must match the channel's.  A claim
+   never uses the shared receive buffer, so a losing select arm cannot overwrite
+   a value another arm is examining.  */
+int crug_chan_recv_claim (void *chan, void *out, size_t size);
+int crug_chan_send_claim (void *chan, const void *element, size_t size);
+/* The compiler emits the ownership-analysis spelling for an owned send arm;
+   the code is identical to crug_chan_send_claim().  */
+int crug_chan_send_owned_claim (void *chan, const void *element, size_t size);
 
 /* Non-blocking readiness, the poll behind 'select'.  A closed channel is
    always ready for a receive (it yields the zeroed sentinel) and ready for a

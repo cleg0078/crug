@@ -149,11 +149,12 @@ install: build ## install into $(PREFIX) (may need root; DESTDIR is supported)
 
 ##@ Tests
 
-check: build ## run the GCC testsuite (heavy; RUNTESTFLAGS selects)
+check: build check-P1 ## run the GCC testsuite and the P1 regression set (heavy)
 	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
 	@. tools/dejagnu.env 2>/dev/null || true; \
 	set -o pipefail; \
-	$(MAKE) -C $(OBJ_DIR)/gcc check RUNTESTFLAGS='$(RUNTESTFLAGS)' 2>&1 | tee $(OBJ_DIR)/check.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )' || true
+	$(MAKE) -C $(OBJ_DIR)/gcc check RUNTESTFLAGS='$(RUNTESTFLAGS)' 2>&1 | tee $(OBJ_DIR)/check.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
 
 bootstrap-dejagnu: ## install DejaGnu into tools/ without root (no sudo needed)
 	scripts/bootstrap-dejagnu.sh
@@ -207,6 +208,13 @@ check-BORROW: ## run the Crug borrow checker tests under DejaGnu
 check-FFI: ## run the Crug FFI contract fixtures (.crugffi)
 	@scripts/check-ffi-suite.sh
 
+check-GRAMMAR_DG: ## run the Crug grammar regression tests under DejaGnu
+	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
+	@. tools/dejagnu.env 2>/dev/null || true; \
+	set -o pipefail; \
+	$(MAKE) -C $(OBJ_DIR)/gcc check-c RUNTESTFLAGS='crug.dg/grammar/grammar.exp' 2>&1 | tee $(OBJ_DIR)/check-grammar.log | grep -E '^(Running |FAIL: |XPASS: |ERROR: |# of )'; \
+	exit $${PIPESTATUS[0]}
+
 check-SAFE_TYPES: ## run the Crug safe core type tests under DejaGnu
 	@if ! command -v runtest >/dev/null 2>&1; then scripts/bootstrap-dejagnu.sh; fi
 	@. tools/dejagnu.env 2>/dev/null || true; \
@@ -233,9 +241,15 @@ check-OPTIMIZATION: check-ALIAS_FACTS ## run the Phase 11 ownership-aware optimi
 	python3 bench/run.py --matrix alias --check
 	python3 bench/run.py --matrix alias --lto
 
-check-C2CRUG: ## run the Phase 12 c2crug migration checks
+check-C2CRUG: check-C2CRUG_PROOFS ## run the Phase 12 c2crug migration checks
 	python3 scripts/test-c2crug.py
 	scripts/check-c2crug.sh
+
+check-C2CRUG_PROOFS: ## run the Phase 12 c2crug proof cross-checks
+	scripts/check-c2crug-proofs.sh
+
+check-P1: ## run the P1 regression set (targeted suites, gate self-test, proofs, runtime)
+	scripts/check-p1-regressions.sh
 
 check-GOROUTINES: ## run the Phase 14 goroutine and task checks
 	$(MAKE) -C libcrug check-GOROUTINES
@@ -418,8 +432,8 @@ distclean: ## remove build/ and sources/ entirely
 	baseline xgcc-version install check bootstrap-dejagnu check-c baseline-phase0 \
 	check-C_COMPAT check-KERNEL_COMPAT check-kernel-objects crugc \
 	check-CRUG_FLAGS check-GNU_C_COMPAT check-DROP check-BORROW \
-	check-STRICT_UNSAFE check-FFI check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
-	check-C2CRUG check-PAL check-GOROUTINES check-GOROUTINES_DG \
+	check-STRICT_UNSAFE check-FFI check-GRAMMAR_DG check-SAFE_TYPES check-ALIAS_FACTS check-OPTIMIZATION \
+	check-C2CRUG check-C2CRUG_PROOFS check-P1 check-PAL check-GOROUTINES check-GOROUTINES_DG \
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
 	check-DIAGNOSTICS check-docs-examples check-DOCS pristine-xgcc check-PERFORMANCE \

@@ -1,11 +1,14 @@
 # Building and installing Crug
 
-Status: **Phase 24 implemented 2026-10-21; the Debian package added 2026-10-22.**
-This page is the build and release guide for Crug 0.1.0 on Linux x86-64: the
-source build, the release artefacts made by `scripts/package.sh`, the
-container image, the Debian package, the install tree, the verification
-commands and the supported hosts. The image mechanics are in the
-[packaging README](../../packaging/README.md); the other hosts are in
+Status: **Phase 24 implemented 2026-10-21; the Debian package added 2026-10-22;
+0.2.0 defect batch 2026-10-26.** This page is the build and release guide for
+Crug 0.2.0 on Linux x86-64: the source build, the release artefacts made by
+`scripts/package.sh`, the container image, the Debian package, the install
+tree, the verification commands and the supported hosts. The byte counts and
+artifact names quoted below are the recorded 0.2.0 transcript; read the current
+version from `VERSION` and regenerate the artifacts for a new release. The
+image mechanics are in the [packaging README](../../packaging/README.md); the
+other hosts are in
 [PORTABILITY.md](PORTABILITY.md). The version is read from
 [the VERSION file](../../VERSION) and reported by `crugc --version`.
 
@@ -54,13 +57,13 @@ DejaGnu is only needed for the compiler test suite:
 installed:
 
     $ sh gcc/crugc --version
-    crugc 0.1.0
+    crugc 0.2.0
     compiler: GCC 16.2.0
     language version: 0.1.0
     Crug ABI version: 1
     runtime ABI version: 1
     FFI metadata version: 1.0
-    PAL version: 1.1
+    PAL version: 1.2
 
 `make -C libcrug PAL=linux` builds the runtime objects in
 `libcrug/build/linux/` (`task.o`, `pal_linux.o`, `switch.o`, `stack.o`,
@@ -81,27 +84,27 @@ section 3 works directly on a fresh baseline. To prepare the tree by hand:
     $ sh scripts/check-release.sh
 
 `scripts/package.sh` reads the version from [VERSION](../../VERSION)
-(0.1.0), installs the compiler into a private stage, adds
+(0.2.0), installs the compiler into a private stage, adds
 `bin/crugc`, the three Crug headers and `lib/libcrug.a`, prunes the C++
 front end (`bin/c++`, `bin/g++`, `cc1plus`, `include/c++`), strips the
-compiler with `strip --strip-all` (`cc1` falls from 482261136 to 53540752
+compiler with `strip --strip-all` (`cc1` falls from 480432544 to 54540624
 bytes), and then writes the artefacts into `dist/`:
 
 | Artefact | Contents |
 |----------|----------|
-| `dist/crug-0.1.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.1.0/`, which is the `/opt/crug` tree: about 143 MB in 971 files. |
-| `dist/crug_0.1.0-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: about 93 MB, 432 MiB installed. |
-| `dist/crug-0.1.0.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages and one entry per file. |
+| `dist/crug-0.2.0-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.2.0/`, which is the `/opt/crug` tree: about 143 MB in 971 files. |
+| `dist/crug_0.2.0-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: about 94 MB, 433 MiB installed. |
+| `dist/crug-0.2.0.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages and one entry per file. |
 | `dist/LICENSE`, `dist/NOTICE` | The licence texts shipped with the release. |
 | `dist/SHA256SUMS` | The SHA-256 of the five artefacts above, in `sha256sum` format. |
 
 The run reports the runtime build, the install, the prune-and-strip step and
 the writing steps as it goes, and ends with these lines:
 
-    package: pruned and stripped (cc1 482261136 -> 53540752 bytes)
-    package: crug-0.1.0-linux-x86_64.tar.gz 142958591 bytes, 971 files
-    package: dist/crug-0.1.0.spdx.json
-    deb: dist/crug_0.1.0-1_amd64.deb 93362984 bytes, 976 files, installed-size 442424 KiB
+    package: pruned and stripped (cc1 480432544 -> 54540624 bytes)
+    package: crug-0.2.0-linux-x86_64.tar.gz 143163019 bytes, 971 files
+    package: dist/crug-0.2.0.spdx.json
+    deb: dist/crug_0.2.0-1_amd64.deb 93733800 bytes, 976 files, installed-size 443428 KiB
     package: SHA256SUMS: 5 artefact(s)
 
 The byte counts and the installed size move by a few bytes between builds (the
@@ -110,7 +113,7 @@ above is the 2026-10-22 build. The tar is built deterministically: sorted names,
 0, numeric owner, and `gzip -n`; the GNU ar archive it contains is
 deterministic as well. Flags override the defaults:
 
-    $ scripts/package.sh --version 0.1.0 --out dist --stage build/package/crug-0.1.0
+    $ scripts/package.sh --version 0.2.0 --out dist --stage build/package/crug-0.2.0
     $ scripts/package.sh --skip-build     # fail rather than build missing inputs
     $ CRUG_DEB=skip scripts/package.sh --skip-build   # tarball only, no Debian package
 
@@ -140,7 +143,7 @@ fields and the tarball entries, and prints:
 ## 4. Build and use the container image
 
     $ ./packaging/build-image.sh
-    $ docker run --rm crug/pkg:0.1.0 crugc --version
+    $ docker run --rm crug/pkg:0.2.0 crugc --version
 
 The image is a multi-stage build: `ubuntu:24.04` builds the pinned baseline
 and runs `scripts/package.sh --version "$(cat VERSION)" --stage /stage`; the
@@ -149,20 +152,20 @@ runtime stage copies only `/stage/opt/crug` to `/opt/crug` and puts
 in section 2. The three smoke programs ship inside the image, so each command
 is self-contained:
 
-    $ docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 /opt/crug/share/doc/crug/smoke/hello.c -o /tmp/hello && /tmp/hello'
+    $ docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 /opt/crug/share/doc/crug/smoke/hello.c -o /tmp/hello && /tmp/hello'
     hello from crug
-    $ docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 -fcrug-ownership /opt/crug/share/doc/crug/smoke/hello-own.c -o /tmp/hello-own && /tmp/hello-own'
+    $ docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 -fcrug-ownership /opt/crug/share/doc/crug/smoke/hello-own.c -o /tmp/hello-own && /tmp/hello-own'
     own-ok value=42
-    $ docker run --rm crug/pkg:0.1.0 sh -c 'crugc -O2 -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug /opt/crug/share/doc/crug/smoke/runtime-sample.c -L/opt/crug/lib -lcrug -pthread -o /tmp/runtime-sample && /tmp/runtime-sample'
+    $ docker run --rm crug/pkg:0.2.0 sh -c 'crugc -O2 -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug /opt/crug/share/doc/crug/smoke/runtime-sample.c -L/opt/crug/lib -lcrug -pthread -o /tmp/runtime-sample && /tmp/runtime-sample'
     runtime-ok sum=7
 
 ## 5. Install tree layout
 
-The tarball root `crug-0.1.0/` is the install tree, so installing into the
+The tarball root `crug-0.2.0/` is the install tree, so installing into the
 configured prefix is:
 
     $ sudo mkdir -p /opt/crug
-    $ sudo tar -xzf dist/crug-0.1.0-linux-x86_64.tar.gz -C /opt/crug --strip-components=1
+    $ sudo tar -xzf dist/crug-0.2.0-linux-x86_64.tar.gz -C /opt/crug --strip-components=1
 
 | Path under `/opt/crug` | Contents |
 |-------------------------|----------|
@@ -182,7 +185,7 @@ artefacts are built for; keep the tree there and put `/opt/crug/bin` on
 The package installs the same tree under `/opt/crug`, so nothing in it is
 compiled for a different layout, and adds four entries outside that tree:
 
-    $ sudo apt-get install -y ./dist/crug_0.1.0-1_amd64.deb
+    $ sudo apt-get install -y ./dist/crug_0.2.0-1_amd64.deb
 
 | Path | Contents |
 |------|----------|
@@ -215,25 +218,25 @@ package again.
 From the repository root, after `scripts/package.sh`:
 
     $ cd dist && sha256sum -c SHA256SUMS
-    crug-0.1.0-linux-x86_64.tar.gz: OK
-    crug_0.1.0-1_amd64.deb: OK
-    crug-0.1.0.spdx.json: OK
+    crug-0.2.0-linux-x86_64.tar.gz: OK
+    crug_0.2.0-1_amd64.deb: OK
+    crug-0.2.0.spdx.json: OK
     LICENSE: OK
     NOTICE: OK
 
-    $ tar -tzf dist/crug-0.1.0-linux-x86_64.tar.gz | wc -l
+    $ tar -tzf dist/crug-0.2.0-linux-x86_64.tar.gz | wc -l
     1074
 
 The listing has 1074 entries (971 files) and starts with
-`crug-0.1.0/bin/crugc`; `crug-0.1.0/lib/libcrug.a`,
-`crug-0.1.0/include/crug/task.h` and the four
-`crug-0.1.0/share/doc/crug/` files are present. A quick smoke test of the
+`crug-0.2.0/bin/crugc`; `crug-0.2.0/lib/libcrug.a`,
+`crug-0.2.0/include/crug/task.h` and the four
+`crug-0.2.0/share/doc/crug/` files are present. A quick smoke test of the
 extracted launcher:
 
     $ mkdir -p /tmp/crug-tree
-    $ tar -xzf dist/crug-0.1.0-linux-x86_64.tar.gz -C /tmp/crug-tree --strip-components=1
+    $ tar -xzf dist/crug-0.2.0-linux-x86_64.tar.gz -C /tmp/crug-tree --strip-components=1
     $ /tmp/crug-tree/bin/crugc --version
-    crugc 0.1.0
+    crugc 0.2.0
     ...
 
 `make check-PACKAGING` runs the full Phase 24 acceptance flow: it rebuilds
@@ -249,7 +252,7 @@ The release tarball and the container image target Linux x86-64. The compiler
 and the runtime also build and run on the other hosts in
 [PORTABILITY.md](PORTABILITY.md):
 
-| Host | Crug 0.1.0 |
+| Host | Crug 0.2.0 |
 |------|------------|
 | Linux x86-64 | The packaged target: this page, the tarball, the image and the full gate set. |
 | Linux AArch64 | Built from source with the AArch64 PAL; `make check-MULTI_OS TARGET=aarch64-linux` covers the runtime on that host. |

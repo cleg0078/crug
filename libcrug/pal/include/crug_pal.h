@@ -1,4 +1,4 @@
-/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.1.
+/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.2.
    Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
 
    This header is the ONLY way libcrug/core reaches an operating system.
@@ -19,8 +19,10 @@
    crug_pal_thread_create() starts one entry function on one operating system
    thread.  The core does NOT build its task scheduler on this call in Phase
    13; the runtime multiplexes tasks over a configured number of workers from
-   Phase 14 on.  crug_pal_thread_join() waits for completion and releases the
-   handle; joining a handle twice is undefined.
+   Phase 14 on.  crug_pal_thread_join() waits for completion and, on success,
+   releases the handle and returns 0.  On failure it returns non-zero, does
+   NOT release the handle and does NOT mark it joined, so the caller can keep
+   the handle and report the failure; joining a handle twice is undefined.
 
    Wait/wake
    ---------
@@ -62,7 +64,7 @@ extern "C" {
 #endif
 
 #define CRUG_PAL_VERSION_MAJOR 1
-#define CRUG_PAL_VERSION_MINOR 1
+#define CRUG_PAL_VERSION_MINOR 2
 #define CRUG_PAL_ABI_VERSION ((CRUG_PAL_VERSION_MAJOR << 16) | CRUG_PAL_VERSION_MINOR)
 
 /* Stable error classes.  Values are part of the v1 contract: they may be
@@ -96,7 +98,7 @@ typedef struct crug_pal_thread crug_pal_thread;
 int crug_pal_thread_create (crug_pal_thread **out,
                             void (*entry) (void *),
                             void *arg);
-void crug_pal_thread_join (crug_pal_thread *thread);
+int crug_pal_thread_join (crug_pal_thread *thread);
 
 /* The number of usable processors, at least 1.  */
 uint32_t crug_pal_cpu_count (void);

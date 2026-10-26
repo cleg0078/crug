@@ -90,17 +90,30 @@ crug_pal_thread_create (crug_pal_thread **out, void (*entry) (void *), void *arg
   return 0;
 }
 
-void
+int
 crug_pal_thread_join (crug_pal_thread *thread)
 {
   if (thread == NULL)
-    return;
+    {
+      fake_error = CRUG_PAL_EINVAL;
+      return -1;
+    }
   if (!thread->ran)
     {
       thread->ran = 1;
       thread->entry (thread->arg);
     }
+  /* CRUG_FAKE_JOIN_FAIL models a backend that cannot join: the entry has run,
+     but the handle is not released, so the core must report the failure and
+     keep its own state instead of pretending the worker was joined.  */
+  if (getenv ("CRUG_FAKE_JOIN_FAIL") != NULL)
+    {
+      fake_error = CRUG_PAL_ESYS;
+      return 1;
+    }
   free (thread);
+  fake_error = CRUG_PAL_OK;
+  return 0;
 }
 
 uint32_t

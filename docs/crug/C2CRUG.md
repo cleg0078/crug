@@ -146,3 +146,17 @@ migrated program still compiles as plain C and still frees manually.
 | `./c2crug --analyze migration/ | grep -c raw` | at least one `raw` entry for ambiguous ownership |
 
 The Phase 12 gate asserts exactly these commands; see `EXIT-GATES.md`.
+
+## 9. Post-rc1 proof rules (2026-10-26)
+
+The proof is now narrower and the report says so. Only a straight-line
+unconditional free proves safety at confidence 1.00. A null guard proves 0.80
+only when it directly controls an early exit that dominates the release; a
+guard anywhere else proves nothing and the declaration stays raw. No transform
+is applied without a proof, so a file that cannot be proven is left alone
+rather than half-rewritten. Multi-declarator top-level declarations stay raw.
+The corpus result is 6 `own` and 12 `raw` declarations; the safe run changes
+5 files, 12 of 361 lines and 32 comment lines. The proof fixtures live in
+`migration/proofs/` and `scripts/check-c2crug-proofs.sh` runs them, while
+`scripts/test-c2crug.py` covers 73 checks over 20 cases including the new
+negative cases (a conditional free, an unrelated guard, a multi-declarator).

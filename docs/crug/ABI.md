@@ -105,7 +105,10 @@ depend on a guessed layout for any of these types.
   operating system and the architecture: Phase 18 (ADR 0012) provides the same
   signatures on Linux x86-64, Linux AArch64, Windows x86-64 and macOS ARM64, so
   a program that links the runtime does not know which backend it got, and a
-  port adds a backend without changing this surface.
+  port adds a backend without changing this surface. The post-rc1 fixes add
+  `crug_task_runtime_try_shutdown` (int) and the channel claim entry points
+  additively to this surface: existing signatures are unchanged, the version
+  stays 1, and only the PAL contract version moves to 1.2 (ADR 0011 A-2).
 - The `chan T` row is frozen: a channel is one pointer whatever the element
   type is, asserted by `gcc/testsuite/crug.dg/channels/chan-layout.c`; the
   element size is a run-time argument, so no element layout enters the ABI.
@@ -143,3 +146,4 @@ depend on a guessed layout for any of these types.
 | 2026-10-19 | Phase 16 froze the `chan T` row (ADR 0025): a channel is one opaque pointer whatever the element type is, asserted by `crug.dg/channels/chan-layout.c`, so the Crug-native ABI version 1 now covers five rows; `libcrug/core/chan.h` extends runtime ABI version 1 additively and no existing signature changed. |
 | 2026-10-20 | Phase 17 recorded that Send/Sync are compile-time properties only (ADR 0026): no type, layout, calling-convention or symbol row changed, so the Crug-native and runtime ABI versions stay 1. |
 | 2026-10-20 | Phase 18 ported the runtime to Windows x86-64 and macOS ARM64 and proved Linux AArch64 (ADR 0012): the PAL contract and the runtime ABI are OS- and architecture-independent, no signature, type or layout changed, and both ABI versions stay 1. |
+| 2026-10-26 | Post-rc1 fixes: the Crug-native type ABI and the runtime ABI stay 1 (the new `crug_task_runtime_try_shutdown` and channel claim entry points are additive, no frozen type row changed); the PAL contract moves to **1.2** because `crug_pal_thread_join` now returns `int` (ADR 0011 A-2), and `crugc --version` keeps printing the PAL version as its own field. |

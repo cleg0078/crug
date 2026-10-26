@@ -47,11 +47,24 @@ extern tree crug_channel_send (location_t loc, tree channel, tree value);
 extern tree crug_channel_recv (location_t loc, tree channel);
 extern tree crug_channel_close (location_t loc, tree channel);
 
-/* The poll of one select case, the rotation counter that makes each pass
-   start with a different case, and the wait between two passes.  */
-extern tree crug_channel_ready (location_t loc, tree channel, bool receive);
+/* The claim of one select case, the rotation counter that makes each pass
+   start with a different case, and the wait between two passes.  A claim is
+   attempted once per case per pass and settles the case: 1 when the case has
+   happened and the arm's body must run, 0 when the arm has to wait, and -1
+   when the channel is closed, which a receive arm reports by binding the
+   zeroed element and a send arm reports by aborting as a send on a closed
+   channel does (ADR 0025 D5).  */
+extern tree crug_channel_recv_claim (location_t loc, tree channel, tree out);
+extern tree crug_channel_send_claim (location_t loc, tree channel, tree value,
+				     bool owned);
 extern tree crug_channel_select_turn (location_t loc);
 extern tree crug_channel_poll_wait (location_t loc);
+
+/* The send of a value to a channel that the claim found closed: it reaches
+   the fatal send on a closed channel of the runtime instead of silently
+   dropping the value.  */
+extern tree crug_channel_send_closed_abort (location_t loc, tree channel,
+					    tree value);
 
 /* The ownership analysis asks these about an already lowered call: a send
    of an owned element hands the value to the channel, and a receive of one

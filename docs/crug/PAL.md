@@ -1,7 +1,8 @@
 # PAL — the Platform Abstraction Layer
 
-Status: **v1.1** (v1 frozen 2026-10-19 by ADR 0011; v1.1 added
-`crug_pal_page_size` on 2026-10-20, ADR 0011 A-1). The contract is
+Status: **v1.2** (v1 frozen 2026-10-19 by ADR 0011; v1.1 added
+`crug_pal_page_size` on 2026-10-20, ADR 0011 A-1; v1.2 made
+`crug_pal_thread_join` return `int` on 2026-10-26, ADR 0011 A-2). The contract is
 `libcrug/pal/include/crug_pal.h`; the suite that proves a backend honours it
 is `libcrug/core/pal_contract.c`; the Phase 13 gate runs both backends.
 
@@ -115,12 +116,13 @@ backend (ADR 0011 D9).
 ## 5. Contract tests
 
 `make -C libcrug check-PAL PAL=fake` runs `libcrug/core/pal_contract.c` —
-twelve cases, all written against the header:
+thirteen cases, all written against the header:
 
 | Case | Proves |
 |---|---|
-| `version-and-names` | the suite and the backend agree on 1.1, and every error class has a spelling |
-| `thread-create-join` | the entry has run before `join` returns, and the handle is not NULL |
+| `version-and-names` | the suite and the backend agree on 1.2, and every error class has a spelling |
+| `thread-create-join` | the entry has run before `join` returns, the handle is not NULL, and `join` returns 0 |
+| `thread-join-failure` | a failing join returns nonzero, does not free the handle and does not report the thread as joined |
 | `thread-rejects-null-entry` | a NULL entry fails with `CRUG_PAL_EINVAL` |
 | `cpu-count` | the count is plausible (1..65536) |
 | `wait-wake` | a waiter that has not observed the wake is released by `wake_all` |
@@ -179,7 +181,12 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
   (ADR 0011 A-1), which is exactly the additive path this section describes.
 - An additive change (a new entry point, a new error class at the end) bumps
   `CRUG_PAL_VERSION_MINOR` and needs an ADR amendment; existing behaviour may
-  not change.
+  not change. v1.2 is the one recorded exception before 1.0:
+  `crug_pal_thread_join` changed its return type from `void` to `int` so a
+  failed join can be reported instead of silently pretending to stop. The PAL
+  has no consumer outside this repository at rc1 and the four in-tree backends
+  were updated in the same commit; from 1.0 on a signature change is a new
+  major version (ADR 0011 A-2).
 - A breaking change bumps the major version and re-opens M13: every backend must
   pass the suite again, and `ABI.md` records that the runtime contract changed.
 - The runtime ABI has its own version (RFC-0001 section 37); the PAL contract

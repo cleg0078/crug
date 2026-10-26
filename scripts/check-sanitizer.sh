@@ -12,9 +12,9 @@
 #      That is the Phase 22 exception recorded in ADR 0028.
 #
 # The stress program is generated into build/sanitizer/ and is a build product;
-# it links libcrug/core/chan.c plus the Linux PAL and stubs the two task
-# symbols chan_idle() references, so no scheduler or fiber switch is present
-# in the TSan arm.
+# it links libcrug/core/chan.c plus the Linux PAL and stubs the three task
+# symbols chan.c references, so no scheduler or fiber switch is present in the
+# TSan arm.
 #
 # Exit status: 0 clean, 1 a sanitizer report or a failing arm, 2 a missing tool.
 
@@ -109,7 +109,10 @@ includes="-I$root/libcrug/pal/include -I$root/libcrug/core -I$root/libcrug/arch/
 
 cat > "$build/chan_stubs.c" <<'STUB_EOF'
 /* Build-only stubs: chan_idle() yields to the scheduler when a task is
-   current.  The channel arms here run without the scheduler.  */
+   current and a receive asks the task layer for its scratch buffer.  The
+   channel arms here run without the scheduler, so there is no current task
+   and the receive keeps its thread-local buffer.  */
+#include <stddef.h>
 #include <stdint.h>
 
 uint32_t
@@ -121,6 +124,13 @@ crug_task_current_id (void)
 void
 crug_task_yield (void)
 {
+}
+
+void *
+crug_task_recv_scratch (size_t need)
+{
+  (void) need;
+  return NULL;
 }
 STUB_EOF
 

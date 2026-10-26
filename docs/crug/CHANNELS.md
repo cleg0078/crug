@@ -204,3 +204,36 @@ The run cases under `libcrug/tests/channels/` and the line each prints:
 The compile-only fixtures cover the type surface (typedef, array, an object
 returning a channel), the four select arm forms, the ownership rules and every
 one of the seven new diagnostics.
+
+## 7. Post-rc1 changes: tickets and claims (2026-10-26)
+
+Capacity-0 completion no longer reads the shared slot as a proxy for "my value
+was taken". Each unbuffered send takes a ticket (`next_ticket`, published as
+`inflight_ticket`) and completes only when the receiver sets
+`last_consumed` to that ticket; the receiver consumes the in-flight ticket
+under the channel lock. Two senders therefore cannot steal each other's
+completion, and closing a channel mid-handoff is fatal instead of a lost wake.
+`close` sets the closed flag and buffered values still drain after it.
+
+The polled select protocol gained a non-blocking claim pair:
+`int crug_chan_recv_claim (void *handle, void *out, size_t size)` and
+`int crug_chan_send_claim (void *handle, const void *value, size_t size)`
+(plus the owned send form), each returning 1 when the operation completed,
+0 when a blocking call would wait, and -1 when the channel is closed; a
+receive claim zero-fills its output on -1 and never uses thread-local storage.
+`select` claims each arm at most once in rotation order and the first nonzero
+claim wins; the send-arm value expression is evaluated on every claim pass; a
+closed send arm emits `crug_channel_send_closed_abort` before its body; the
+old `crug_channel_ready` probe is gone. Receiving an owning channel stays
+rejected (`crug-CONC-017`). Limitation, stated not discovered: a claim send
+and a claim receive cannot rendezvous on capacity 0; pair a claim send with a
+blocking receive, and a claim receive with a blocking or buffered send.
+These entry points are additive; the runtime ABI stays 1.
+
+Staleness note (ADR 0025 D5 amendment): because a send arm is claimed, not
+probed, its value expression is evaluated on every claim pass and again in the
+closed-send abort path, so it must be side-effect-free apart from the move.
+Known limitation of the conservative lowering: a select arm that sends an owned
+value is left in place rather than transferred, so the ownership pass can report
+a false `OWN-007` (or a `DROP-006` for the not-taken path); the value is not
+double-freed, but the diagnostic is conservative.

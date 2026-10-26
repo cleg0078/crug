@@ -3,8 +3,11 @@
 
    One struct per channel: a small spin lock, a ring of element_size slots
    and the closed flag.  The ring of a capacity-0 channel has one slot; a
-   send deposits and then waits until the receiver has taken the value, so
-   capacity 0 is a real handoff rather than a one-element buffer.
+   send deposits a value, then waits until the receiver has taken *that value*
+   (a ticket), not merely until the shared slot happens to be empty.  Keying
+   the completion to the slot would let a second handoff that is already in
+   flight keep the first sender blocked forever; demand-driven tickets are what
+   make capacity 0 a real handoff rather than a one-element buffer.
 
    Blocking never holds the lock: the state transition happens under the
    lock, the wait happens outside it, and every waiter re-tests its
@@ -20,6 +23,7 @@
 #include "chan.h"
 
 #include "task.h"
+#include "task-internal.h"
 
 #include "crug_pal.h"
 
@@ -44,6 +48,16 @@ struct crug_chan
   unsigned char *buffer;
   uint64_t sent;
   uint64_t received;
+  /* Capacity-0 handoff tickets, all guarded by the channel lock.  A sender
+     takes the next ticket and marks it in flight; the receiver that takes the
+     value publishes last_consumed, and the sender completes when its own
+     ticket has been consumed.  recv_waiters tells a claim send whether a
+     receiver is already blocked in a receive, so the claim can deposit and
+     wait for that receiver instead of reporting "not ready".  */
+  uint64_t next_ticket;
+  uint64_t inflight_ticket;
+  uint64_t last_consumed;
+  _Atomic uint32_t recv_waiters;
   struct crug_chan *next;      /* registry, guarded by registry_lock    */
 };
 
@@ -108,6 +122,77 @@ chan_check (void *handle, const char *who)
   return chan;
 }
 
+/* A claim takes the element size the caller compiled for; a mismatch means
+   the program (or the lowering) copied through a type the channel was not
+   made with, which cannot be allowed to overflow the destination.  */
+static void
+chan_check_size (struct crug_chan *chan, size_t size, const char *who)
+{
+  if (size != chan->element_size)
+    {
+      fprintf (stderr, "crug: %s size does not match the channel element\n", who);
+      abort ();
+    }
+}
+
+/* The buffer a blocking receive copies through: the calling task's own buffer
+   when it runs in a task, the calling thread's buffer on the main thread.  Two
+   tasks on one worker must not share it: a task that receives, yields and then
+   reads its value would see the other task's element through a thread-local
+   buffer.  */
+static void *
+chan_recv_buffer (struct crug_chan *chan)
+{
+  void *scratch = crug_task_recv_scratch (chan->element_size);
+
+  if (scratch != NULL)
+    return scratch;
+  if (recv_buffer_size < chan->element_size)
+    {
+      unsigned char *bigger
+	= (unsigned char *) realloc (recv_buffer, chan->element_size);
+      if (bigger == NULL)
+	chan_fatal ("cannot receive a channel value");
+      recv_buffer = bigger;
+      recv_buffer_size = chan->element_size;
+    }
+  return recv_buffer;
+}
+
+/* The receiver side of a capacity-0 handoff: the value just taken is the
+   sender's ticket, so publish that under the same lock that took it.  */
+static void
+chan_consume_ticket (struct crug_chan *chan)
+{
+  if (chan->capacity == 0)
+    {
+      chan->last_consumed = chan->inflight_ticket;
+      chan->inflight_ticket = 0;
+    }
+}
+
+/* Wait until the receiver has consumed TICKET; a close before that ends the
+   handoff with the diagnostic the contract names.  */
+static void
+chan_wait_ticket (struct crug_chan *chan, uint64_t ticket)
+{
+  for (;;)
+    {
+      uint64_t consumed;
+      int closed;
+
+      chan_lock (chan);
+      consumed = chan->last_consumed;
+      closed = chan_is_closed (chan);
+      chan_unlock (chan);
+      if (consumed >= ticket)
+	return;
+      if (closed)
+	chan_fatal ("channel closed during handoff");
+      chan_idle ();
+    }
+}
+
 static void
 chan_register (struct crug_chan *chan)
 {
@@ -148,6 +233,7 @@ static void
 chan_send_common (void *handle, const void *element, const char *who)
 {
   struct crug_chan *chan = chan_check (handle, who);
+  uint64_t ticket = 0;
 
   if (element == NULL)
     chan_fatal ("send needs a value");
@@ -164,6 +250,11 @@ chan_send_common (void *handle, const void *element, const char *who)
 	}
       if (chan->count < chan->slots)
 	{
+	  if (chan->capacity == 0)
+	    {
+	      ticket = ++chan->next_ticket;
+	      chan->inflight_ticket = ticket;
+	    }
 	  memcpy (chan->buffer
 		  + ((chan->head + chan->count) % chan->slots)
 		  * chan->element_size,
@@ -180,20 +271,12 @@ chan_send_common (void *handle, const void *element, const char *who)
     }
 
   /* Capacity 0 is a handoff: the send completes when the receiver has taken
-     the value out of the single slot.  A close while waiting ends the wait so
-     that a closed channel cannot strand the sender forever.  */
+     this value, which it announces by consuming the sender's ticket.  The
+     shared slot may already hold the next sender's value by then, and that
+     must not keep this sender waiting.  A close before the receiver has taken
+     the value ends the handoff with a fatal diagnostic.  */
   if (chan->capacity == 0)
-    for (;;)
-      {
-	size_t count;
-
-	chan_lock (chan);
-	count = chan->count;
-	chan_unlock (chan);
-	if (count == 0 || chan_is_closed (chan))
-	  break;
-	chan_idle ();
-      }
+    chan_wait_ticket (chan, ticket);
 }
 
 void
@@ -212,18 +295,19 @@ static void *
 chan_recv_common (void *handle, const char *who)
 {
   struct crug_chan *chan = chan_check (handle, who);
-  void *out;
+  void *out = chan_recv_buffer (chan);
+  int handoff = chan->capacity == 0;
 
-  if (recv_buffer_size < chan->element_size)
+  if (handoff)
     {
-      unsigned char *bigger
-	= (unsigned char *) realloc (recv_buffer, chan->element_size);
-      if (bigger == NULL)
-	chan_fatal ("cannot receive a channel value");
-      recv_buffer = bigger;
-      recv_buffer_size = chan->element_size;
+      /* Announce the waiter under the lock: a claim send only deposits when a
+	 receiver is committed to taking the value.  The count is dropped again
+	 in the same critical section that ends the wait, never after it, so a
+	 claim cannot deposit into a receive call that is already returning.  */
+      chan_lock (chan);
+      atomic_fetch_add_explicit (&chan->recv_waiters, 1u, memory_order_acq_rel);
+      chan_unlock (chan);
     }
-  out = recv_buffer;
 
   for (;;)
     {
@@ -240,9 +324,12 @@ chan_recv_common (void *handle, const char *who)
 	  chan->head = (chan->head + 1) % chan->slots;
 	  chan->count--;
 	  chan->received++;
+	  chan_consume_ticket (chan);
 	  atomic_fetch_add_explicit (&chan_received, 1u, memory_order_relaxed);
 	  took = 1;
 	}
+      if ((took || closed) && handoff)
+	atomic_fetch_sub_explicit (&chan->recv_waiters, 1u, memory_order_acq_rel);
       chan_unlock (chan);
       if (took || closed)
 	return out;
@@ -260,6 +347,110 @@ void *
 crug_chan_recv_owned (void *chan)
 {
   return chan_recv_common (chan, "recv");
+}
+
+int
+crug_chan_recv_claim (void *handle, void *out, size_t size)
+{
+  struct crug_chan *chan = chan_check (handle, "select");
+  int status;
+
+  if (out == NULL)
+    chan_fatal ("a receive claim needs a value buffer");
+  chan_check_size (chan, size, "receive claim");
+
+  chan_lock (chan);
+  if (chan->count > 0)
+    {
+      memcpy (out, chan->buffer + chan->head * chan->element_size,
+	      chan->element_size);
+      chan->head = (chan->head + 1) % chan->slots;
+      chan->count--;
+      chan->received++;
+      chan_consume_ticket (chan);
+      atomic_fetch_add_explicit (&chan_received, 1u, memory_order_relaxed);
+      status = 1;
+    }
+  else if (chan_is_closed (chan))
+    {
+      memset (out, 0, chan->element_size);
+      status = -1;
+    }
+  else
+    status = 0;
+  chan_unlock (chan);
+  return status;
+}
+
+static int
+chan_send_claim_common (void *handle, const void *element, size_t size,
+			const char *who)
+{
+  struct crug_chan *chan = chan_check (handle, who);
+
+  if (element == NULL)
+    chan_fatal ("a send claim needs a value");
+  chan_check_size (chan, size, "send claim");
+
+  chan_lock (chan);
+  if (chan_is_closed (chan))
+    {
+      chan_unlock (chan);
+      return -1;
+    }
+  if (chan->capacity == 0)
+    {
+      uint64_t ticket;
+
+      /* Do not fill the handoff slot for a receiver that is not there: a
+	 select retries, and a deposit nobody consumes would stay in flight
+	 (and block a later real handoff).  recv_waiters is the promise that a
+	 receiver is inside a receive right now.  */
+      if (chan->inflight_ticket != 0
+	  || atomic_load_explicit (&chan->recv_waiters,
+				   memory_order_acquire) == 0)
+	{
+	  chan_unlock (chan);
+	  return 0;
+	}
+      ticket = ++chan->next_ticket;
+      chan->inflight_ticket = ticket;
+      memcpy (chan->buffer
+	      + ((chan->head + chan->count) % chan->slots) * chan->element_size,
+	      element, chan->element_size);
+      chan->count++;
+      chan->sent++;
+      atomic_fetch_add_explicit (&chan_sent, 1u, memory_order_relaxed);
+      chan_unlock (chan);
+      chan_wait_ticket (chan, ticket);
+      return 1;
+    }
+
+  if (chan->count < chan->slots)
+    {
+      memcpy (chan->buffer
+	      + ((chan->head + chan->count) % chan->slots) * chan->element_size,
+	      element, chan->element_size);
+      chan->count++;
+      chan->sent++;
+      atomic_fetch_add_explicit (&chan_sent, 1u, memory_order_relaxed);
+      chan_unlock (chan);
+      return 1;
+    }
+  chan_unlock (chan);
+  return 0;
+}
+
+int
+crug_chan_send_claim (void *handle, const void *element, size_t size)
+{
+  return chan_send_claim_common (handle, element, size, "select");
+}
+
+int
+crug_chan_send_owned_claim (void *handle, const void *element, size_t size)
+{
+  return chan_send_claim_common (handle, element, size, "select");
 }
 
 int

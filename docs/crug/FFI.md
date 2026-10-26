@@ -69,8 +69,10 @@ crug-FFI-004: `borrows` with `mut_borrows`, a borrow with a transfer,
 
 A destructor is, in order: the `drop` clause on the declaration; the
 `drop` clause of a `type` declaration for the same type; otherwise
-crug-FFI-011. The destructor must be an external function taking one pointer
-argument of exactly that type.
+crug-FFI-011. The destructor must be an external function declared with a
+prototype that takes one pointer argument of exactly that type and is not
+variadic. Its return type is not part of the contract: `fclose`, which returns
+`int`, is a valid destructor.
 
 ## 2. Using a sidecar
 
@@ -240,3 +242,17 @@ replaced: they hashed a non-existent `lib/` directory and named an
 | struct members, macros, variadic tails in metadata | post-1.0 (ADR 0007 D9) |
 | returned borrows, conditional ownership | after the first RFC revision of ADR 0007 |
 | kernel-mode FFI (no metadata at all) | 19 |
+
+## 9. Post-rc1: destructor and argN resolution (2026-10-26)
+
+`crug-FFI-011` is no longer a loose "cannot be resolved" check. A destructor
+named by `drop` must be an external function declared with a prototype,
+non-variadic, with exactly one pointer parameter whose pointee matches the
+owned value's type; a K&R definition, a variadic tail or a second parameter is
+refused. The return type is not checked: a value-returning destructor such as
+`fclose` is called as a statement and its result is discarded. The `argN`
+clauses are independent: a clause is `arg` or `ret` followed by decimal digits,
+with no sign and no trailing characters, and its index must fit `int`;
+malformed text is `crug-FFI-003` and an out-of-range index stays `crug-FFI-005`.
+New negative fixtures are `ffi/phase9/bad/dtor-{arity,knr,variadic}.c` and
+`ffi/phase9/bad/argref-{malformed,range}.c`.

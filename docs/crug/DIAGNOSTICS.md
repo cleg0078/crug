@@ -88,6 +88,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-UAM-005` | - | error | error | partially moved aggregate '%s' used as a whole | GAPS s5, ADR 0004 D4 (post-MVP) |
 | `crug-UAM-006` | - | error | error | move of aggregate field '%s' is not supported; move the whole object | ADR 0004 D4 |
 | `crug-UAM-007` | `-Wcrug-owned-byte-copy` | warning | error | byte copy of owned value '%s' can duplicate ownership | ADR 0004 D9 |
+| `crug-UAM-008` | - | error | error | read or move of empty owned value '%s'; it holds nothing | ADR 0004 D2, post-rc1 |
 
 ### 4.2 Ownership operands (`OWN`)
 
@@ -134,6 +135,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-BORROW-021` | - | error | error | passing a plain pointer to a 'mut' parameter proves no exclusive access; pass borrow_mut (...) or a mutable borrow | ADR 0010 D4, Phase 11 |
 | `crug-BORROW-022` | - | error | error | a shared borrow cannot be passed to a 'mut' parameter | ADR 0010 D4, Phase 11 |
 | `crug-BORROW-023` | - | error | error | the lender '%s' is also passed to this call; a 'mut' parameter must be the only view of its object | ADR 0010 D4, Phase 11 |
+| `crug-BORROW-024` | - | error | error | cannot prove that '%s' is disjoint from the other views passed to this call; a 'mut' parameter and an alias fact require a proven disjoint root | ADR 0010 D4, post-rc1 |
 
 ### 4.4 Destruction (`DROP`)
 
@@ -179,6 +181,8 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-CONC-025` | - | error | error | a thread-affine value cannot cross to another task; it belongs to the '%s' thread | ADR 0026 D7, Phase 17 |
 | `crug-CONC-026` | - | error | error | a shared borrow of '%s' cannot cross to another task; the type is not 'Sync' | ADR 0026 D3, Phase 17 |
 | `crug-CONC-027` | - | error | error | a channel element must be 'Send'; '%s' is not | ADR 0026 D4, Phase 17 |
+| `crug-CONC-028` | - | error | error | the frame of this 'go' does not fit: its captured size overflows, or its alignment is not representable | ADR 0008 D2, post-rc1 |
+| `crug-CONC-029` | - | error | error | cannot spawn during shutdown | ADR 0009 D5, post-rc1 |
 
 ### 4.6 Payload enums and match (`ADT`)
 
@@ -263,7 +267,7 @@ sidecar location in a note.
 | `crug-FFI-008` | - | error | error | an `out_owned` argument is not the address of an owned variable, or that variable already owns a value | ADR 0007 D3 |
 | `crug-FFI-009` | - | error | error | a `callback` argument is neither a function nor a null pointer | ADR 0007 D3 |
 | `crug-FFI-010` | - | error | error | the metadata file exceeds 1 MiB or declares more than 10,000 entries | ADR 0007 D7 |
-| `crug-FFI-011` | - | error | error | a destructor named by `drop` cannot be resolved: not an external function, not one pointer argument, or the wrong pointee type | ADR 0007 D3 |
+| `crug-FFI-011` | - | error | error | a destructor named by `drop` cannot be resolved: it must be an external function declared with a prototype, non-variadic, with exactly one pointer parameter matching the pointee; the return type is ignored | ADR 0007 D3, post-rc1 |
 
 All eleven are errors in both modes: they describe metadata that cannot be
 honoured, not a style choice. Phase 9 implements every code in this table.
@@ -595,8 +599,8 @@ Passed a cast data object as a ‘callback’ argument (callback-not-function.c)
 
 ## 10. Status
 
-129 codes are registered. The count per area is: UAM 7, OWN 13, BORROW 23,
-DROP 8, CONC 27, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
+133 codes are registered. The count per area is: UAM 8, OWN 13, BORROW 24,
+DROP 8, CONC 29, ADT 17, TYPE 12, GRAMMAR 6, SAFE 5, FFI 11.
 
 Phase 20 added no code. It gave the registry a machine-readable surface and a
 published corpus: every diagnostic that carries a code now carries it as a
@@ -651,14 +655,14 @@ adopted) and ADT-020 (an arm that would leave an owning payload bound nowhere)
 at increment 2b.
 
 A code is **implemented** when the frontend emits it and its test is in the dg
-suite that the owning gate runs. Implemented today (Phases 4 to 17 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, OWN-001, OWN-002, OWN-004,
-OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-023,
+suite that the owning gate runs. Implemented today (Phases 4 to 17 of the roadmap): UAM-001, UAM-002, UAM-003, UAM-004, UAM-006, UAM-008, OWN-001, OWN-002, OWN-004,
+OWN-007, OWN-009, OWN-010, OWN-011, OWN-012, OWN-013, BORROW-001 to BORROW-024,
 DROP-001, DROP-002, DROP-003, DROP-006, DROP-007, DROP-008, TYPE-001, TYPE-002,
 TYPE-004, TYPE-005, TYPE-006, TYPE-007, SAFE-001 to SAFE-005, FFI-001 to
 FFI-011, plus Phase 10's ADT-001, ADT-002, ADT-003, ADT-004, ADT-005,
 ADT-006, ADT-010, ADT-011, ADT-012, ADT-013, ADT-015, ADT-016, ADT-017,
 ADT-018, ADT-019, ADT-020, TYPE-012, TYPE-013, TYPE-014, CONC-001 to
-CONC-008, CONC-010 to CONC-023 and CONC-024 to CONC-027. ADT-014 (match
+CONC-008, CONC-010 to CONC-023 and CONC-024 to CONC-029. ADT-014 (match
 used as an expression) is still planned: it is reachable only after the
 expression form of `match` gets its own recovery path. Everything else is
 planned; the KERNEL area is still reserved only,

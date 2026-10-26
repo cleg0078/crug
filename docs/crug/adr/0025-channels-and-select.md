@@ -114,6 +114,16 @@ calls `crug_chan_poll_wait ()` and tries again. A send value is evaluated
 inside the arm only, so a pass that does not take that arm does not evaluate
 it.
 
+**Amendment (2026-10-26).** The claim lowering replaces the readiness probes
+with `crug_chan_recv_claim` / `crug_chan_send_claim` (CHANNELS.md section 7),
+and D5's last sentence no longer describes it. A select send arm's value
+expression is evaluated on **every** claim pass — the claim needs the value to
+attempt the send — and it is evaluated again in the closed-send abort path
+(`crug_channel_send_closed_abort`) before that body runs. The expression must
+therefore be side-effect-free apart from the move the arm performs; a select
+send arm whose value expression mutates state is a stale-side-effect bug, and
+the compiler does not diagnose it.
+
 The lowered statements are built with raw `build2`/`build3` expressions and
 `WHILE_STMT`/`BREAK_STMT` nodes, never with `build_binary_op`, because the
 latter wraps a condition in `C_MAYBE_CONST_EXPR` that generic gimplification

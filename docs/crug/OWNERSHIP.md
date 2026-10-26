@@ -170,3 +170,14 @@ definition from `c_parser_declaration_or_fndef`. A new tracked place needs:
 statement that assigns or moves it, and a `dg-error` test in
 `gcc/testsuite/crug.dg/ownership/`. Any change to the state lattice or to the
 join rule is an ADR 0004 amendment, not a local edit.
+
+## 8. Post-rc1: empty owned values (2026-10-26)
+
+`crug-UAM-008` is the read of an empty owned value ("it holds nothing"); the
+move of an empty owned value uses the same code. Rejected: comparison,
+dereference, passing by value, returning, and taking the address of an empty
+owner. Accepted: an assignment that initializes a fresh owned value, and
+`release` or `drop` on an empty owner (destroying nothing is defined), and
+passing `&empty` to an FFI `out_owned` argument. The state machine and the
+join rule are unchanged; the check is a read/write distinction in the pass, not
+a new state.

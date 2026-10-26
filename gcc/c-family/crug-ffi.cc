@@ -304,11 +304,18 @@ parse_op_modifiers (ffi_parser &p, ffi_op &op)
     }
 }
 
+/* Parse an argument reference: 'ret', 'arg0'... or 'arg 0'...  The index
+   is decimal digits only: no sign, no empty index and no trailing character
+   ('arg1x' used to become argument 1 through atoi), and it must fit in an
+   int (P3-006).  The range against the declared function stays in
+   resolve_fn.  */
+
 static bool
 parse_argref (ffi_parser &p, int *arg)
 {
-  int line = p.toks[p.pos].line;
+  const int line = p.toks[p.pos].line;
   std::string w = take (p);
+  const char *digits = NULL;
 
   if (w == "ret")
     {
@@ -318,14 +325,37 @@ parse_argref (ffi_parser &p, int *arg)
   if (w == "arg")
     {
       std::string n = take (p);
-      *arg = atoi (n.c_str ());
-      return true;
+      digits = n.c_str ();
     }
-  if (w.compare (0, 3, "arg") == 0 && w.size () > 3)
+  else if (w.compare (0, 3, "arg") == 0 && w.size () > 3)
+    digits = w.c_str () + 3;
+
+  if (digits != NULL)
     {
-      *arg = atoi (w.c_str () + 3);
+      if (*digits == '\0')
+	{
+	  ffi_error (p.path, line, 3,
+		     "'%s' needs an argument index: write 'argN'", w.c_str ());
+	  p.failed = true;
+	  return false;
+	}
+      long v = 0;
+      for (const char *d = digits; *d != '\0'; d++)
+	{
+	  if (*d < '0' || *d > '9' || v > (INT_MAX - (*d - '0')) / 10)
+	    {
+	      ffi_error (p.path, line, 3,
+			 "'%s' is not an argument index: write 'argN' with "
+			 "decimal digits", w.c_str ());
+	      p.failed = true;
+	      return false;
+	    }
+	  v = v * 10 + (*d - '0');
+	}
+      *arg = (int) v;
       return true;
     }
+
   ffi_error (p.path, line, 3, "expected 'argN' or 'ret', found '%s'",
 	     w.c_str ());
   p.failed = true;
@@ -760,6 +790,13 @@ pointer_to_matches (tree ptr, tree pointee)
   return TYPE_MAIN_VARIANT (t) == TYPE_MAIN_VARIANT (pointee);
 }
 
+/* A destructor is called with exactly one pointer, so its declaration has
+   to say so.  The argument list is checked, not the return type: C explicitly
+   allows a value-returning function to be called as a statement, and standard
+   destructors such as fclose return int.  An old-style declaration accepts
+   any argument list and a variadic one takes more, so both are rejected
+   (P3-005).  */
+
 static tree
 resolve_dtor (const std::string &name, tree pointee, const std::string &file,
 	      int line, const std::string &what)
@@ -775,11 +812,37 @@ resolve_dtor (const std::string &name, tree pointee, const std::string &file,
 		 name.c_str (), what.c_str ());
       return NULL_TREE;
     }
-  tree args = TYPE_ARG_TYPES (TREE_TYPE (fn));
-  if (args == NULL_TREE || TREE_CODE (args) == VOID_TYPE)
+
+  tree fntype = TREE_TYPE (fn);
+  if (!prototype_p (fntype))
+    {
+      ffi_error (file.c_str (), line, 11,
+		 "destructor '%s' for %s must be declared with a prototype "
+		 "taking one pointer argument",
+		 name.c_str (), what.c_str ());
+      return NULL_TREE;
+    }
+  if (stdarg_p (fntype))
+    {
+      ffi_error (file.c_str (), line, 11,
+		 "destructor '%s' for %s must not be variadic",
+		 name.c_str (), what.c_str ());
+      return NULL_TREE;
+    }
+
+  tree args = TYPE_ARG_TYPES (fntype);
+  if (args == NULL_TREE || args == void_list_node
+      || TREE_CODE (args) == VOID_TYPE)
     {
       ffi_error (file.c_str (), line, 11,
 		 "destructor '%s' for %s must take one pointer argument",
+		 name.c_str (), what.c_str ());
+      return NULL_TREE;
+    }
+  if (TREE_CHAIN (args) != void_list_node)
+    {
+      ffi_error (file.c_str (), line, 11,
+		 "destructor '%s' for %s must take exactly one argument",
 		 name.c_str (), what.c_str ());
       return NULL_TREE;
     }

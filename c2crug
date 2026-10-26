@@ -146,12 +146,16 @@ def strip_code(text):
     return "".join(out), comments
 
 
-DECL_RE = re.compile(
+DECL_PREFIX_RE = re.compile(
     r"^(?P<indent>[ \t]*)"
     r"(?P<type>(?:[A-Za-z_]\w*)(?:[ \t]+[A-Za-z_]\w*)*)"
-    r"[ \t]*\*[ \t]*(?P<name>[A-Za-z_]\w*)"
-    r"[ \t]*=[ \t]*(?P<init>[A-Za-z_]\w*[ \t]*\([^;]*\))"
-    r"[ \t]*;[ \t]*$")
+    r"[ \t]*\*[ \t]*")
+
+DECLARATOR_RE = re.compile(
+    r"^(?:\*[ \t]*)*(?P<name>" + IDENT + r")"
+    r"[ \t]*=[ \t]*(?P<init>.*)$")
+
+LABEL_RE = re.compile(r"^[ \t]*(?P<name>" + IDENT + r")[ \t]*:")
 
 HEADER_RE = re.compile(
     r"^(?P<head>.*?(?P<name>[A-Za-z_]\w*)[ \t]*\([^;{}]*\))[ \t]*\{?[ \t]*$")
@@ -160,6 +164,107 @@ HEADER_RE = re.compile(
 def call_name(expr):
     m = re.match(r"[ \t]*(" + IDENT + r")[ \t]*\(", expr)
     return m.group(1) if m else None
+
+
+def split_top_level(text, separator=","):
+    """Split text at separator characters outside (), [], {} and literals.
+
+    A comma inside a call argument list or a compound initializer therefore
+    never ends a declarator.  The caller normally passes code whose comments
+    and literals are already blanked, but literals are still skipped here so
+    the splitter is safe on raw source as well.
+    """
+    parts = []
+    cur = []
+    depth = 0
+    quote = None
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if quote is not None:
+            cur.append(ch)
+            if ch == "\\" and i + 1 < len(text):
+                cur.append(text[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            cur.append(ch)
+            i += 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth > 0:
+                depth -= 1
+        if ch == separator and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    parts.append("".join(cur))
+    return parts
+
+
+def parse_pointer_declaration(line):
+    """Parse one single-line pointer declaration.
+
+    Returns None when the line does not declare a pointer.  Otherwise the
+    result has an indent, a type, the declarators list and an optional
+    problem.  Declarators are split with split_top_level, so the initializer
+    of one declarator can never absorb the comma that separates the next one.
+    A declaration with more than one declarator is reported by the caller as
+    multiple declarators instead of being migrated.
+    """
+    m = DECL_PREFIX_RE.match(line)
+    if not m:
+        return None
+    rest = line[m.end():].rstrip()
+    if not rest.endswith(";"):
+        return None
+    parts = split_top_level(rest[:-1])
+    declarators = []
+    for part in parts:
+        dm = DECLARATOR_RE.match(part.strip())
+        if dm:
+            declarators.append((dm.group("name"), dm.group("init").strip()))
+        else:
+            declarators.append((None, None))
+    return {
+        "indent": m.group("indent"),
+        "type": m.group("type"),
+        "declarators": declarators,
+        "problem": "multiple declarators" if len(parts) > 1 else None,
+    }
+
+
+def single_call_name(expr):
+    """Return the callee when expr is exactly one call expression."""
+    if not expr:
+        return None
+    m = re.match(r"[ \t]*(" + IDENT + r")[ \t]*\(", expr)
+    if not m:
+        return None
+    depth = 0
+    i = m.end() - 1
+    while i < len(expr):
+        ch = expr[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                if expr[i + 1:].strip():
+                    return None
+                return m.group(1)
+        i += 1
+    return None
 
 
 def find_functions(clines):
@@ -242,30 +347,333 @@ def enclosing_call(line, pos):
     return (stack[-1] if stack else None), False
 
 
-def is_null_guard(lines, idx, name):
-    pat = re.compile(
-        r"\bif[ \t]*\([ \t]*(?:![ \t]*" + re.escape(name) + r"\b|"
-        + re.escape(name) + r"[ \t]*==[ \t]*(?:0|NULL)\b|"
-        r"(?:0|NULL)[ \t]*==[ \t]*" + re.escape(name) + r"\b)")
-    for k in range(idx, max(-1, idx - 4), -1):
-        text = lines[k]
-        if pat.search(text):
-            return True
+_CONTROL_TOKEN_RE = re.compile(
+    r"[A-Za-z_]\w*|\d[\w.]*|==|!=|<=|>=|->|\+\+|--|&&|\|\||<<|>>|\S")
+_IDENT_RE = re.compile(r"^" + IDENT + r"$")
+_EXIT_CALLS = frozenset(("exit", "_exit", "abort", "quick_exit"))
+_EXIT_RE = re.compile(
+    r"\b(return|goto|break|continue)\b"
+    r"|\b(exit|_exit|abort|quick_exit)[ \t]*\(")
+
+
+def tokenize_lines(clines, first, last):
+    """Return (token, 0-based line) pairs with literals already blanked."""
+    tokens = []
+    for ln in range(first, last + 1):
+        for m in _CONTROL_TOKEN_RE.finditer(clines[ln]):
+            tokens.append((m.group(0), ln))
+    return tokens
+
+
+class _ControlScanError(Exception):
+    """The lexical statement scan could not follow the source."""
+
+
+class _ControlScanStop(Exception):
+    """The release token was found, or it was not a statement start."""
+
+
+def _strip_outer_parens(tokens):
+    tokens = list(tokens)
+    while len(tokens) >= 2 and tokens[0][0] == "(" and tokens[-1][0] == ")":
+        depth = 0
+        closes_at_end = False
+        for pos, (text, _line) in enumerate(tokens):
+            if text == "(":
+                depth += 1
+            elif text == ")":
+                depth -= 1
+                if depth == 0:
+                    closes_at_end = pos == len(tokens) - 1
+                    break
+        if not closes_at_end:
+            break
+        tokens = tokens[1:-1]
+    return tokens
+
+
+def _is_null_test(tokens, name):
+    """True when the condition is exactly !p, p == NULL or NULL == p."""
+    tokens = _strip_outer_parens(tokens)
+    texts = [text for text, _line in tokens]
+    if texts == ["!", name]:
+        return True
+    if len(texts) == 3 and texts[0] == name and texts[1] == "==" \
+            and texts[2] in ("NULL", "0"):
+        return True
+    if len(texts) == 3 and texts[0] in ("NULL", "0") \
+            and texts[1] == "==" and texts[2] == name:
+        return True
     return False
 
 
-def unbraced_conditional(lines, idx):
-    """True when the statement at idx is the body of a brace-less control
-    statement on the preceding line (a conditional path)."""
-    k = idx - 1
-    while k >= 0 and not lines[k].strip():
-        k -= 1
-    if k < 0:
-        return False
-    prev = lines[k].strip()
-    if "{" in prev or not prev.endswith(")"):
-        return False
-    return re.match(r"(if|for|while)\b", prev) is not None
+class _ControlScanner:
+    """Lexical, conservative statement scanner for one function body.
+
+    It parses just enough C to decide whether one token starts an
+    unconditional top-level statement of the function body.  Control
+    statements consume their body statement, so a release inside an unbraced
+    if/else/for/while/switch body, in a labelled statement or in a nested
+    block is recognised as conditional even when a label or a multi-line
+    condition sits between the keyword and the release.
+    """
+
+    def __init__(self, tokens, target):
+        self.tokens = tokens
+        self.i = 0
+        self.target = target
+        self.found = None
+        self.ifs = []
+
+    def _peek(self, offset=0):
+        pos = self.i + offset
+        if pos >= len(self.tokens):
+            raise _ControlScanError("unexpected end of the function body")
+        return self.tokens[pos]
+
+    def _take(self):
+        if self.target is not None and self.i == self.target:
+            # The release token is not at a statement boundary; it is part
+            # of a larger expression or statement.
+            raise _ControlScanStop()
+        token = self._peek()
+        self.i += 1
+        return token
+
+    def _line(self):
+        return self.tokens[self.i - 1][1] if self.i else self.tokens[0][1]
+
+    def _take_balanced(self, opener, closer):
+        if self._peek()[0] != opener:
+            raise _ControlScanError("expected %r" % opener)
+        self._take()
+        inner = []
+        depth = 1
+        while True:
+            token, line = self._take()
+            if token == opener:
+                depth += 1
+            elif token == closer:
+                depth -= 1
+                if depth == 0:
+                    return inner
+            inner.append((token, line))
+
+    def _check_target(self, level, context):
+        if self.target is not None and self.i == self.target:
+            self.found = (level, tuple(context))
+            raise _ControlScanStop()
+
+    def run(self):
+        while True:
+            token, _line = self._take()
+            if token == "{":
+                break
+        try:
+            self._compound(0, ())
+        except _ControlScanStop:
+            pass
+
+    def _compound(self, level, context):
+        terminal = None
+        while True:
+            if self._peek()[0] == "}":
+                self._take()
+                return terminal
+            terminal = self._statement(level, context)
+
+    def _statement(self, level, context):
+        while True:
+            token, line = self._peek()
+            nxt = self._peek(1)[0]
+            if token in ("case", "default"):
+                self._take()
+                depth = 0
+                while True:
+                    item, _ln = self._take()
+                    if item in "([{":
+                        depth += 1
+                    elif item in ")]}":
+                        depth -= 1
+                    elif item == ":" and depth == 0:
+                        break
+                context = context + ("a switch case",)
+                continue
+            if _IDENT_RE.match(token) and nxt == ":":
+                self._take()
+                self._take()
+                continue
+            break
+        self._check_target(level, context)
+        token, line = self._peek()
+        if token == "{":
+            self._take()
+            terminal = self._compound(level + 1, context + ("a nested block",))
+            return {"kind": "block", "start_line": line,
+                    "end_line": self._line(), "terminal": terminal}
+        if token == "if":
+            self._take()
+            cond = self._take_balanced("(", ")")
+            then = self._statement(level + 1, context + ("the body of an if",))
+            has_else = False
+            else_stmt = None
+            if self._peek()[0] == "else":
+                self._take()
+                has_else = True
+                else_stmt = self._statement(
+                    level + 1, context + ("the body of an else",))
+            info = {
+                "level": level,
+                "start_line": line,
+                "cond": cond,
+                "then": then,
+                "has_else": has_else,
+                "else": else_stmt,
+            }
+            self.ifs.append(info)
+            return {"kind": "if", "start_line": line,
+                    "end_line": self._line(), "terminal": None}
+        if token in ("for", "while", "switch"):
+            kind = token
+            self._take()
+            self._take_balanced("(", ")")
+            self._statement(level + 1, context + ("the body of a %s" % kind,))
+            return {"kind": kind, "start_line": line,
+                    "end_line": self._line(), "terminal": None}
+        if token == "do":
+            self._take()
+            self._statement(level + 1, context + ("the body of a do",))
+            if self._peek()[0] != "while":
+                raise _ControlScanError("expected while after do body")
+            self._take()
+            self._take_balanced("(", ")")
+            if self._peek()[0] != ";":
+                raise _ControlScanError("expected ; after do-while")
+            self._take()
+            return {"kind": "do", "start_line": line,
+                    "end_line": self._line(), "terminal": None}
+        if token == ";":
+            self._take()
+            return {"kind": "empty", "start_line": line,
+                    "end_line": line, "terminal": None}
+        if token == "}":
+            raise _ControlScanError("unexpected }")
+        return self._simple(line)
+
+    def _simple(self, line):
+        first = self._peek()[0]
+        terminal = None
+        if first == "return":
+            terminal = {"kind": "return", "line": line}
+        elif first == "goto":
+            self._take()
+            target, _ln = self._take()
+            terminal = {"kind": "goto", "line": line, "target": target}
+        elif first in ("break", "continue"):
+            terminal = {"kind": first, "line": line}
+        elif first in _EXIT_CALLS and self._peek(1)[0] == "(":
+            terminal = {"kind": "abort" if first == "abort" else "exit",
+                        "line": line}
+        self._skip_to_semicolon()
+        return {"kind": "simple", "start_line": line,
+                "end_line": self._line(), "terminal": terminal}
+
+    def _skip_to_semicolon(self):
+        depth = {"(": 0, "[": 0, "{": 0}
+        pairs = {")": "(", "]": "[", "}": "{"}
+        while True:
+            token, _line = self._take()
+            if token in depth:
+                depth[token] += 1
+            elif token in pairs:
+                opener = pairs[token]
+                if depth[opener] == 0:
+                    raise _ControlScanError(
+                        "a statement ended before its semicolon")
+                depth[opener] -= 1
+            elif token == ";" and not any(depth.values()):
+                return
+
+
+def release_control_context(clines, start, end, release_line, release_fn):
+    """Classify the release call at release_line.
+
+    Returns (top_level, description, ifs).  top_level is True only when the
+    release call begins a statement directly in the function body compound
+    statement.  Everything from the opening brace to the release line is
+    inspected, so labels, multi-line conditions, switch cases and brace-less
+    control statements cannot hide a conditional path.
+    """
+    for k in range(start, release_line + 1):
+        if clines[k].lstrip().startswith("#"):
+            return False, "a preprocessor directive inside the function body", []
+    tokens = tokenize_lines(clines, start, end)
+    target = None
+    for pos, (token, line) in enumerate(tokens):
+        if line == release_line and token == release_fn:
+            target = pos
+            break
+    if target is None:
+        return False, "the release call is not in the token stream", []
+    scanner = _ControlScanner(tokens, target)
+    try:
+        scanner.run()
+    except _ControlScanError:
+        return False, "the control context could not be lexically analysed", []
+    if scanner.found is None:
+        return False, "the release is not a statement boundary", scanner.ifs
+    level, context = scanner.found
+    if level != 0:
+        description = "; ".join(context) or "a nested statement"
+        return False, description, scanner.ifs
+    return True, None, scanner.ifs
+
+
+def function_label_lines(clines, start, end):
+    """Map each ordinary label in a function body to its 0-based line."""
+    labels = {}
+    for k in range(start, end + 1):
+        m = LABEL_RE.match(clines[k])
+        if m and m.group("name") not in ("case", "default"):
+            labels.setdefault(m.group("name"), k)
+    return labels
+
+
+def label_line_between(clines, first, last):
+    """Return the 0-based line of an ordinary label in [first, last]."""
+    for k in range(first, last + 1):
+        m = LABEL_RE.match(clines[k])
+        if m and m.group("name") not in ("case", "default"):
+            return k
+    return None
+
+
+def _terminal_of(stmt):
+    """Return the terminal dict of a parsed statement, unwrapping blocks."""
+    while stmt is not None and "start_line" in stmt:
+        stmt = stmt.get("terminal")
+    return stmt
+
+
+def guard_covers_exit(ifs, labels, exit_line, name, release_line):
+    """True when a top-level null guard's then branch ends at exit_line."""
+    for info in ifs:
+        if info["level"] != 0 or info["has_else"]:
+            continue
+        if not _is_null_test(info["cond"], name):
+            continue
+        terminal = _terminal_of(info["then"])
+        if terminal is None or terminal["line"] != exit_line:
+            continue
+        kind = terminal["kind"]
+        if kind not in ("return", "exit", "abort", "goto"):
+            continue
+        if kind == "goto":
+            target_line = labels.get(terminal.get("target"))
+            if target_line is None or target_line <= release_line:
+                continue
+        return True
+    return False
 
 
 def load_sidecars(root):
@@ -405,17 +813,30 @@ def analyse_source(path, rel, owned_return, consumes):
         for k in range(start, end + 1):
             depth += clines[k].count("{") - clines[k].count("}")
             body_depth[k] = depth
+        func_depth = body_depth[start]
         for i in range(start + 1, end):
-            m = DECL_RE.match(clines[i])
-            if not m:
+            parsed = parse_pointer_declaration(clines[i])
+            if parsed is None:
                 continue
-            indent = m.group("indent")
-            decl_type = m.group("type")
-            name = m.group("name")
-            init_fn = m.group("init").split("(", 1)[0].strip()
+            indent = parsed["indent"]
+            decl_type = parsed["type"]
+            declarators = parsed["declarators"]
             if re.search(r"\b(own|raw|ref|mut)\b", decl_type):
                 continue
-            decl_depth = body_depth[i]
+            if parsed["problem"]:
+                if any(init and single_call_name(init)
+                       for _declname, init in declarators):
+                    add("raw", i + 1, len(indent) + 1, 0.0,
+                        "multiple declarators are not migrated (the "
+                        "declaration introduces %d declarators)"
+                        % len(declarators), False)
+                continue
+            if len(declarators) != 1 or declarators[0][0] is None:
+                continue
+            name, init = declarators[0]
+            init_fn = single_call_name(init)
+            if init_fn is None:
+                continue
             if init_fn in HEAP_FNS:
                 release_fn = HEAP_RELEASE
                 source = "the allocation catalogue"
@@ -460,7 +881,8 @@ def analyse_source(path, rel, owned_return, consumes):
                         problem = "the pointer is returned"
                         problem_line = k
                         break
-                    if re.search(r"=[^=;]*$", before) and \
+                    if re.search(r"(?<![=!<>+\-*/%&|^])"
+                                 r"=[^=;]*$", before) and \
                             re.match(r"[ \t]*[,;)]", after):
                         problem = "the pointer is copied into another variable"
                         problem_line = k
@@ -492,12 +914,6 @@ def analyse_source(path, rel, owned_return, consumes):
                     "the pointer is released more than once", False)
                 continue
             rel_line = release_lines[0]
-            if body_depth[rel_line] != decl_depth or \
-                    unbraced_conditional(clines, rel_line):
-                add("raw", i + 1, len(indent) + 1, 0.0,
-                    "the release at line %d is on a conditional path"
-                    % (rel_line + 1), False)
-                continue
             stmt_re = re.compile(r"^[ \t]*" + re.escape(release_fn)
                                  + r"[ \t]*\(\s*" + re.escape(name)
                                  + r"\s*\)[ \t]*;[ \t]*$")
@@ -506,12 +922,39 @@ def analyse_source(path, rel, owned_return, consumes):
                     "the release is not a standalone statement on every path",
                     False)
                 continue
+            if body_depth[i] != func_depth:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the declaration is not a top-level statement at "
+                    "function depth", False)
+                continue
+            top_level, context, ifs = release_control_context(
+                clines, start, end, rel_line, release_fn)
+            label_line = label_line_between(clines, i + 1, rel_line)
+            if not top_level:
+                reason = ("the release at line %d is on a conditional path "
+                          "(%s)" % (rel_line + 1, context))
+                if label_line is not None:
+                    reason += ("; a label or goto target lies between the "
+                               "declaration and the release (line %d)"
+                               % (label_line + 1))
+                add("raw", i + 1, len(indent) + 1, 0.0, reason, False)
+                continue
+            if label_line is not None:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "a label or goto target lies between the declaration "
+                    "and the release (line %d)" % (label_line + 1), False)
+                continue
+            labels = function_label_lines(clines, start, end)
             exit_bad = None
+            guarded = False
             for k in range(i + 1, rel_line):
-                if re.search(r"\b(return|goto|break|continue)\b", clines[k]):
-                    if not is_null_guard(clines, k, name):
-                        exit_bad = k
-                        break
+                if not _EXIT_RE.search(clines[k]):
+                    continue
+                if guard_covers_exit(ifs, labels, k, name, rel_line):
+                    guarded = True
+                    continue
+                exit_bad = k
+                break
             if exit_bad is not None:
                 add("raw", i + 1, len(indent) + 1, 0.0,
                     "an early exit at line %d can skip the release"
@@ -530,9 +973,15 @@ def analyse_source(path, rel, owned_return, consumes):
             lines[i] = indent + "own " + lines[i][len(indent):]
             lines[rel_line] = re.sub(r"\b" + re.escape(release_fn) + r"\b",
                                      "drop", lines[rel_line], count=1)
-            add("own", i + 1, len(indent) + 1, 1.0,
-                "single %s from %s released once by %s on a straight-line path"
-                % (init_fn, source, release_fn), True,
+            confidence = 0.80 if guarded else 1.0
+            if guarded:
+                reason = ("single %s from %s released once by %s after a "
+                          "proven null guard" % (init_fn, source, release_fn))
+            else:
+                reason = ("single %s from %s released once by %s on a "
+                          "straight-line path"
+                          % (init_fn, source, release_fn))
+            add("own", i + 1, len(indent) + 1, confidence, reason, True,
                 {"transformation": {
                     "declaration_line": i + 1,
                     "release_line": rel_line + 1,
@@ -542,15 +991,16 @@ def analyse_source(path, rel, owned_return, consumes):
 
     # global declarations are never rewritten
     for i, line in enumerate(clines):
-        m = DECL_RE.match(line)
-        if not m:
+        parsed = parse_pointer_declaration(line)
+        if parsed is None:
             continue
         if any(start < i < end for (hdr, start, end, fname, params)
                in funcs):
             continue
-        init_fn = m.group("init").split("(", 1)[0].strip()
-        if init_fn in HEAP_FNS or init_fn in owned_return:
-            add("raw", i + 1, len(m.group("indent")) + 1, 0.0,
+        init_fns = [single_call_name(init)
+                    for _declname, init in parsed["declarators"] if init]
+        if any(fn in HEAP_FNS or fn in owned_return for fn in init_fns):
+            add("raw", i + 1, len(parsed["indent"]) + 1, 0.0,
                 "file-scope storage is not migrated by Phase 12", False)
 
     # borrow suggestions, never applied

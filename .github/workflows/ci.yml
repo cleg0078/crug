@@ -1,0 +1,138 @@
+name: ci
+
+# The repository-wide gate. The four always-on jobs are the ones
+# scripts/check-ci-gate.sh requires: build proves the pinned GCC baseline and
+# plain-C compatibility, compiler proves the ownership/borrow/ownership-drop
+# front end plus the c2crug rewrite proofs, runtime proves the libcrug task
+# scheduler and channels, and gate-self-test proves that the gate adjudicator
+# still fails fail-open archives and MANUAL expectations. The fifth job,
+# coverage, runs only on the weekly schedule.
+#
+# check-ci-gate.sh observes a completed, successful run of this workflow on
+# the exact HEAD commit and requires the gate-self-test context in branch
+# protection, so moving this file or renaming a job is a gate change.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    # The coverage archive is written by the audit harness on a measured
+    # commit, so its provenance is revalidated weekly rather than on every
+    # push. A missing archive is exit 2, never a silent green.
+    - cron: '0 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker image prune -af || true
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd
+      - name: Build the pinned GCC baseline
+        run: make baseline JOBS=$(nproc)
+      - name: Plain C compatibility
+        run: make check-C_COMPAT
+
+  compiler:
+    name: compiler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker image prune -af || true
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd python3
+      - name: Build the pinned GCC baseline
+        run: make baseline JOBS=$(nproc)
+      - name: Ownership, borrow and drop suites
+        run: make check-OWNERSHIP check-DROP check-BORROW
+      - name: c2crug rewrite proofs and conformance
+        run: make check-C2CRUG check-C2CRUG_PROOFS
+
+  runtime:
+    name: runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install the runtime toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential python3
+      - name: Task scheduler, channels and synchronous send
+        run: make check-GOROUTINES check-CHANNELS check-SEND_SYNC
+
+  gate-self-test:
+    name: gate-self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Gate adjudicator held-out self-test
+        run: bash scripts/gate.sh --self-test
+      - name: Archive replay self-test
+        run: sh scripts/check-gate-archives.sh --self-test
+      - name: Ledger validator
+        run: sh scripts/check-p0-open.sh
+      - name: P1 regression self-test
+        run: sh scripts/check-p1-regressions.sh --self-test
+      - name: CI gate static self-test
+        run: sh scripts/check-ci-gate.sh --self-test
+
+  coverage:
+    name: coverage
+    # The archive is committed evidence from a measured run, so only the
+    # scheduled invocation revalidates it; pull requests are not blocked by a
+    # measurement they cannot reproduce without the external GCOV harness.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install Python
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3
+      - name: Validate the coverage archive and TESTING.md
+        run: sh scripts/check-coverage.sh

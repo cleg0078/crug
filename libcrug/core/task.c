@@ -30,6 +30,8 @@
 
 #include "task.h"
 
+#include "task-internal.h"
+
 #include "crug_pal.h"
 #include "ctx.h"
 
@@ -43,6 +45,8 @@
 #define CRUG_TASK_GUARD_BYTES 4096u
 #define CRUG_TASK_WORKERS_DEFAULT_MAX 8u
 #define CRUG_TASK_QUEUE_WAKE_ONE 1
+#define CRUG_TASK_SHUTDOWN_POLL_NS 1000000ull  /* 1 ms between status checks */
+#define CRUG_TASK_SHUTDOWN_POLLS 60000u        /* at most 60 s for a waiter  */
 #define CRUG_SCOPE_MAGIC 0x5c0be5c0be5c0be5ull
 
 enum crug_task_state
@@ -75,8 +79,18 @@ struct crug_task
   struct crug_task *next;
   _Atomic uint32_t state;
   uint32_t id;
-  unsigned char frame[];
+  /* The channel receive buffer of this task (task-internal.h).  It is lazy:
+     freed with the task, and never shared with another task.  */
+  void *recv_scratch;
+  size_t recv_scratch_size;
+  /* The captured frame the compiler's thunk reads.  It must be aligned for
+     every object type the language can capture, so the offset is rounded up
+     to max_align_t (spawn_common sizes the allocation the same way).  */
+  _Alignas (max_align_t) unsigned char frame[];
 };
+
+_Static_assert (offsetof (struct crug_task, frame) % _Alignof (max_align_t) == 0,
+		"the task frame offset must be max_align_t aligned");
 
 struct crug_sched
 {
@@ -94,6 +108,10 @@ struct crug_sched
   _Atomic uint64_t scopes_entered;
   _Atomic uint64_t scopes_left;
   _Atomic uint32_t scopes_live;
+  /* Set when the caller that owns a shutdown could not join a worker.  A
+     later caller then reports the same failure at once instead of waiting for
+     the 60 s overlap timeout.  */
+  _Atomic uint32_t stop_failed;
   uint32_t configured_workers;
   uint32_t worker_count;
   uint32_t queue_peak;
@@ -150,10 +168,13 @@ queue_unlock (void)
   atomic_store_explicit (&sched.lock, 0u, memory_order_release);
 }
 
+/* Append TASK; the caller holds the scheduler lock.  spawn_common needs the
+   append to happen in the same critical section as its admission check, so
+   that a shutdown cannot start between "the task is admitted" and "the task
+   is visible to the workers".  */
 static void
-queue_push (struct crug_task *task)
+queue_push_locked (struct crug_task *task)
 {
-  queue_lock ();
   task->next = NULL;
   if (sched.tail == NULL)
     sched.head = task;
@@ -164,8 +185,6 @@ queue_push (struct crug_task *task)
   if (sched.queue_length > sched.queue_peak)
     sched.queue_peak = sched.queue_length;
   atomic_fetch_add_explicit (&sched.epoch, 1u, memory_order_release);
-  queue_unlock ();
-  crug_pal_wake_one (&sched.epoch);
 }
 
 static struct crug_task *
@@ -305,8 +324,31 @@ task_release (struct crug_task *task)
     atomic_fetch_add_explicit (&sched.corrupt, 1u, memory_order_relaxed);
   if (task->stack_reserve != NULL)
     crug_pal_memory_release (task->stack_reserve, task->stack_reserve_size);
+  free (task->recv_scratch);
   task->magic = 0;
   free (task);
+}
+
+/* The per-task receive buffer the channel runtime copies through; see
+   task-internal.h.  A NULL current_task means the main thread (or an
+   arbitrary PAL thread), which keeps its own thread-local buffer instead.  */
+void *
+crug_task_recv_scratch (size_t need)
+{
+  struct crug_task *task = current_task;
+  void *bigger;
+
+  if (task == NULL)
+    return NULL;
+  if (task->recv_scratch == NULL || task->recv_scratch_size < need)
+    {
+      bigger = realloc (task->recv_scratch, need);
+      if (bigger == NULL)
+	crug_runtime_fatal ("cannot allocate a task receive buffer");
+      task->recv_scratch = bigger;
+      task->recv_scratch_size = need;
+    }
+  return task->recv_scratch;
 }
 
 /* ---- task context ----------------------------------------------------- */
@@ -320,7 +362,23 @@ crug_task_finish (void)
 
   atomic_store_explicit (&task->state, CRUG_TASK_DONE, memory_order_release);
   atomic_fetch_add_explicit (&sched.completed, 1u, memory_order_relaxed);
-  atomic_fetch_sub_explicit (&sched.live, 1u, memory_order_acq_rel);
+  /* A task was admitted by spawn_common, so live is at least one while it
+     runs.  A zero means the task was never admitted (or a finish ran twice):
+     that is a runtime invariant violation, not a counter to wrap.  */
+  for (;;)
+    {
+      uint32_t live = atomic_load_explicit (&sched.live, memory_order_acquire);
+
+      if (live == 0u)
+	{
+	  atomic_fetch_add_explicit (&sched.corrupt, 1u, memory_order_relaxed);
+	  crug_runtime_fatal ("a task finished without a spawn admission");
+	}
+      if (atomic_compare_exchange_weak_explicit (&sched.live, &live, live - 1u,
+						 memory_order_acq_rel,
+						 memory_order_acquire))
+	break;
+    }
   atomic_fetch_add_explicit (&sched.epoch, 1u, memory_order_release);
 
   /* Leave the task group, if any, before the task's stack goes away: the
@@ -428,11 +486,24 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   size_t guard;
   size_t stack;
   size_t frame_bytes;
+  size_t align;
 
   if (entry == NULL)
     crug_runtime_fatal ("spawn without an entry function");
 
   runtime_start ();
+
+  /* The compiler copies a by-value frame into task->frame and the thunk reads
+     it as the captured structure, so the offset must satisfy the strictest
+     alignment an object can require.  Both size computations are checked: the
+     frontend rejects an over-aligned capture, but / sizeof arithmetic that
+     wraps would otherwise reserve a tiny block for a large frame.  */
+  align = _Alignof (max_align_t);
+  if (frame_size > SIZE_MAX - (align - 1u))
+    crug_runtime_fatal ("crug-CONC-028: the task frame size overflows");
+  frame_bytes = (frame_size + (align - 1u)) & ~(align - 1u);
+  if (sizeof *task > SIZE_MAX - frame_bytes)
+    crug_runtime_fatal ("crug-CONC-028: the task frame size overflows");
 
   /* The guard must start on a page boundary: a backend's protection call
      rejects a misaligned range, and the page can be larger than 4 KiB
@@ -443,7 +514,6 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   stack = sched.stack_bytes;
   stack = (stack + guard - 1) & ~(guard - 1);
   total = guard + stack;
-  frame_bytes = (frame_size + 15u) & ~(size_t) 15u;
 
   reserve = crug_pal_memory_reserve (total);
   if (reserve == NULL)
@@ -460,6 +530,8 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   task->magic = CRUG_TASK_MAGIC;
   task->stack_reserve = reserve;
   task->stack_reserve_size = total;
+  task->recv_scratch = NULL;
+  task->recv_scratch_size = 0;
   task->stack_canary = (char *) reserve + guard;
   *((uint64_t *) task->stack_canary) = CRUG_TASK_CANARY;
   task->frame_size = frame_size;
@@ -475,13 +547,23 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   if (task->sp == NULL)
     crug_runtime_fatal ("cannot prepare a task stack");
 
+  /* Admission is one critical section: the shutdown state is read, the live
+     count is raised, the identifier is taken and the task becomes visible to
+     the workers together.  A spawn that races a shutdown dies with the
+     diagnostic instead of joining a runtime that is draining (ADR 0009).  */
   queue_lock ();
+  if (atomic_load_explicit (&sched.stopping, memory_order_acquire)
+      || atomic_load_explicit (&sched.shutdown, memory_order_acquire))
+    {
+      queue_unlock ();
+      crug_runtime_fatal ("crug-CONC-029: cannot spawn during shutdown");
+    }
   task->id = ++sched.next_id;
-  queue_unlock ();
-
   atomic_fetch_add_explicit (&sched.live, 1u, memory_order_acq_rel);
   atomic_fetch_add_explicit (&sched.spawned, 1u, memory_order_relaxed);
-  queue_push (task);
+  queue_push_locked (task);
+  queue_unlock ();
+  crug_pal_wake_one (&sched.epoch);
 }
 
 void
@@ -564,24 +646,47 @@ crug_scope_stats_get (struct crug_scope_stats *out)
   out->live = atomic_load_explicit (&sched.scopes_live, memory_order_relaxed);
 }
 
-void
-crug_task_runtime_shutdown (void)
+int
+crug_task_runtime_try_shutdown (void)
 {
   uint32_t i;
   uint32_t workers;
+  unsigned polls;
+
+  /* Checked first and before any mutation: a task cannot join the workers it
+     is running on, so the answer must be defined even while another thread
+     owns the shutdown.  The void entry point below turns this status into a
+     diagnostic, which is how ABI version 1 stays void.  */
+  if (current_task != NULL)
+    return 2;
 
   if (!atomic_load_explicit (&sched.started, memory_order_acquire))
-    return;
+    return 1;
 
   queue_lock ();
   if (!atomic_load_explicit (&sched.started, memory_order_relaxed))
     {
       queue_unlock ();
-      return;
+      return 1;
     }
-  /* started stays set until the workers are joined: a task that is still
-     running may spawn more tasks, and those must be queued for the workers
-     that are draining, not handed to a second generation of workers.  */
+  if (atomic_load_explicit (&sched.stopping, memory_order_relaxed))
+    {
+      queue_unlock ();
+      /* Another caller owns the shutdown.  Wait for it, bounded, so an
+	 overlapping caller reports the real outcome instead of a spurious
+	 "not started" while the workers are still being joined.  */
+      for (polls = 0; polls < CRUG_TASK_SHUTDOWN_POLLS; polls++)
+	{
+	  if (atomic_load_explicit (&sched.stop_failed, memory_order_acquire))
+	    return 3;
+	  if (!atomic_load_explicit (&sched.started, memory_order_acquire))
+	    return 1;
+	  crug_pal_sleep_ns (CRUG_TASK_SHUTDOWN_POLL_NS);
+	}
+      return 3;
+    }
+  /* started stays set while the workers drain: spawn admission uses stopping
+     to reject a task that would otherwise join a runtime that is leaving.  */
   atomic_store_explicit (&sched.stopping, 1u, memory_order_release);
   atomic_store_explicit (&sched.shutdown, 1u, memory_order_release);
   atomic_fetch_add_explicit (&sched.epoch, 1u, memory_order_release);
@@ -590,23 +695,49 @@ crug_task_runtime_shutdown (void)
   crug_pal_wake_all (&sched.epoch);
 
   for (i = 0; i < workers; i++)
-    crug_pal_thread_join (sched.threads[i]);
+    {
+      if (crug_pal_thread_join (sched.threads[i]) != 0)
+	{
+	  /* The backend kept the handle: it did not join and did not free it.
+	     The runtime is not stopped, so keep stopping/started/queue/live and
+	     report failure.  Record it so a later caller reports the same
+	     failure instead of pretending to succeed or waiting out the
+	     overlap timeout.  */
+	  atomic_store_explicit (&sched.stop_failed, 1u, memory_order_release);
+	  return 3;
+	}
+      sched.threads[i] = NULL;
+    }
 
   queue_lock ();
   sched.worker_count = 0;
   sched.head = NULL;
   sched.tail = NULL;
   sched.queue_length = 0;
-  atomic_store_explicit (&sched.started, 0u, memory_order_release);
   atomic_store_explicit (&sched.live, 0u, memory_order_release);
   atomic_store_explicit (&sched.epoch, 0u, memory_order_release);
   atomic_store_explicit (&sched.shutdown, 0u, memory_order_release);
   atomic_store_explicit (&sched.stopping, 0u, memory_order_release);
+  atomic_store_explicit (&sched.stop_failed, 0u, memory_order_release);
+  atomic_store_explicit (&sched.started, 0u, memory_order_release);
   queue_unlock ();
   atomic_store_explicit (&sched.lost,
                          atomic_load_explicit (&sched.spawned, memory_order_acquire)
                            - atomic_load_explicit (&sched.completed, memory_order_acquire),
                          memory_order_release);
+  return 0;
+}
+
+void
+crug_task_runtime_shutdown (void)
+{
+  int status = crug_task_runtime_try_shutdown ();
+
+  if (status == 0 || status == 1)
+    return;
+  if (status == 2)
+    crug_runtime_fatal ("a task cannot shut down the task runtime");
+  crug_runtime_fatal ("cannot shut down the task runtime: a worker did not join");
 }
 
 void

@@ -146,3 +146,19 @@ The five task programs are `spawn`, `yield`, `capture`, `owned` and
 | `make check-GOROUTINES_DG` | only the DejaGnu cases under `gcc/testsuite/crug.dg/goroutines/` |
 | `make -C libcrug check-sanitizer` | the task suite and the group API under ASan, UBSan and LeakSanitizer |
 | `make check-SCOPE` | the structured-scope phase, including the group counters and the stress program (`SCOPE.md`) |
+
+## 9. Post-rc1 shutdown and admission (2026-10-26)
+
+`int crug_task_runtime_try_shutdown (void)` is the checked form: 0 means the
+runtime stopped, 1 that it was not started, 2 that it was called from inside a
+task (nothing is changed, and the call is refused before any mutation), and 3
+that a PAL join failed. `crug_task_runtime_shutdown` keeps its `void`
+contract and calls the checked form. Shutdown from inside a task is forbidden:
+the caller cannot both own the stop and be a task that the stop must join.
+A second shutdown caller polls `stopping` and reports 3 if the owner fails; a
+join failure is sticky (a second call returns 3 immediately), the handle is not
+freed and the joined flag is not set. The scheduler sets `stopping` under the
+lock, drains the queued tasks and keeps the stopping set until the stop
+completes. Spawning during shutdown or stopping is fatal
+(`crug-CONC-029`), and a `go` frame whose size arithmetic overflows is fatal
+(`crug-CONC-028`). The runtime ABI stays 1.

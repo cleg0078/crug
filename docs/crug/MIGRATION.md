@@ -124,6 +124,16 @@ One documentation inconsistency: `docs/crug/C2CRUG.md` section 4's sample line r
 
 The tool is a definition-use analysis over one directory, not a compiler and not a proof. Its limits are deliberate and each one is a place where a human review is still required.
 
+## 8. Post-rc1: what `--safe` will not do (2026-10-26)
+
+A conditional free is not a proof: if the release is inside a branch, the
+declaration stays `raw` because the ownership state on the other path is
+unknown. A null guard earns 0.80 confidence only when it directly controls an
+early exit that dominates the release, so a guard on an unrelated pointer no
+longer raises the score. No transform is applied without a proof, and a
+multi-declarator top-level declaration stays raw because the proof is per
+declarator and the tool does not split the declaration.
+
 - The declaration must be one line of the accepted shape. Multi-line declarations, several declarators on one line, global variables, struct members, arrays of pointers and function pointers are not classified.
 - The catalogues are closed. A custom allocator or deallocator is unknown unless a sidecar declares it; a `realloc` pattern is not treated as an ownership transfer.
 - The straight-line rule is strict. A conditional release, an early return, a `goto` or a `break` that skips the release makes the entry `raw` rather than suggesting a fix, and the tool never inserts cleanup code.

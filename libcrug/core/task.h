@@ -57,9 +57,23 @@ void crug_task_spawn (crug_task_entry entry, const void *frame, size_t frame_siz
 /* Let other tasks run.  A no-op outside a task (on the main thread).  */
 void crug_task_yield (void);
 
-/* Idempotent: run every remaining task, join the workers, release the stacks.
-   A later spawn starts the runtime again.  */
+/* Run every remaining task, join the workers, release the stacks.  A later
+   spawn starts the runtime again.  The void form is part of ABI version 1 and
+   stays void: a call from a task, or a worker that cannot be joined, is a
+   fatal diagnostic rather than a silent half-shutdown.  */
 void crug_task_runtime_shutdown (void);
+
+/* The checked form of the shutdown above.  Returns
+     0  this call stopped the runtime;
+     1  there was nothing left to stop: the runtime was not started, or an
+	 overlapping caller stopped it while this call waited;
+     2  the call came from a task (nothing changed);
+     3  a worker could not be joined (nothing else changed; a later call
+	 reports 3 as well).
+   Idempotent and safe from several threads at once: one caller owns the
+   shutdown and an overlapping caller waits for it.  A task may not call the
+   void form: status 2 there is fatal.  */
+int crug_task_runtime_try_shutdown (void);
 
 struct crug_task_stats
 {

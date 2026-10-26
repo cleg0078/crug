@@ -1,0 +1,24 @@
+#   Copyright (C) 2026 CLEG0078
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3, or (at your option)
+# any later version.
+#
+# GCC testsuite for Crug grammar fixes: the contextual-qualifier scan reads
+# up to eight tokens ahead instead of four, and a longer chain is an ordinary
+# syntax error without parser state corruption (P3-008, ADR 0029 D10).
+
+load_lib gcc-dg.exp
+
+global DEFAULT_CFLAGS
+if ![info exists DEFAULT_CFLAGS] then {
+    set DEFAULT_CFLAGS ""
+}
+
+dg-init
+
+dg-runtest [lsort [glob -nocomplain $srcdir/$subdir/*.\[cSi\]]] \
+	"" $DEFAULT_CFLAGS
+
+dg-finish

@@ -8,10 +8,12 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-26
+
 ### Added
 
 - **Debian package.** `make package-deb` builds
-  `dist/crug_0.1.0-1_amd64.deb` from the same install tree as the tarball and
+  `dist/crug_<version>-1_amd64.deb` from the same install tree as the tarball and
   the image, with a `Depends` line measured from the payload (`libc6 (>= 2.38)`,
   `libgcc-s1`, `libstdc++6`, `libzstd1`, `binutils`, `libc6-dev`) and the
   `/usr/bin/crugc`, `/usr/include/crug` and
@@ -24,6 +26,22 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 - **Launcher resolution.** `gcc/crugc` follows its own symlink, so an installed
   `/usr/bin/crugc` runs the packaged compiler instead of silently falling back
   to the host GCC; `make check-launcher` pins the contract.
+- **Post-rc1 defect batch (K-003 to K-023).** The audit fixes carry regressions
+  and `make check-P1` runs them: capacity-0 channel handoff completes on the
+  sender's ticket (R4-RT-001); the channel claim API and `select` lowering
+  avoid a shared TLS buffer and readiness probes; task shutdown has a status
+  contract, rejects a call from inside a task and refuses spawn during
+  draining; frame alignment and overflow are checked; the ownership pass
+  rejects reads of an empty owned value; borrows join at CFG joins; alias facts
+  require a proven disjoint root; `.crugffi` destructors need exactly one
+  matching pointer argument (a non-void return such as `fclose` stays valid)
+  and `argN` clauses reject malformed or out-of-range indices; the parser's
+  lookahead no longer overflows on chained qualifiers; `c2crug --safe`
+  transforms only a proven unconditional release; the exit gates reject a
+  fail-open CHECK and replay archived logs. The PAL contract moves to 1.2 for
+  `crug_pal_thread_join`; the runtime ABI stays 1 and the `.crugffi` format is
+  unchanged. See `docs/crug/RELEASE-NOTES.md` section 8 and
+  `docs/crug/KNOWN-ISSUES.md` for the per-defect ledger.
 
 ## [0.1.0-rc1] - 2026-10-21
 

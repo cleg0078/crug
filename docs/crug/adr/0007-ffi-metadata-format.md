@@ -303,3 +303,17 @@ limitation.
 
 The flag closure note at the end of D5 is satisfied by both options
 (`-fcrug-ffi=` and `-fcrug-ffi-discover` imply `-fcrug-ownership`).
+
+### A-2 (2026-10-26): the destructor's return type
+
+D3's sentence "`D` must be declared with external linkage as `void D(T *)`,
+exactly as ADR 0004 D8 requires for `adopt`" is narrowed for `.crugffi`
+destructors. The argument contract stays strict: `D` must be an external
+function declared with a prototype, non-variadic, with exactly one pointer
+parameter whose pointee matches the owned type, and a K&R definition, a
+variadic tail or a second parameter is rejected with `crug-FFI-011`. The
+return type is **not** part of the contract: C permits calling a
+value-returning function as an expression statement, and standard destructors
+such as `fclose` return `int`. The call site discards the result. This keeps
+the existing `fopen`/`fclose` contracts valid (P3-005) while still rejecting a
+call shape that would not pass exactly one pointer.

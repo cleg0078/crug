@@ -1,0 +1,2 @@
+crugffi 1.0;
+fn live_count borrows arg1;

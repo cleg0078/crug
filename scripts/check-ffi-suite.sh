@@ -17,10 +17,12 @@ VERBOSE=0
 
 CRUGC=${CRUGC:-}
 if [ -z "$CRUGC" ]; then
-  if command -v crugc >/dev/null 2>&1; then
-    CRUGC=$(command -v crugc)
-  elif [ -x "$ROOT/gcc/crugc" ]; then
+  # Prefer the compiler in this checkout: an installed crugc elsewhere on
+  # PATH may be an older release and would hide the fixtures under test.
+  if [ -x "$ROOT/gcc/crugc" ]; then
     CRUGC="$ROOT/gcc/crugc"
+  elif command -v crugc >/dev/null 2>&1; then
+    CRUGC=$(command -v crugc)
   else
     echo "ffi-suite: no crugc (set CRUGC or run make crugc)" >&2
     exit 2
@@ -108,7 +110,9 @@ fi
 
 # Malformed sidecars.  Each driver includes ../contracts.h so that the only
 # complaint is the sidecar itself.
-for case in no-version:FFI-001 version-2:FFI-001 unknown-clause:FFI-003 bad-arg:FFI-005 bad-dtor:FFI-011 unmatched:FFI-006; do
+for case in no-version:FFI-001 version-2:FFI-001 unknown-clause:FFI-003 bad-arg:FFI-005 bad-dtor:FFI-011 unmatched:FFI-006 \
+	     dtor-arity:FFI-011 dtor-knr:FFI-011 dtor-variadic:FFI-011 \
+	     argref-malformed:FFI-003 argref-range:FFI-005; do
   name=${case%%:*}
   code=${case##*:}
   CASES=$((CASES + 1))

@@ -198,37 +198,13 @@ struct crug_frame
 {
   tree bind;
   std::vector<tree> decls;
+  std::vector<tree> ptr_decls;
   std::vector<tree> borrows;
   /* The group handle when this frame is the body of a 'scope' statement:
      leaving the frame waits for the group first.  */
   tree scope_handle;
 
   crug_frame () : bind (NULL_TREE), scope_handle (NULL_TREE) {}
-};
-
-/* A loop or switch: where break and continue land, and the states that
-   arrive there.  */
-
-struct crug_target
-{
-  bool is_loop;
-  size_t keep_depth;
-  std::vector<state_map> edges;
-  state_map cases;
-};
-
-struct crug_goto
-{
-  tree stmt;
-  tree label;
-  location_t loc;
-  state_map env;
-};
-
-struct crug_label_info
-{
-  std::vector<tree> path;
-  std::vector<tree> decls_before;
 };
 
 /* A live borrow: which binding holds it and which object it borrows.  A
@@ -242,12 +218,55 @@ struct crug_label_info
 struct crug_borrow
 {
   bool is_mut;
+  /* Every object this binding may borrow.  A straight-line borrow has one
+     lender; a binding assigned on different control-flow paths collects one
+     entry per path.  LENDER keeps the single-lender case (and the dump
+     output) and is NULL_TREE when the set is not a singleton.  */
   tree lender;
+  std::set<tree> lenders;
   size_t depth;
   /* Where the borrow was created and how deep the lender lives.  The origin
      is used by the crug-BORROW-019 note, LENDER_DEPTH by the escape rules.  */
   location_t origin;
   size_t lender_depth;
+};
+
+/* Provenance of a local pointer value: the set of object roots it may point
+   into.  KNOWN is false when the value came from a call or another opaque
+   source, in which case no disjointness proof is possible.  */
+
+struct crug_root_info
+{
+  bool known = false;
+  std::set<tree> roots;
+};
+
+/* A loop or switch: where break and continue land, and the states that
+   arrive there.  */
+
+struct crug_target
+{
+  bool is_loop;
+  size_t keep_depth;
+  std::vector<state_map> edges;
+  std::vector<std::map<tree, crug_borrow> > borrow_edges;
+  state_map cases;
+};
+
+struct crug_goto
+{
+  tree stmt;
+  tree label;
+  location_t loc;
+  state_map env;
+  std::map<tree, crug_borrow> borrows;
+};
+
+struct crug_label_info
+{
+  std::vector<tree> path;
+  std::vector<tree> decls_before;
+  std::map<tree, crug_borrow> borrows;
 };
 
 struct crug_fn_ctx
@@ -274,6 +293,15 @@ struct crug_fn_ctx
      the block that declares the binding ends, which is what makes the
      checker lexical.  */
   std::map<tree, crug_borrow> borrows;
+  /* Borrow bindings that may be live at a label.  A goto may skip a borrow
+     or arrive with a different one, so these are merged conservatively.  */
+  std::map<tree, std::map<tree, crug_borrow> > label_borrow_envs;
+  /* Provenance of local pointer values, used by -fcrug-alias-facts to prove
+     that the other arguments of a call cannot view a mut or own lender.  */
+  std::map<tree, crug_root_info> ptr_roots;
+  /* Set when a goto or label makes the pointer provenance path-insensitive:
+     no disjointness proof is then possible.  */
+  bool ptr_roots_unknown = false;
   /* Bindings declared with ref or mut, initialized or not, and the frame
      depth of every owning or borrowing declaration that has a lifetime.  */
   std::set<tree> borrow_declared;
@@ -1518,8 +1546,8 @@ solve_borrow_liveness (crug_fn_ctx &ctx, tree t, const live_set &out)
     case SWITCH_STMT:
       {
 	live_set uses;
-	collect_borrow_refs (SWITCH_COND (t), false, uses);
-	live_set body = solve_borrow_liveness (ctx, SWITCH_BODY (t), out);
+	collect_borrow_refs (SWITCH_STMT_COND (t), false, uses);
+	live_set body = solve_borrow_liveness (ctx, SWITCH_STMT_BODY (t), out);
 	in = uses;
 	for (live_set::const_iterator i = body.begin (); i != body.end (); ++i)
 	  in.insert (*i);
@@ -1781,6 +1809,8 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
   crug_frame &f = ctx.frames.back ();
   for (size_t i = 0; i < f.decls.size (); i++)
     env.erase (f.decls[i]);
+  for (size_t i = 0; i < f.ptr_decls.size (); i++)
+    ctx.ptr_roots.erase (f.ptr_decls[i]);
   /* A borrow never outlives the block that declares it.  */
   for (size_t i = 0; i < f.borrows.size (); i++)
     {
@@ -1858,17 +1888,28 @@ register_borrow (crug_fn_ctx &ctx, tree binding, bool is_mut, tree lender,
 		 location_t origin)
 {
   crug_borrow b;
+  /* Re-initializing an existing binding does not move the borrow into the
+     block that happens to contain the assignment.  Its lifetime frame is the
+     block that declares it, which is where pop_frame erases it.  Registering
+     it in the inner block would end the borrow at that block's end and leave
+     the outer binding silently pointing at an erased entry.  */
+  std::map<tree, size_t>::const_iterator old = ctx.decl_depth.find (binding);
+  bool fresh = old == ctx.decl_depth.end ();
   b.is_mut = is_mut;
   b.lender = lender;
-  b.depth = ctx.frames.size () - 1;
+  b.lenders.insert (lender);
+  b.depth = fresh ? ctx.frames.size () - 1 : old->second;
   b.origin = origin;
   /* A borrowed parameter has no local lender, so it lives as long as the
      function; every other lender has a frame depth of its own.  */
   std::map<tree, size_t>::const_iterator ld = ctx.decl_depth.find (lender);
   b.lender_depth = ld != ctx.decl_depth.end () ? ld->second : 0;
-  ctx.frames.back ().borrows.push_back (binding);
-  ctx.borrow_declared.insert (binding);
-  ctx.decl_depth[binding] = b.depth;
+  if (fresh)
+    {
+      ctx.frames.back ().borrows.push_back (binding);
+      ctx.borrow_declared.insert (binding);
+      ctx.decl_depth[binding] = b.depth;
+    }
   ctx.borrows[binding] = b;
   ctx.borrow_ended.erase (binding);
   dump_borrow (true, DECL_SOURCE_LOCATION (binding), binding, is_mut, lender);
@@ -1880,9 +1921,9 @@ static tree
 resolve_lender (crug_fn_ctx &ctx, tree binding)
 {
   std::map<tree, crug_borrow>::const_iterator it = ctx.borrows.find (binding);
-  if (it == ctx.borrows.end ())
+  if (it == ctx.borrows.end () || it->second.lenders.size () != 1)
     return NULL_TREE;
-  return it->second.lender;
+  return *it->second.lenders.begin ();
 }
 
 /* True when LENDER has a live borrow; SHARED and MUT report which kinds.  */
@@ -1899,7 +1940,8 @@ has_live_borrow (crug_fn_ctx &ctx, tree lender, bool *shared, bool *mut)
   for (std::map<tree, crug_borrow>::const_iterator i = ctx.borrows.begin ();
        i != ctx.borrows.end (); ++i)
     {
-      if (i->second.lender != lender)
+      if (i->second.lenders.size () == 1
+	  && i->second.lenders.count (lender) == 0)
 	continue;
 
       /* Phase 7: a borrow stops excluding its lender at its last use.  A
@@ -1933,7 +1975,9 @@ note_live_borrow (crug_fn_ctx &ctx, tree lender, bool mut)
   for (std::map<tree, crug_borrow>::const_iterator i = ctx.borrows.begin ();
        i != ctx.borrows.end (); ++i)
     {
-      if (i->second.lender != lender || i->second.is_mut != mut)
+      if ((i->second.lenders.size () == 1
+	   && i->second.lenders.count (lender) == 0)
+	  || i->second.is_mut != mut)
 	continue;
       if (!ctx.liveness_failed
 	  && TREE_CODE (i->first) != PARM_DECL
@@ -1978,6 +2022,140 @@ expr_base_decl (tree e)
 	}
     }
   return NULL_TREE;
+}
+
+
+/* The object roots a pointer expression may point into.  A root is a
+   variable whose storage the pointer was derived from.  The result is KNOWN
+   only when every derivation step is visible to this pass; a call result or
+   any other opaque source leaves it unknown, and no disjointness proof is
+   then possible.  */
+
+static crug_root_info
+alias_roots (crug_fn_ctx &ctx, tree e)
+{
+  crug_root_info info;
+  if (e == NULL_TREE || e == error_mark_node)
+    return info;
+  if (TREE_CODE (e) == INTEGER_CST)
+    {
+      info.known = true;
+      return info;
+    }
+
+  switch (TREE_CODE (e))
+    {
+    case NOP_EXPR:
+    case CONVERT_EXPR:
+    case SAVE_EXPR:
+      return alias_roots (ctx, TREE_OPERAND (e, 0));
+
+    case VAR_DECL:
+    case PARM_DECL:
+      {
+	std::map<tree, crug_root_info>::const_iterator it
+	  = ctx.ptr_roots.find (e);
+	if (it != ctx.ptr_roots.end ())
+	  {
+	    info = it->second;
+	    info.roots.insert (e);
+	    return info;
+	  }
+	/* An owning or borrowing declaration names an exclusive value, so the
+	   variable itself is a sufficient root.  Every other declaration has a
+	   value this pass has not seen: a parameter comes from the caller and
+	   an uninitialized local is indeterminate.  */
+	if (decl_owns (e) || crug_is_borrow_decl (e, NULL))
+	  {
+	    info.known = true;
+	    info.roots.insert (e);
+	  }
+	return info;
+      }
+
+    case ADDR_EXPR:
+      {
+	tree op = TREE_OPERAND (e, 0);
+	STRIP_NOPS (op);
+	if (TREE_CODE (op) == INDIRECT_REF || TREE_CODE (op) == MEM_REF)
+	  return alias_roots (ctx, TREE_OPERAND (op, 0));
+	if (TREE_CODE (op) == ARRAY_REF || TREE_CODE (op) == COMPONENT_REF)
+	  {
+	    tree base = TREE_OPERAND (op, 0);
+	    if (TREE_TYPE (base) != NULL_TREE
+		&& POINTER_TYPE_P (TREE_TYPE (base)))
+	      return alias_roots (ctx, base);
+	  }
+	tree base = expr_base_decl (op);
+	if (base != NULL_TREE)
+	  {
+	    info.known = true;
+	    info.roots.insert (base);
+	    return info;
+	  }
+	return info;
+      }
+
+    case COMPONENT_REF:
+    case ARRAY_REF:
+    case INDIRECT_REF:
+    case MEM_REF:
+      /* A pointer read out of memory or out of a member may name anything;
+	 only the storage object is visible here, not the value stored in it.  */
+      if (TREE_TYPE (e) != NULL_TREE && POINTER_TYPE_P (TREE_TYPE (e)))
+	return info;
+      return alias_roots (ctx, TREE_OPERAND (e, 0));
+
+    case REALPART_EXPR:
+    case IMAGPART_EXPR:
+    case VIEW_CONVERT_EXPR:
+    case POINTER_PLUS_EXPR:
+      return alias_roots (ctx, TREE_OPERAND (e, 0));
+
+    case PLUS_EXPR:
+    case MINUS_EXPR:
+      if (TREE_TYPE (TREE_OPERAND (e, 0)) != NULL_TREE
+	  && POINTER_TYPE_P (TREE_TYPE (TREE_OPERAND (e, 0))))
+	return alias_roots (ctx, TREE_OPERAND (e, 0));
+      return alias_roots (ctx, TREE_OPERAND (e, 1));
+
+    case COND_EXPR:
+      {
+	crug_root_info a = alias_roots (ctx, TREE_OPERAND (e, 1));
+	crug_root_info b = alias_roots (ctx, TREE_OPERAND (e, 2));
+	a.roots.insert (b.roots.begin (), b.roots.end ());
+	a.known = a.known && b.known;
+	return a;
+      }
+
+    default:
+      return info;
+    }
+}
+
+/* Record what a local pointer declaration or assignment may point into.
+   Every pointer keeps itself as a root, so passing the variable itself is
+   never confused with a pointer derived from another object.  */
+
+static void
+record_ptr_roots (crug_fn_ctx &ctx, tree decl, tree value)
+{
+  if (decl == NULL_TREE || TREE_CODE (decl) != VAR_DECL
+      || TREE_TYPE (decl) == NULL_TREE
+      || !POINTER_TYPE_P (TREE_TYPE (decl)))
+    return;
+
+  crug_root_info info;
+  if (value != NULL_TREE && value != error_mark_node)
+    info = alias_roots (ctx, value);
+  if (decl_owns (decl))
+    {
+      /* Distinct owning variables own distinct values; adopting the same
+	 pointer twice is already a double-free, not an aliasing permission.  */
+      info.known = true;
+    }
+  info.roots.insert (decl);
+  ctx.ptr_roots[decl] = info;
 }
 
 static tree
@@ -2037,6 +2215,166 @@ merge_into (crug_fn_ctx &ctx, state_map &dst, const state_map &other,
 	}
       dst[d] = merged;
     }
+}
+
+/* Merge two borrow environments at a control-flow join.  A binding present on
+   only one path stays live and makes the function's borrow liveness
+   path-sensitive, so every registered borrow is then treated as live (the
+   conservative rule of GAPS section 10.3).  A binding that borrowed different
+   objects on different paths gets the union of its lenders, which makes every
+   one of them unavailable for moving, dropping or reborrowing.  */
+
+static void
+merge_borrows (crug_fn_ctx &ctx, std::map<tree, crug_borrow> &dst,
+	       const std::map<tree, crug_borrow> &other)
+{
+  for (std::map<tree, crug_borrow>::const_iterator i = other.begin ();
+       i != other.end (); ++i)
+    {
+      std::map<tree, crug_borrow>::iterator d = dst.find (i->first);
+      if (d == dst.end ())
+	{
+	  dst[i->first] = i->second;
+	  ctx.liveness_failed = true;
+	  continue;
+	}
+      if (d->second.lenders != i->second.lenders)
+	{
+	  d->second.lenders.insert (i->second.lenders.begin (),
+				    i->second.lenders.end ());
+	  d->second.lender = (d->second.lenders.size () == 1
+			      ? *d->second.lenders.begin () : NULL_TREE);
+	  ctx.liveness_failed = true;
+	}
+      if (d->second.is_mut != i->second.is_mut)
+	{
+	  d->second.is_mut = d->second.is_mut || i->second.is_mut;
+	  ctx.liveness_failed = true;
+	}
+    }
+}
+
+/* Merge pointer provenance at a control-flow join: a pointer may point into
+   any root either path allows.  An unknown source on either path keeps the
+   merged value unknown.  */
+
+static void
+merge_ptr_roots (crug_fn_ctx &ctx, std::map<tree, crug_root_info> &dst,
+		 const std::map<tree, crug_root_info> &other)
+{
+  for (std::map<tree, crug_root_info>::const_iterator i = other.begin ();
+       i != other.end (); ++i)
+    {
+      std::map<tree, crug_root_info>::iterator d = dst.find (i->first);
+      if (d == dst.end ())
+	{
+	  dst[i->first] = i->second;
+	  ctx.ptr_roots_unknown = true;
+	  continue;
+	}
+      d->second.known = d->second.known && i->second.known;
+      d->second.roots.insert (i->second.roots.begin (),
+			      i->second.roots.end ());
+    }
+}
+
+
+/* Join borrow environments that belong to alternative paths.  A binding
+   present on every alternative keeps the union of its lenders; a binding
+   missing from any alternative is still live, but it may name nothing on that
+   path, so no later reborrow or call can prove its lender.  */
+
+static void
+join_borrow_alternatives (crug_fn_ctx &ctx,
+			  std::map<tree, crug_borrow> &dst,
+			  const std::vector<const std::map<tree, crug_borrow> *>
+			    &alts)
+{
+  if (alts.empty ())
+    return;
+
+  std::map<tree, crug_borrow> merged;
+  std::map<tree, size_t> seen;
+  for (size_t a = 0; a < alts.size (); a++)
+    for (std::map<tree, crug_borrow>::const_iterator i = alts[a]->begin ();
+	 i != alts[a]->end (); ++i)
+      {
+	std::map<tree, crug_borrow>::iterator d = merged.find (i->first);
+	if (d == merged.end ())
+	  {
+	    merged[i->first] = i->second;
+	    seen[i->first] = 1;
+	    continue;
+	  }
+	seen[i->first]++;
+	if (d->second.lenders != i->second.lenders)
+	  {
+	    d->second.lenders.insert (i->second.lenders.begin (),
+				      i->second.lenders.end ());
+	    d->second.lender = d->second.lenders.size () == 1
+	      ? *d->second.lenders.begin () : NULL_TREE;
+	    ctx.liveness_failed = true;
+	  }
+	if (d->second.is_mut != i->second.is_mut)
+	  {
+	    d->second.is_mut = d->second.is_mut || i->second.is_mut;
+	    ctx.liveness_failed = true;
+	  }
+      }
+
+  for (std::map<tree, crug_borrow>::iterator i = merged.begin ();
+       i != merged.end (); ++i)
+    if (seen[i->first] != alts.size ())
+      {
+	i->second.lenders.clear ();
+	i->second.lender = NULL_TREE;
+	ctx.liveness_failed = true;
+      }
+  dst.swap (merged);
+}
+
+/* The same join for pointer provenance: a pointer known to point at the same
+   root on every alternative keeps the union of its roots; a pointer missing
+   from any alternative, or unknown on one, is dropped.  */
+
+static void
+join_ptr_root_alternatives (crug_fn_ctx &ctx,
+			    std::map<tree, crug_root_info> &dst,
+			    const std::vector<const std::map<tree, crug_root_info> *>
+			      &alts)
+{
+  if (alts.empty ())
+    return;
+
+  std::map<tree, crug_root_info> merged;
+  std::map<tree, size_t> seen;
+  for (size_t a = 0; a < alts.size (); a++)
+    for (std::map<tree, crug_root_info>::const_iterator i = alts[a]->begin ();
+	 i != alts[a]->end (); ++i)
+      {
+	std::map<tree, crug_root_info>::iterator d = merged.find (i->first);
+	if (d == merged.end ())
+	  {
+	    merged[i->first] = i->second;
+	    seen[i->first] = 1;
+	    continue;
+	  }
+	seen[i->first]++;
+	d->second.known = d->second.known && i->second.known;
+	d->second.roots.insert (i->second.roots.begin (),
+				i->second.roots.end ());
+      }
+
+  for (std::map<tree, crug_root_info>::iterator i = merged.begin ();
+       i != merged.end (); )
+    if (seen[i->first] != alts.size ())
+      {
+	merged.erase (i++);
+	ctx.ptr_roots_unknown = true;
+      }
+    else
+      ++i;
+  dst.swap (merged);
 }
 
 static void
@@ -2287,6 +2625,11 @@ process_move (crug_fn_ctx &ctx, state_map &env, tree arg, location_t loc)
   else if (st == CRUG_MAYBE_MOVED)
     crug_error_at (loc, "crug-UAM-004", "move of possibly-moved value %qD after a branch join"
 	      , r);
+  else if (st == CRUG_EMPTY)
+    {
+      crug_error_at (loc, "crug-UAM-008", "move of empty owned value %qD; it holds nothing", r);
+      return crug_ostate ();
+    }
 
   set_moved (env, r, loc);
   if (st == CRUG_MOVED || st == CRUG_MAYBE_MOVED)
@@ -2745,6 +3088,13 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
 	  return NULL_TREE;
 	}
       tree root = resolve_lender (ctx, r);
+      if (root == NULL_TREE && ctx.borrows.find (r) != ctx.borrows.end ())
+	{
+	  crug_error_at (loc, "crug-BORROW-024", "cannot reborrow %qD: it may refer to different "
+		    "objects on different paths, so no single lender can be "
+		    "proven", r);
+	  return NULL_TREE;
+	}
       return root != NULL_TREE ? root : r;
     }
 
@@ -2914,6 +3264,8 @@ check_use (crug_fn_ctx &ctx, state_map &env, tree decl, location_t loc)
   else if (state == CRUG_MAYBE_MOVED)
     crug_error_at (loc, "crug-UAM-004", "use of possibly-moved value %qD after a branch join"
 	      , decl);
+  else if (state == CRUG_EMPTY)
+    crug_error_at (loc, "crug-UAM-008", "read of empty owned value %qD; it holds nothing", decl);
 }
 
 /* setjmp and longjmp do not run the destructors of the frames they skip.
@@ -3196,6 +3548,10 @@ borrow_arg_lender (crug_fn_ctx &ctx, tree e, bool *is_mut)
       tree lender = resolve_lender (ctx, e);
       if (is_mut != NULL)
 	*is_mut = mut;
+      /* A binding that borrowed different objects on different paths has no
+	 single lender; report it as unknown instead of inventing one.  */
+      if (lender == NULL_TREE && ctx.borrows.find (e) != ctx.borrows.end ())
+	return NULL_TREE;
       return lender != NULL_TREE ? lender : e;
     }
 
@@ -3223,9 +3579,55 @@ borrow_arg_lender (crug_fn_ctx &ctx, tree e, bool *is_mut)
   return NULL_TREE;
 }
 
+
+/* The roots an argument may point into, for the call-site alias proof.  A
+   borrow argument views its lender; a plain pointer is resolved through the
+   provenance recorded for local pointer values.  */
+
+static crug_root_info
+arg_alias_roots (crug_fn_ctx &ctx, tree arg, bool *is_borrow)
+{
+  crug_root_info info;
+  *is_borrow = false;
+  if (arg == NULL_TREE || arg == error_mark_node)
+    return info;
+
+  tree r = STRIP_NOPS (arg);
+  if (is_borrow_value (r))
+    {
+      *is_borrow = true;
+      bool mut = false;
+      tree lender = borrow_arg_lender (ctx, r, &mut);
+      if (lender == NULL_TREE)
+	return info;
+      info = alias_roots (ctx, lender);
+      info.roots.insert (lender);
+      if (ctx.ptr_roots_unknown)
+	info.known = false;
+      return info;
+    }
+
+  tree type = TREE_TYPE (r);
+  if (type == NULL_TREE
+      || (!POINTER_TYPE_P (type) && TREE_CODE (type) != ARRAY_TYPE))
+    {
+      info.known = true;
+      return info;
+    }
+  info = alias_roots (ctx, r);
+  if (ctx.ptr_roots_unknown)
+    info.known = false;
+  return info;
+}
+
 static void
 check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 {
+  /* A system header is compiled with the same flags, but it has no Crug
+     contract to prove: diagnose its calls only where the user writes them.  */
+  if (in_system_header_at (loc))
+    return;
+
   tree fn = CALL_EXPR_FN (call);
   tree fndecl = NULL_TREE;
 
@@ -3325,29 +3727,117 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 			  "call; a mutable borrow must be exclusive"
 			  , lender);
 	    }
+	}
 
-	  /* The lender itself (or a pointer derived from it) as another
-	     argument is the same aliasing hazard.  */
-	  if (!mut_i)
-	    continue;
-	  for (int j = 0; j < nargs; j++)
+      /* A call through a function pointer has no parameter contracts, so
+	 nothing proves that its pointer arguments are disjoint.  */
+      if (fndecl == NULL_TREE)
+	{
+	  bool pointer_arg = false;
+	  for (int i = 0; i < nargs; i++)
 	    {
-	      if (j == i)
+	      tree arg = CALL_EXPR_ARG (call, i);
+	      bool is_borrow = false;
+	      (void) arg_alias_roots (ctx, arg, &is_borrow);
+	      tree type = arg != NULL_TREE ? TREE_TYPE (arg) : NULL_TREE;
+	      if (is_borrow
+		  || (type != NULL_TREE
+		      && (POINTER_TYPE_P (type)
+			  || TREE_CODE (type) == ARRAY_TYPE)))
+		pointer_arg = true;
+	    }
+	  if (pointer_arg)
+	    crug_error_at (loc, "crug-BORROW-024", "an indirect call passes pointer arguments; a "
+		      "%<restrict%> fact cannot be proven without the callee "
+		      "contract");
+	}
+      else
+	{
+	  for (int i = 0; i < nargs; i++)
+	    {
+	      tree parm = DECL_ARGUMENTS (fndecl);
+	      for (int n = 0; parm != NULL_TREE && n < i; n++)
+		parm = DECL_CHAIN (parm);
+	      if (parm == NULL_TREE || TREE_CODE (parm) != PARM_DECL)
 		continue;
-	      tree other = expr_base_decl (CALL_EXPR_ARG (call, j));
-	      if (other != lender)
+
+	      bool parm_mut = false;
+	      bool exclusive = decl_owns (parm);
+	      if (crug_is_borrow_decl (parm, &parm_mut) && parm_mut)
+		exclusive = true;
+	      if (!exclusive)
 		continue;
-	      tree otype = TREE_TYPE (CALL_EXPR_ARG (call, j));
-	      if (otype == NULL_TREE
-		  || (TREE_CODE (otype) != POINTER_TYPE
-		      && TREE_CODE (otype) != ARRAY_TYPE))
+
+	      tree arg_i = CALL_EXPR_ARG (call, i);
+	      tree type_i = arg_i != NULL_TREE ? TREE_TYPE (arg_i) : NULL_TREE;
+	      if (type_i == NULL_TREE
+		  || (!POINTER_TYPE_P (type_i)
+		      && TREE_CODE (type_i) != ARRAY_TYPE))
 		continue;
-	      crug_error_at (loc, "crug-BORROW-023", "the lender %qD is also passed to this call; a "
-			"%<mut%> parameter must be the only view of its object"
-			, lender);
+
+	      bool borrow_i = false;
+	      crug_root_info roots_i = arg_alias_roots (ctx, arg_i, &borrow_i);
+	      bool mut_ai = false;
+	      tree lender_i = borrow_arg_lender (ctx, arg_i, &mut_ai);
+	      if (borrow_i && lender_i == NULL_TREE)
+		{
+		  crug_error_at (loc, "crug-BORROW-024", "the borrow passed to a %<mut%> parameter "
+			    "may refer to different objects on different paths");
+		  continue;
+		}
+	      if (lender_i != NULL_TREE)
+		roots_i.roots.insert (lender_i);
+
+	      bool announced = false;
+	      for (int j = 0; j < nargs && !announced; j++)
+		{
+		  if (j == i)
+		    continue;
+		  tree arg_j = CALL_EXPR_ARG (call, j);
+		  tree type_j = arg_j != NULL_TREE ? TREE_TYPE (arg_j) : NULL_TREE;
+		  bool is_borrow_j = false;
+		  (void) arg_alias_roots (ctx, arg_j, &is_borrow_j);
+		  if (!is_borrow_j
+		      && (type_j == NULL_TREE
+			  || (!POINTER_TYPE_P (type_j)
+			      && TREE_CODE (type_j) != ARRAY_TYPE)))
+		    continue;
+
+		  /* The lender itself is the historical, precise case.  */
+		  tree base_j = expr_base_decl (arg_j);
+		  if (lender_i != NULL_TREE && base_j == lender_i)
+		    {
+		      crug_error_at (loc, "crug-BORROW-023", "the lender %qD is also passed to this call; a "
+				"%<mut%> parameter must be the only view of its object"
+				, lender_i);
+		      announced = true;
+		      break;
+		    }
+
+		  tree other_lender = borrow_arg_lender (ctx, arg_j, NULL);
+		  if (lender_i != NULL_TREE && other_lender == lender_i)
+		    continue;	/* already reported by the pair loop above */
+
+		  crug_root_info roots_j = arg_alias_roots (ctx, arg_j,
+							    &is_borrow_j);
+		  bool overlaps = false;
+		  for (std::set<tree>::const_iterator r = roots_j.roots.begin ();
+		       r != roots_j.roots.end (); ++r)
+		    if (roots_i.roots.count (*r))
+		      overlaps = true;
+		  if (!roots_i.known || !roots_j.known || overlaps)
+		    {
+		      crug_error_at (loc, "crug-BORROW-024", "cannot prove that %qE is disjoint from the "
+				"other pointer arguments of this call; a "
+				"%<mut%> or %<own%> parameter gets a "
+				"%<restrict%> fact", arg_j);
+		      announced = true;
+		    }
+		}
 	    }
 	}
     }
+
 
   /* ADR 0010: with -fcrug-alias-facts a 'mut' parameter is compiled as
      'restrict', so the caller must hand it a proven exclusive borrow.  A
@@ -3590,8 +4080,20 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	check_borrow_call_args (ctx, t, loc);
 	check_strict_call_args (ctx, t, loc);
 	walk_expr (ctx, env, CALL_EXPR_FN (t), loc);
+	tree fndecl = get_callee_fndecl (t);
 	for (int i = 0; i < call_expr_nargs (t); i++)
-	  walk_expr (ctx, env, CALL_EXPR_ARG (t, i), loc);
+	  {
+	    tree arg = CALL_EXPR_ARG (t, i);
+	    /* An out_owned parameter writes the owned value; taking its
+	       address is how the callee initializes an empty object, not a
+	       read of that object.  */
+	    tree dtor = NULL_TREE;
+	    if (fndecl != NULL_TREE && arg != NULL_TREE
+		&& TREE_CODE (arg) == ADDR_EXPR
+		&& crug_ffi_arg_out_owned (fndecl, i, &dtor))
+	      continue;
+	    walk_expr (ctx, env, arg, loc);
+	  }
 	return;
       }
 
@@ -3619,6 +4121,23 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    walk_expr (ctx, env, lhs, loc);
 	    walk_expr (ctx, env, rhs, loc);
 	    return;
+	  }
+	/* A borrow stored into anything but a borrow binding has no automatic
+	   lifetime: the binding rules do not cover an ordinary pointer, a
+	   global or a static (AUD-008).  */
+	if (is_borrow_value (rhs)
+	    && (TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
+	    && TREE_CODE (lhs) != ERROR_MARK)
+	  {
+	    bool lhs_is_borrow = false;
+	    if (!crug_is_borrow_decl (lhs, &lhs_is_borrow))
+	      {
+		crug_error_at (loc, "crug-BORROW-018", "a borrow cannot be stored in %qD; it can only "
+			  "be an automatic borrow binding", lhs);
+		walk_expr (ctx, env, lhs, loc);
+		walk_expr (ctx, env, rhs, loc);
+		return;
+	      }
 	  }
 	/* A borrow stored into an object has no automatic lifetime, so the
 	   pass cannot bound it: reject the store (ADR 0019 section 2).  */
@@ -3681,11 +4200,18 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		return;
 	      }
 	    assign_from_expr (ctx, env, lhs, rhs, loc);
+	    if (TREE_TYPE (lhs) != NULL_TREE
+		&& POINTER_TYPE_P (TREE_TYPE (lhs)))
+	      record_ptr_roots (ctx, lhs, rhs);
 	  }
 	else
 	  {
 	    walk_expr (ctx, env, lhs, loc);
 	    walk_expr (ctx, env, rhs, loc);
+	    if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
+		&& TREE_TYPE (lhs) != NULL_TREE
+		&& POINTER_TYPE_P (TREE_TYPE (lhs)))
+	      record_ptr_roots (ctx, lhs, rhs);
 	  }
 	return;
       }
@@ -3705,6 +4231,19 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		    "%<unsafe%> block", d);
 	break;
       }
+
+    case NOP_EXPR:
+    case CONVERT_EXPR:
+      /* A cast to void discards the value; evaluating a plain variable for
+	 that purpose is not a read of the value it holds.  */
+      if (VOID_TYPE_P (TREE_TYPE (t)))
+	{
+	  tree op = TREE_OPERAND (t, 0);
+	  STRIP_NOPS (op);
+	  if (TREE_CODE (op) == VAR_DECL || TREE_CODE (op) == PARM_DECL)
+	    return;
+	}
+      break;
 
     case TARGET_EXPR:
     case COMPOUND_EXPR:
@@ -3964,6 +4503,26 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    return true;
 	  }
 
+	if (TREE_TYPE (decl) != NULL_TREE
+	    && POINTER_TYPE_P (TREE_TYPE (decl)))
+	  {
+	    record_ptr_roots (ctx, decl, DECL_INITIAL (decl));
+	    ctx.frames.back ().ptr_decls.push_back (decl);
+	  }
+
+	if (DECL_INITIAL (decl) != NULL_TREE
+	    && is_borrow_value (DECL_INITIAL (decl)))
+	  {
+	    bool decl_is_borrow = false;
+	    if (!crug_is_borrow_decl (decl, &decl_is_borrow))
+	      {
+		crug_error_at (loc, "crug-BORROW-018", "a borrow cannot be stored in %qD; it can only "
+			  "be an automatic borrow binding", decl);
+		walk_expr (ctx, env, DECL_INITIAL (decl), loc);
+		return true;
+	      }
+	  }
+
 	if (!decl_owns (decl))
 	  {
 	    /* An ordinary variable's initializer is still evaluated: it can
@@ -4022,6 +4581,7 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		     is_break ? CRUG_EXIT_BREAK : CRUG_EXIT_CONTINUE,
 		     ctx.targets[found].keep_depth, loc, false);
 	ctx.targets[found].edges.push_back (env);
+	ctx.targets[found].borrow_edges.push_back (ctx.borrows);
 	return false;
       }
 
@@ -4067,13 +4627,31 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	go.label = label;
 	go.loc = loc;
 	go.env = env;
+	go.borrows = ctx.borrows;
 	ctx.gotos.push_back (go);
 	return false;
       }
 
     case LABEL_EXPR:
-      merge_into (ctx, ctx.label_envs[LABEL_EXPR_LABEL (t)], env, loc, false);
-      return true;
+      {
+	merge_into (ctx, ctx.label_envs[LABEL_EXPR_LABEL (t)], env, loc, false);
+	/* The borrows live at a label are the union of the fallthrough path
+	   and every goto that targets it.  A view that exists on only one of
+	   them is conditional, never silently dropped.  */
+	tree label = LABEL_EXPR_LABEL (t);
+	std::map<tree, crug_borrow> merged = ctx.borrows;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	bpaths.push_back (&merged);
+	for (size_t g = 0; g < ctx.gotos.size (); g++)
+	  if (ctx.gotos[g].label == label)
+	    bpaths.push_back (&ctx.gotos[g].borrows);
+	if (bpaths.size () > 1)
+	  join_borrow_alternatives (ctx, merged, bpaths);
+	ctx.borrows = merged;
+	ctx.label_borrow_envs[label] = merged;
+	ctx.ptr_roots_unknown = true;
+	return true;
+      }
 
     case CASE_LABEL_EXPR:
       for (size_t i = ctx.targets.size (); i > 0; --i)
@@ -4096,11 +4674,50 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 
 	state_map then_env = env;
 	state_map else_env = env;
+	std::map<tree, crug_borrow> const borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> const roots_base = ctx.ptr_roots;
 	bool then_reach = walk_stmt (ctx, then_env, TREE_OPERAND (t, 1), loc);
+	std::map<tree, crug_borrow> then_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> then_roots = ctx.ptr_roots;
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
 	bool else_reach = walk_stmt (ctx, else_env, TREE_OPERAND (t, 2), loc);
+	std::map<tree, crug_borrow> else_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> else_roots = ctx.ptr_roots;
 
 	if (!then_reach && !else_reach)
 	  return false;
+
+	/* Merge borrows and pointer provenance on the same rule as the ownership
+	   states: a view that exists on only one path is conditional, and a
+	   binding that borrowed different objects is not usable as one.  */
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	if (then_reach && else_reach)
+	  {
+	    /* Both arms reach the join.  Merge them against each other, so a
+	       binding both arms initialize keeps its lender while a binding
+	       only one arm initializes becomes lender-unknown.  */
+	    std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	    bpaths.push_back (&then_borrows);
+	    bpaths.push_back (&else_borrows);
+	    std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	    rpaths.push_back (&then_roots);
+	    rpaths.push_back (&else_roots);
+	    join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	    join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+	  }
+	else if (then_reach)
+	  {
+	    merge_borrows (ctx, ctx.borrows, then_borrows);
+	    merge_ptr_roots (ctx, ctx.ptr_roots, then_roots);
+	  }
+	else
+	  {
+	    merge_borrows (ctx, ctx.borrows, else_borrows);
+	    merge_ptr_roots (ctx, ctx.ptr_roots, else_roots);
+	  }
+
 	if (then_reach && else_reach)
 	  {
 	    /* Merge the two branches against each other, not one after the
@@ -4130,10 +4747,14 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	target.keep_depth = ctx.frames.size ();
 	ctx.targets.push_back (target);
 
+	std::map<tree, crug_borrow> borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> roots_base = ctx.ptr_roots;
 	state_map body = env;
 	bool body_reach = walk_stmt (ctx, body, FOR_BODY (t), loc);
 	if (FOR_EXPR (t) != NULL_TREE)
 	  walk_expr (ctx, body, FOR_EXPR (t), loc);
+	std::map<tree, crug_borrow> body_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> body_roots = ctx.ptr_roots;
 
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
@@ -4144,6 +4765,26 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	for (size_t i = 0; i < done.edges.size (); i++)
 	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
+
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	bpaths.push_back (&borrow_base);
+	rpaths.push_back (&roots_base);
+	if (body_reach)
+	  {
+	    /* The body may run zero times, so a borrow or pointer that only the
+	       body initializes is conditional after the loop.  */
+	    bpaths.push_back (&body_borrows);
+	    rpaths.push_back (&body_roots);
+	  }
+	for (size_t i = 0; i < done.borrow_edges.size (); i++)
+	  bpaths.push_back (&done.borrow_edges[i]);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+	if (!done.borrow_edges.empty ())
+	  ctx.ptr_roots_unknown = true;
 	return true;
       }
 
@@ -4157,8 +4798,12 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	target.keep_depth = ctx.frames.size ();
 	ctx.targets.push_back (target);
 
+	std::map<tree, crug_borrow> borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> roots_base = ctx.ptr_roots;
 	state_map body = env;
 	bool body_reach = walk_stmt (ctx, body, WHILE_BODY (t), loc);
+	std::map<tree, crug_borrow> body_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> body_roots = ctx.ptr_roots;
 
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
@@ -4169,6 +4814,26 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	for (size_t i = 0; i < done.edges.size (); i++)
 	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
+
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	bpaths.push_back (&borrow_base);
+	rpaths.push_back (&roots_base);
+	if (body_reach)
+	  {
+	    /* The body may run zero times, so a borrow or pointer that only the
+	       body initializes is conditional after the loop.  */
+	    bpaths.push_back (&body_borrows);
+	    rpaths.push_back (&body_roots);
+	  }
+	for (size_t i = 0; i < done.borrow_edges.size (); i++)
+	  bpaths.push_back (&done.borrow_edges[i]);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+	if (!done.borrow_edges.empty ())
+	  ctx.ptr_roots_unknown = true;
 	return true;
       }
 
@@ -4179,10 +4844,14 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	target.keep_depth = ctx.frames.size ();
 	ctx.targets.push_back (target);
 
+	std::map<tree, crug_borrow> borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> roots_base = ctx.ptr_roots;
 	state_map body = env;
 	bool body_reach = walk_stmt (ctx, body, DO_BODY (t), loc);
 	if (DO_COND (t) != NULL_TREE)
 	  walk_expr (ctx, body, DO_COND (t), loc);
+	std::map<tree, crug_borrow> body_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> body_roots = ctx.ptr_roots;
 
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
@@ -4191,6 +4860,22 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	for (size_t i = 0; i < done.edges.size (); i++)
 	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
+
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	if (body_reach)
+	  {
+	    bpaths.push_back (&body_borrows);
+	    rpaths.push_back (&body_roots);
+	  }
+	for (size_t i = 0; i < done.borrow_edges.size (); i++)
+	  bpaths.push_back (&done.borrow_edges[i]);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+	if (!done.borrow_edges.empty ())
+	  ctx.ptr_roots_unknown = true;
 	return body_reach;
       }
 
@@ -4199,40 +4884,72 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	if (SWITCH_STMT_COND (t) != NULL_TREE)
 	  walk_expr (ctx, env, SWITCH_STMT_COND (t), loc);
 
+	bool has_default = false;
+	tree body_tree = SWITCH_STMT_BODY (t);
+	if (body_tree != NULL_TREE && TREE_CODE (body_tree) == STATEMENT_LIST)
+	  for (tree_stmt_iterator i = tsi_start (body_tree);
+	       !tsi_end_p (i); tsi_next (&i))
+	    {
+	      tree stmt = tsi_stmt (i);
+	      if (TREE_CODE (stmt) == CASE_LABEL_EXPR
+		  && CASE_LOW (stmt) == NULL_TREE)
+		has_default = true;
+	    }
+
+	state_map before = env;
+	std::map<tree, crug_borrow> borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> roots_base = ctx.ptr_roots;
+
 	crug_target target;
 	target.is_loop = false;
 	target.keep_depth = ctx.frames.size ();
 	ctx.targets.push_back (target);
 
-	bool body_reach = walk_stmt (ctx, env, SWITCH_STMT_BODY (t), loc);
+	bool body_reach = walk_stmt (ctx, env, body_tree, loc);
+	std::map<tree, crug_borrow> body_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> body_roots = ctx.ptr_roots;
 
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
 
-	state_map merged = env;
+	/* A switch with no default can skip every case; the pre-switch state is
+	   then a possible exit.  The entry states of the cases are not exits: a
+	   case that falls into another case has already been merged through the
+	   fallthrough environment.  */
+	state_map merged = before;
 	if (body_reach)
-	  merge_into (ctx, merged, env, loc);
+	  {
+	    merged = env;
+	    if (!has_default)
+	      merge_into (ctx, merged, before, loc);
+	  }
 	for (size_t i = 0; i < done.edges.size (); i++)
 	  merge_into (ctx, merged, done.edges[i], loc);
-	/* The case labels that the switch can actually enter.  */
-	bool have_cases = !done.cases.empty ();
-	for (state_map::iterator i = done.cases.begin (); i != done.cases.end ();
-	     ++i)
-	  {
-	    if (merged.find (i->first) == merged.end ())
-	      merged[i->first] = i->second;
-	    else
-	      {
-		crug_ostate a = merged[i->first];
-		crug_state r = merge_state (a.state, i->second.state);
-		merged[i->first] = crug_ostate (r,
-						choose_dtor (ctx, i->first,
-							     a.dtor,
-							     i->second.dtor, loc));
-	      }
-	  }
-	(void) have_cases;
 	env = merged;
+
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	/* A case label is a jump this pass does not follow, so the pre-switch
+	   environment is always one possible path to the join.  */
+	bpaths.push_back (&borrow_base);
+	rpaths.push_back (&roots_base);
+	if (body_reach)
+	  {
+	    bpaths.push_back (&body_borrows);
+	    rpaths.push_back (&body_roots);
+	  }
+	for (size_t i = 0; i < done.borrow_edges.size (); i++)
+	  bpaths.push_back (&done.borrow_edges[i]);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+	/* A case label is entered by a jump whose provenance this pass does not
+	   follow.  */
+	if (!has_default)
+	  ctx.ptr_roots_unknown = true;
+	if (!done.borrow_edges.empty ())
+	  ctx.ptr_roots_unknown = true;
 	return true;
       }
 
@@ -4552,7 +5269,9 @@ crug_check_function (tree fndecl, tree body, bool has_scope)
 	continue;
       crug_borrow b;
       b.is_mut = is_mut;
+      /* The parameter is its own root: the caller owns the object.  */
       b.lender = NULL_TREE;
+      b.lenders.insert (a);
       b.depth = 0;
       b.origin = DECL_SOURCE_LOCATION (a);
       b.lender_depth = 0;

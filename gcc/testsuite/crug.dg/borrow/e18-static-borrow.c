@@ -5,5 +5,5 @@ static ref struct Foo *global; /* { dg-error "crug-BORROW-018" } */
 
 void f (own struct Foo *p)
 {
-  global = borrow (p);
+  global = borrow (p); /* { dg-error "crug-BORROW-018" } */
 }

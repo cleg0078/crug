@@ -475,6 +475,43 @@ crug_go_lower (location_t loc, tree callee, tree args, tree scope)
     }
   layout_type (frame_type);
 
+  /* The runtime copies the frame into a block aligned for max_align_t and
+     rounds the size up to that alignment (libcrug/core/task.c spawn_common),
+     so the frame's own promises have to fit: a capture that needs a stricter
+     alignment, or a size whose rounding would overflow, would make the thunk
+     read the copy through a wrong assumption.  AUD-006, crug-CONC-028.  A
+     capture of nothing has a frame of size zero and stays valid.  */
+  {
+    unsigned int frame_units = BITS_PER_UNIT;
+    unsigned int max_align = TYPE_ALIGN (long_long_integer_type_node);
+    if (TYPE_ALIGN (long_double_type_node) > max_align)
+      max_align = TYPE_ALIGN (long_double_type_node);
+
+    if (TYPE_ALIGN (frame_type) > max_align)
+      {
+	crug_error_at (loc, "crug-CONC-028", "the frame of this %<go%> is aligned to %u bytes, "
+		  "but the runtime copies it with %u-byte alignment",
+		  TYPE_ALIGN (frame_type) / frame_units,
+		  max_align / frame_units);
+	return NULL_TREE;
+      }
+
+    tree size_unit = TYPE_SIZE_UNIT (frame_type);
+    tree pad = build_int_cst (size_type_node, max_align / frame_units - 1);
+    tree limit = fold_build2 (MINUS_EXPR, size_type_node,
+			      TYPE_MAX_VALUE (size_type_node), pad);
+    if (size_unit == NULL_TREE || TREE_CODE (size_unit) != INTEGER_CST
+	|| !tree_int_cst_le (size_unit, limit))
+      {
+	crug_error_at (loc, "crug-CONC-028", "the frame of this %<go%> is too large; "
+		  "its size would overflow in the runtime");
+	return NULL_TREE;
+      }
+    /* The thunk reads one field per captured value, at the offsets of this
+       layout; keep the two lists in step.  */
+    gcc_assert (fields.size () == field_types.size ());
+  }
+
   tree thunk = crug_build_thunk (loc, frame_type, fndecl, field_types, fields);
 
   /* The caller side.  The runtime copies the frame, so the variable only has

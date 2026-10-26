@@ -120,18 +120,31 @@ crug_pal_thread_create (crug_pal_thread **out, void (*entry) (void *), void *arg
   return 0;
 }
 
-void
+int
 crug_pal_thread_join (crug_pal_thread *thread)
 {
+  DWORD rc;
+
   if (thread == NULL)
-    return;
-  if (!thread->joined)
     {
-      WaitForSingleObject (thread->handle, INFINITE);
-      CloseHandle (thread->handle);
-      thread->joined = 1;
+      windows_error = CRUG_PAL_EINVAL;
+      return -1;
     }
+  rc = WaitForSingleObject (thread->handle, INFINITE);
+  if (rc != WAIT_OBJECT_0)
+    {
+      windows_error = CRUG_PAL_ESYS;
+      return -1;
+    }
+  if (!CloseHandle (thread->handle))
+    {
+      windows_error = CRUG_PAL_ESYS;
+      return -1;
+    }
+  thread->joined = 1;
   free (thread);
+  windows_error = CRUG_PAL_OK;
+  return 0;
 }
 
 uint32_t

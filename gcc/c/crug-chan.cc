@@ -173,8 +173,9 @@ static tree chan_send_owned_decl;
 static tree chan_recv_ptr_decl;
 static tree chan_recv_owned_decl;
 static tree chan_close_decl;
-static tree chan_recv_ready_decl;
-static tree chan_send_ready_decl;
+static tree chan_recv_claim_decl;
+static tree chan_send_claim_decl;
+static tree chan_send_owned_claim_decl;
 static tree chan_select_turn_decl;
 static tree chan_poll_wait_decl;
 
@@ -233,15 +234,21 @@ chan_close_fndecl (void)
   return chan_runtime_decl (&chan_close_decl, "crug_chan_close", type);
 }
 
+/* int claim (void *chan, void *element, size_t element_size): the
+   non-blocking claim of one select arm (ADR 0025 D5).  */
 static tree
-chan_ready_fndecl (bool receive)
+chan_claim_fndecl (bool receive, bool owned)
 {
   tree type = build_function_type_list (integer_type_node, ptr_type_node,
+					ptr_type_node, size_type_node,
 					NULL_TREE);
   if (receive)
-    return chan_runtime_decl (&chan_recv_ready_decl, "crug_chan_recv_ready",
+    return chan_runtime_decl (&chan_recv_claim_decl, "crug_chan_recv_claim",
 			      type);
-  return chan_runtime_decl (&chan_send_ready_decl, "crug_chan_send_ready",
+  if (owned)
+    return chan_runtime_decl (&chan_send_owned_claim_decl,
+			      "crug_chan_send_owned_claim", type);
+  return chan_runtime_decl (&chan_send_claim_decl, "crug_chan_send_claim",
 			    type);
 }
 
@@ -308,58 +315,170 @@ crug_channel_make (location_t loc, tree channel_type, tree capacity)
 		  build_call_expr_loc_array (loc, chan_make_fndecl (), 2, args));
 }
 
+/* Reject a value that cannot cross to another task: it must not belong to
+   one thread and its type must be Send (ADR 0026 D4/D5).  */
+
+static bool
+chan_send_check (location_t loc, tree element, bool owned, tree value)
+{
+  tree probe = (owned && TREE_CODE (element) == POINTER_TYPE)
+	       ? TREE_TYPE (element) : element;
+  tree blocker = NULL_TREE;
+  const char *affinity = NULL;
+
+  if (crug_expr_thread_affine_p (value, &affinity))
+    {
+      crug_error_at (loc, "crug-CONC-025", "a thread-affine value cannot cross to another task; "
+		"it belongs to the %qs thread",
+		affinity == NULL ? "unknown" : affinity);
+      return false;
+    }
+  if (!crug_type_send_p (probe, &blocker))
+    {
+      crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another task; "
+		"the type is not %<Send%>", probe);
+      if (blocker != NULL_TREE && blocker != probe)
+	inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
+		blocker);
+      return false;
+    }
+  return true;
+}
+
+/* Box VALUE into an element object and return its address, ready to be the
+   void * element argument of a send.  The runtime copies the element through
+   the pointer, and a compound literal is the expression form of "an object
+   of this type, initialized here".  The initializer is the value itself, not
+   a CONSTRUCTOR: a constructor of scalar type reaches
+   gimplify_init_constructor, whose default case is unreachable.  */
+
+static tree
+chan_send_pointer (location_t loc, tree element, tree value)
+{
+  tree elem_value = value;
+  tree box;
+
+  if (TREE_TYPE (elem_value) != element)
+    elem_value = convert (element, elem_value);
+  if (elem_value == error_mark_node)
+    return NULL_TREE;
+  box = build_compound_literal (loc, element, elem_value, false, 0, NULL);
+  return convert (ptr_type_node,
+		  build1 (ADDR_EXPR, build_pointer_type (element), box));
+}
+
+/* The two-argument send call both the blocking send and its fatal closed
+   path need.  */
+
+static tree
+chan_send_call (location_t loc, tree channel, tree element_arg)
+{
+  tree args[2];
+
+  args[0] = convert (ptr_type_node, channel);
+  args[1] = element_arg;
+  return build_call_expr_loc_array (loc, chan_send_fndecl (false), 2, args);
+}
+
 tree
 crug_channel_send (location_t loc, tree channel, tree value)
 {
   tree chan_type = TREE_TYPE (channel);
   tree element = crug_channel_element (chan_type);
   bool owned = crug_channel_owns_element (chan_type);
-  tree box = NULL_TREE;
+  tree element_arg;
 
   if (element == NULL_TREE || value == error_mark_node)
     return error_mark_node;
 
-  /* A send hands the value to another worker, so the value must be Send and
-     must not belong to one thread (ADR 0026 D4/D5).  */
-  {
-    tree probe = (owned && TREE_CODE (element) == POINTER_TYPE)
-		 ? TREE_TYPE (element) : element;
-    tree blocker = NULL_TREE;
-    const char *affinity = NULL;
+  if (!chan_send_check (loc, element, owned, value))
+    return error_mark_node;
 
-    if (crug_expr_thread_affine_p (value, &affinity))
-      {
-	crug_error_at (loc, "crug-CONC-025", "a thread-affine value cannot cross to another task; "
-		  "it belongs to the %qs thread",
-		  affinity == NULL ? "unknown" : affinity);
-	return error_mark_node;
-      }
-    if (!crug_type_send_p (probe, &blocker))
-      {
-	crug_error_at (loc, "crug-CONC-024", "a value of type %qT cannot cross to another task; "
-		  "the type is not %<Send%>", probe);
-	if (blocker != NULL_TREE && blocker != probe)
-	  inform (loc, "%qT contains %qT, which is not %<Send%>", probe,
-		  blocker);
-	return error_mark_node;
-      }
-  }
-
-  /* Box the value: the runtime copies it through a pointer, and a compound
-     literal is the expression form of "an object of this type, initialized
-     here".  The initializer is the value itself, not a CONSTRUCTOR: a
-     constructor of scalar type reaches gimplify_init_constructor, whose
-     default case is unreachable.  */
-  tree elem_value = value;
-  if (TREE_TYPE (elem_value) != element)
-    elem_value = convert (element, elem_value);
-  box = build_compound_literal (loc, element, elem_value, false, 0, NULL);
+  element_arg = chan_send_pointer (loc, element, value);
+  if (element_arg == NULL_TREE)
+    return error_mark_node;
 
   tree args[2];
   args[0] = convert (ptr_type_node, channel);
-  args[1] = convert (ptr_type_node,
-		     build1 (ADDR_EXPR, build_pointer_type (element), box));
+  args[1] = element_arg;
   return build_call_expr_loc_array (loc, chan_send_fndecl (owned), 2, args);
+}
+
+/* The send of a select arm: it claims the channel instead of blocking on it,
+   so the arm happens at most once and the pass can rotate over the arms.  */
+
+tree
+crug_channel_send_claim (location_t loc, tree channel, tree value, bool owned)
+{
+  tree chan_type = TREE_TYPE (channel);
+  tree element = crug_channel_element (chan_type);
+  tree element_arg;
+  tree args[3];
+
+  if (element == NULL_TREE || value == error_mark_node)
+    return error_mark_node;
+
+  if (!chan_send_check (loc, element, owned, value))
+    return error_mark_node;
+
+  element_arg = chan_send_pointer (loc, element, value);
+  if (element_arg == NULL_TREE)
+    return error_mark_node;
+
+  args[0] = convert (ptr_type_node, channel);
+  args[1] = element_arg;
+  args[2] = TYPE_SIZE_UNIT (element);
+  return build_call_expr_loc_array (loc, chan_claim_fndecl (false, owned), 3,
+				    args);
+}
+
+/* The send of a value whose claim found the channel closed.  The select
+   cannot block on a closed channel and must not drop the value: it reaches
+   the runtime's fatal "send on a closed channel" through the plain send,
+   which checks the channel before it copies anything.  The value is boxed
+   again without the Send and ownership checks: the claim of the same arm
+   already ran them.  */
+
+tree
+crug_channel_send_closed_abort (location_t loc, tree channel, tree value)
+{
+  tree chan_type = TREE_TYPE (channel);
+  tree element = crug_channel_element (chan_type);
+  tree element_arg;
+
+  if (element == NULL_TREE || value == error_mark_node)
+    return error_mark_node;
+
+  element_arg = chan_send_pointer (loc, element, value);
+  if (element_arg == NULL_TREE)
+    return error_mark_node;
+
+  return chan_send_call (loc, channel, element_arg);
+}
+
+/* The receive of a select arm: it copies the element into OUT and claims the
+   channel in one step, so a losing arm never holds the value.  */
+
+tree
+crug_channel_recv_claim (location_t loc, tree channel, tree out)
+{
+  tree chan_type = TREE_TYPE (channel);
+  tree element = crug_channel_element (chan_type);
+  tree args[3];
+
+  if (element == NULL_TREE || out == error_mark_node)
+    return error_mark_node;
+
+  args[0] = convert (ptr_type_node, channel);
+  /* Leave OUT at its pointee type.  The call gimplifier converts the
+     argument to the formal void * after it has gimplified the ADDR_EXPR;
+     wrapping the address in a conversion here makes the gimplifier build a
+     temporary copy of the pointee instead, and the claim then fills the copy
+     while the arm body reads the untouched original.  */
+  args[1] = out;
+  args[2] = TYPE_SIZE_UNIT (element);
+  return build_call_expr_loc_array (loc, chan_claim_fndecl (true, false), 3,
+				    args);
 }
 
 tree
@@ -386,13 +505,6 @@ crug_channel_close (location_t loc, tree channel)
 }
 
 tree
-crug_channel_ready (location_t loc, tree channel, bool receive)
-{
-  return build_call_expr_loc (loc, chan_ready_fndecl (receive), 1,
-			      convert (ptr_type_node, channel));
-}
-
-tree
 crug_channel_select_turn (location_t loc)
 {
   return build_call_expr_loc (loc, chan_select_turn_fndecl (), 0);
@@ -404,15 +516,17 @@ crug_channel_poll_wait (location_t loc)
   return build_call_expr_loc (loc, chan_poll_wait_fndecl (), 0);
 }
 
-/* The ownership analysis.  A call to crug_chan_send_owned has the element
-   expression inside the compound literal of its second argument; the pass
-   moves the value out and then replaces it with the plain operand, because a
-   compound literal initializer is not walked by the pass (ADR 0025 D3).  */
+/* The ownership analysis.  A call to crug_chan_send_owned, or to the claim
+   the select lowering uses in its place, has the element expression inside
+   the compound literal of its second argument; the pass moves the value out
+   and then replaces it with the plain operand, because a compound literal
+   initializer is not walked by the pass (ADR 0025 D3/D4).  */
 
 bool
 crug_channel_send_owned_call_p (tree call)
 {
-  return chan_call_named (call, "crug_chan_send_owned");
+  return chan_call_named (call, "crug_chan_send_owned")
+	 || chan_call_named (call, "crug_chan_send_owned_claim");
 }
 
 /* The compound literal that boxes the value of a send call, or NULL_TREE.  */

@@ -120,9 +120,16 @@ main (void)
            (unsigned long long) atomic_load (&frame_value));
   }
 
-  /* Suite 4: a task may spawn tasks; all eleven complete.  */
+  /* Suite 4: a task may spawn tasks; all eleven complete.  A spawn that
+     races the shutdown is a fatal crug-CONC-029 (ADR 0011 D5), so the
+     producer is joined through a scope before the shutdown drains the ten
+     children it queued.  */
   atomic_store (&nested_counter, 0);
-  crug_task_spawn (spawn_nested, NULL, 0);
+  {
+    void *scope = crug_scope_enter ();
+    crug_task_spawn_scoped (scope, spawn_nested, NULL, 0);
+    crug_scope_leave (scope);
+  }
   crug_task_runtime_shutdown ();
   crug_task_stats_get (&stats);
   CHECK (stats.completed == 120, "suite 4 completed %llu",

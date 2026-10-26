@@ -79,11 +79,30 @@ case_thread_create_join (crug_pal_reporter reporter, void *ctx)
       fail (reporter, ctx, "thread-create-join", "create returned no handle");
       return;
     }
-  crug_pal_thread_join (thread);
+  if (crug_pal_thread_join (thread) != 0)
+    {
+      fail (reporter, ctx, "thread-create-join", "join reported failure");
+      return;
+    }
   if (atomic_load_explicit (&thread_flag, memory_order_acquire) != 1)
     fail (reporter, ctx, "thread-create-join", "entry did not run before join returned");
   else
     pass (reporter, ctx, "thread-create-join");
+}
+
+/* A NULL handle is a contract violation, and the failure must be reported
+   through the error slot: the core relies on join telling the truth so that a
+   failed shutdown does not free a worker it never joined.  */
+static void
+case_thread_join_rejects_null (crug_pal_reporter reporter, void *ctx)
+{
+  crug_pal_clear_error ();
+  if (crug_pal_thread_join (NULL) == 0)
+    fail (reporter, ctx, "thread-join-rejects-null", "a NULL handle was joined");
+  else if (crug_pal_last_error () != CRUG_PAL_EINVAL)
+    fail (reporter, ctx, "thread-join-rejects-null", "the failure was not reported as EINVAL");
+  else
+    pass (reporter, ctx, "thread-join-rejects-null");
 }
 
 static void
@@ -314,12 +333,12 @@ case_error_mapping (crug_pal_reporter reporter, void *ctx)
 static void
 case_version_and_names (crug_pal_reporter reporter, void *ctx)
 {
-  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 1)
+  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 2)
     {
       fail (reporter, ctx, "version-and-names", "the suite was built against another contract version");
       return;
     }
-  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 1))
+  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 2))
     {
       fail (reporter, ctx, "version-and-names", "the ABI version encoding changed");
       return;
@@ -358,6 +377,7 @@ crug_pal_contract_run (crug_pal_reporter reporter, void *ctx,
   n_fail = 0;
   case_version_and_names (reporter, ctx);
   case_thread_create_join (reporter, ctx);
+  case_thread_join_rejects_null (reporter, ctx);
   case_thread_rejects_null_entry (reporter, ctx);
   case_cpu_count (reporter, ctx);
   case_wait_wake (reporter, ctx);
