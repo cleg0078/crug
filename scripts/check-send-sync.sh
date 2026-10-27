@@ -49,6 +49,10 @@ fi
 
 dg_pass=$(grep -c '^PASS: crug.dg/send-sync/' "$SUM" 2>/dev/null || true)
 dg_fail=$(grep -cE '^(FAIL|XPASS|UNRESOLVED|ERROR): crug.dg/send-sync/' "$SUM" 2>/dev/null || true)
+# A run without a built compiler leaves gcc.sum missing and both counts empty;
+# keep the arithmetic well formed, the message below names the real problem.
+dg_pass=${dg_pass:-0}
+dg_fail=${dg_fail:-0}
 if [ "$dg_pass" -eq 0 ]; then
 	fail_msg "no crug.dg/send-sync tests ran"
 fi

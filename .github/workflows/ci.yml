@@ -3,10 +3,11 @@ name: ci
 # The repository-wide gate. The four always-on jobs are the ones
 # scripts/check-ci-gate.sh requires: build proves the pinned GCC baseline and
 # plain-C compatibility, compiler proves the ownership/borrow/ownership-drop
-# front end plus the c2crug rewrite proofs, runtime proves the libcrug task
-# scheduler and channels, and gate-self-test proves that the gate adjudicator
-# still fails fail-open archives and MANUAL expectations. The fifth job,
-# coverage, runs only on the weekly schedule.
+# front end, the 'go'/channel/Send-Sync suites and the c2crug rewrite proofs,
+# runtime proves the libcrug task scheduler and the channel runtime, and
+# gate-self-test proves that the gate adjudicator still fails fail-open
+# archives and MANUAL expectations. The fifth job, coverage, runs only on the
+# weekly schedule.
 #
 # check-ci-gate.sh observes a completed, successful run of this workflow on
 # the exact HEAD commit and requires the gate-self-test context in branch
@@ -73,11 +74,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd python3
+            build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd python3 \
+            strace
       - name: Build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
       - name: Ownership, borrow and drop suites
         run: make check-OWNERSHIP check-DROP check-BORROW
+      - name: Goroutine, channel and Send/Sync suites
+        run: make check-GOROUTINES check-CHANNELS check-SEND_SYNC
       - name: c2crug rewrite proofs and conformance
         run: make check-C2CRUG check-C2CRUG_PROOFS
 
@@ -94,8 +98,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential python3
-      - name: Task scheduler, channels and synchronous send
-        run: make check-GOROUTINES check-CHANNELS check-SEND_SYNC
+      - name: Task scheduler, channel runtime and regressions
+        run: |
+          make -C libcrug PAL=linux check-tasks
+          make -C libcrug PAL=fake check-RUNTIME
 
   gate-self-test:
     name: gate-self-test
