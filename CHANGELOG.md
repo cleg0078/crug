@@ -8,6 +8,24 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+### Changed
+
+- **Spawned tasks materialize their stack when a worker dispatches them.**
+  `crug_task_spawn` now copies the frame and queues a task whose stack is
+  materialized by the worker that runs it (ADR 0008 A-3). A 480,000-goroutine
+  burst that spawns before it drains cost 11.4 s and 32 GB of address space at
+  eight workers; it now costs 0.65 s and 1.8 GB, and a queued task holds no
+  stack. The spawn contract, the canary check and the 64 KiB default stack are
+  unchanged; a task that never ran is intact by construction and releases its
+  header without a canary check.
+- **Tests and probes.** `libcrug/tests/runtime/burst_stacks.c` is the new
+  Linux regression test (it fails with ~20 GiB of `VmPeak` on the eager
+  implementation), and `make -C libcrug bench-tasks` now reports the spawn
+  loop separately and the process `VmPeak`.
+- **Docs and gate.** TASKS.md, PERFORMANCE.md section 4 and ADR 0008 record the
+  change; the Phase 14 gate is re-baselined by amendment A-32 (compiler-test
+  count 27 to 31, and the queue peak is printed but no longer adjudicated).
+
 ## [0.2.2] - 2026-10-27
 
 ### Changed

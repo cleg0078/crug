@@ -728,7 +728,10 @@ runtime_start (void)
 static void
 task_release (struct crug_task *task)
 {
-  bool intact = task->magic == CRUG_TASK_MAGIC && stack_is_intact (task->stack);
+  /* A task released before it ran never materialized a stack; it is intact by
+     construction (nothing executed on it, so nothing can have overrun it).  */
+  bool intact = task->magic == CRUG_TASK_MAGIC
+		&& (task->stack == NULL || stack_is_intact (task->stack));
 
   if (!intact)
     {
@@ -878,6 +881,19 @@ crug_worker_main (void *arg)
 
       atomic_store_explicit (&task->state, CRUG_TASK_RUNNING, memory_order_relaxed);
       current_task = task;
+      /* A spawned task arrives without a stack: spawn_common queues it and the
+	 worker that will run it materializes the stack here.  A burst of queued
+	 tasks therefore costs no PAL address space and no guard page until the
+	 scheduler reaches it (ADR 0008 A-3).  stack_new either returns a stack or
+	 dies with a diagnostic, so no error path is needed.  */
+      if (task->stack == NULL)
+	{
+	  task->stack = stack_alloc ();
+	  task->sp = crug_ctx_prepare_stack (task->stack->top,
+					     crug_task_trampoline);
+	  if (task->sp == NULL)
+	    crug_runtime_fatal ("cannot prepare a task stack");
+	}
       crug_ctx_switch (&worker_sp, task->sp);
       current_task = NULL;
 
@@ -900,7 +916,6 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
 	      struct crug_scope *scope)
 {
   struct crug_task *task;
-  struct crug_stack *stack;
   size_t frame_bytes;
   size_t align;
 
@@ -921,16 +936,16 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   if (sizeof *task > SIZE_MAX - frame_bytes)
     crug_runtime_fatal ("crug-CONC-028: the task frame size overflows");
 
-  stack = stack_alloc ();
   task = task_alloc (sizeof *task + frame_bytes);
   if (task == NULL)
-    {
-      stack_release (stack);
-      crug_runtime_fatal ("cannot allocate a task");
-    }
+    crug_runtime_fatal ("cannot allocate a task");
 
   task->magic = CRUG_TASK_MAGIC;
-  task->stack = stack;
+  /* No stack yet: the worker that dispatches the task materializes it
+     (ADR 0008 A-3), so a queued task costs only its frame and the runtime
+     pins no PAL address space per pending task.  */
+  task->stack = NULL;
+  task->sp = NULL;
   task->frame_size = frame_size;
   task->entry = entry;
   task->scope = scope;
@@ -940,10 +955,6 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   if (frame != NULL && frame_size > 0)
     memcpy (task->frame, frame, frame_size);
   memset (task->frame + frame_size, 0, frame_bytes - frame_size);
-
-  task->sp = crug_ctx_prepare_stack (stack->top, crug_task_trampoline);
-  if (task->sp == NULL)
-    crug_runtime_fatal ("cannot prepare a task stack");
 
   /* Admission is one critical section: the shutdown state is read, the live
      count is raised, the identifier is taken and the task becomes visible to

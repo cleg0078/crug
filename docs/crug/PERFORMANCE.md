@@ -95,37 +95,60 @@ Crug runtime.
 
 | arm | dispatch time | per-task memory (VmSize delta) |
 |---|---|---|
-| pthread per task | 2.30 ms | 8032.1 KiB |
-| C thread pool (cold) | 136 us | - |
+| pthread per task | 2.24 ms | 8032.1 KiB |
+| C thread pool (cold) | 127 us | - |
 | C thread pool (warm) | 23-37 us | - |
-| Crug runtime | 1.88 ms | 67.7 KiB |
+| Crug runtime | 0.186 ms | 67.7 KiB |
 
-**Result: ratio Crug/pthread = 0.818 (threshold 1.5), tasks 200, lost 0**, and
+**Result: ratio Crug/pthread = 0.083 (threshold 1.5), tasks 200, lost 0**, and
 **memory per task 67.7 KiB versus 8032.1 KiB (ratio 0.0084, threshold 0.5)**.
-Crug is slightly faster than spawning a pthread per task and uses about two
-orders of magnitude less memory, because it reserves a 64 KiB owned stack
-rather than an 8 MiB thread stack.
+Crug is an order of magnitude faster than spawning a pthread per task and uses
+about two orders of magnitude less memory, because a spawn only queues the task
+and the worker reuses a 64 KiB owned stack rather than an 8 MiB thread stack
+(ADR 0008 A-3).
 
-The allocation-free pool wins dispatch by about 16x; that ratio is recorded
-(`pool-ratio=13.8`) and **not gated**, because a pool is not the baseline a
+The allocation-free pool wins dispatch by about 1.5x; that ratio is recorded
+(`pool-ratio=1.466`) and **not gated**, because a pool is not the baseline a
 project starts from and a 64 KiB stack per task is a design decision of the
 runtime (ADR 0008), not an overhead of the language.
 
-A bounded allocation cache (ADR 0008 A-2) removes the per-spawn stack
-reserve/commit/protect and `malloc` path. The probe is
+A bounded allocation cache (ADR 0008 A-2) bounds the dispatch path, and since
+ADR 0008 A-3 a spawn is queue-only, so this probe measures the queue and the
+workers' first-run stack materialization. The probe is
 `make -C libcrug PAL=linux bench-tasks`; it is not a gate because CI runners
 vary. With 1,000,000 no-op tasks and 16 KiB stacks:
 
-| workers | elapsed | ns/task |
-|---|---|---|
-| 1 | 0.378 s | 378 |
-| 2 | 0.524 s | 524 |
-| 4 | 0.945 s | 945 |
+| workers | elapsed | ns/task | peak VmPeak |
+|---|---|---|---|
+| 1 | 0.310 s | 310 | 142 MB |
+| 2 | 0.543 s | 543 | 216 MB |
+| 4 | 0.975 s | 975 | 396 MB |
+| 8 | 1.524 s | 1524 | 658 MB |
 
-The 0.5 s target is met on one worker; the multi-worker results are queue- and
-cache-lock bound, not allocation bound, and are recorded as the remaining
-scaling limit. The 4-worker row moved to 0.945 s after the local stack cache. The 100,000-task stress run drops from 0.71 s with the cache
-disabled to 0.17 s with it enabled on this host.
+The 0.5 s target is met on one worker; the multi-worker results are queue-lock
+bound (the spawn loop is the whole run: `spawn_ns` and `ns` differ by under
+1%), not allocation bound, and are recorded as the remaining scaling limit.
+The 100,000-task stress run drops from 0.71 s with the cache disabled to 0.17 s
+with it enabled on this host.
+
+### 4.1 Burst spawn
+
+A program that spawns every task before draining them - a raytracer's
+`go render_pixel (...)` per pixel is 480,000 tasks - used to pay a stack
+reservation for every queued task. Since ADR 0008 A-3 a spawn only copies the
+frame and queues the task; the dispatching worker materializes the stack. On
+this host, 480,000 tasks with 64 KiB stacks and an 8192-slot channel:
+
+| shape | before | after |
+|---|---|---|
+| spawn all, 8 workers | 7.36-11.39 s, VmPeak 32.0 GB | 0.53-0.65 s, VmPeak 1.5-1.8 GB |
+| spawn all, 1 worker | 3.72-3.79 s, VmPeak 31.5 GB | 0.149 s, VmPeak 689 MB |
+| window 8192, 8 workers | 1.05-1.08 s, VmPeak 645 MB | 0.81-0.88 s, VmPeak 581-644 MB |
+
+The spawn loop alone costs 91 ns/task on one worker, and a queued task holds one
+task header and no stack, so the address space scales with the workers and the
+cache window, not with the burst. The window rows are a probe, not part of
+`bench/concurrency` (whose arms stay at 200 tasks).
 
 ## 5. Channels
 

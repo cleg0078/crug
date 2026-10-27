@@ -100,7 +100,7 @@ RUNTIME_TESTS := $(BUILD)/chan-ticket $(BUILD)/chan-claim $(BUILD)/recv-scratch 
 	$(BUILD)/shutdown-status $(BUILD)/frame-alignment $(BUILD)/cache-restart
 RUNTIME_ABORT_TESTS := $(BUILD)/frame-overflow
 ifeq ($(PAL),linux)
-RUNTIME_TESTS += $(BUILD)/shutdown-concurrent
+RUNTIME_TESTS += $(BUILD)/shutdown-concurrent $(BUILD)/burst-stacks
 endif
 ifeq ($(PAL),fake)
 RUNTIME_TESTS += $(BUILD)/join-failure
@@ -186,6 +186,9 @@ $(BUILD)/frame-alignment: tests/runtime/frame_alignment.c core/task.h $(CORE_OBJ
 
 $(BUILD)/cache-restart: tests/runtime/cache_restart.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/cache_restart.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/burst-stacks: tests/runtime/burst_stacks.c core/chan.h core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/burst_stacks.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
 $(BUILD)/shutdown-concurrent: tests/runtime/shutdown_concurrent.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/shutdown_concurrent.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)

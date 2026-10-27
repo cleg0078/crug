@@ -142,3 +142,33 @@ This changes no public ABI: `crug_task_spawn`, `crug_task_stats` and the task
 execution model stay as they were. The 64 KiB default stack and the
 `CRUG_TASKS_STACK` range are unchanged; the cache only removes the per-spawn
 reserve/commit/malloc path.
+
+### A-3 (2026-10-27): a spawned task materializes its stack when a worker dispatches it
+
+D1 reads "one private fixed-size stack per task", and the MVP implemented that
+eagerly: `crug_task_spawn` reserved, committed, guarded and `malloc`ed a stack
+before it queued the task. A program that spawns every goroutine before it
+drains them (a raytracer's `go render_pixel (...)` per pixel is 480,000 tasks)
+then pays ~5 us and ~68 KiB of address space per queued task; measured at 32 GB
+of `VmPeak` for that shape.
+
+Spawning is now queue-only. `crug_task_spawn` copies the frame and queues a
+task whose `stack` and `sp` are NULL; the worker that dispatches it calls
+`stack_alloc`, prepares the context with `crug_ctx_prepare_stack` and switches.
+A queued task therefore holds one task header and no stack, and the stack
+lifetime is still exactly the task's: it is reserved immediately before the
+first instruction of the task runs and released by `task_release` after the
+trampoline returns. `stack_alloc` keeps A-2's bounded caches, and its path has
+no failure return (`stack_new` calls `crug_runtime_fatal` on a PAL or `malloc`
+failure), so the "spawn is queued or the process dies" contract is preserved.
+
+The canary contract is unchanged, and a task that never ran is intact by
+construction: `task_release` checks the magic and, when no stack was ever
+materialized, releases the header without a canary check, because there is no
+canary to check. The guard page, the no-growth rule and D3 are untouched.
+
+Measured on one host, 480,000 tasks with 64 KiB stacks: spawn-all at 8 workers
+11.39 s and 32.0 GB of `VmPeak` before, 0.65 s and 1.8 GB after; at one worker
+3.72 s before, 0.149 s after. The regression test is
+`libcrug/tests/runtime/burst_stacks.c` (Linux only: the fake PAL runs a thread
+to completion inside `join`, so it has no queue to inspect).

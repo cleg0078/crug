@@ -101,12 +101,21 @@ before `crug_task_runtime_try_shutdown` releases the global cache. A restart
 starts with an empty cache. This is an internal allocation policy: no header,
 ABI or execution model changed (ADR 0008 A-2).
 
+Spawning itself does not touch the PAL. `crug_task_spawn` copies the frame and
+queues the task; the worker that dispatches it materializes the stack, prepares
+the context and switches to it. A task that is still queued therefore holds one
+header and no stack, and a burst that spawns every task before draining it costs
+queue time, not one stack reservation per task (ADR 0008 A-3). The dispatch path
+above is what a task takes once it runs.
+
 The performance probe is:
 
     make -C libcrug PAL=linux bench-tasks
 
 Set `N`, `CRUG_TASKS_WORKERS`, `CRUG_TASKS_STACK` and the cache variables in the
-environment before spawning. It is a probe, not a gate.
+environment before spawning. It reports the spawn loop separately (`spawn_ns`),
+the whole run (`ns`) and the process high-water address space (`peak_kb`, Linux
+only). It is a probe, not a gate.
 
 ## 5. What the runtime may not do
 
@@ -149,9 +158,9 @@ no counter and no signature in this document.
 
 | Check | Result |
 |---|---|
-| `make check-GOROUTINES` | `goroutines: 28 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
+| `make check-GOROUTINES` | `goroutines: 31 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
 | `make check-SCOPE` | `scope: 23 compiler test(s), 8 group program(s), 0 leaked group(s), 0 failure(s)` |
-| `GOROUTINES_STRESS=1 ./build/tasks-stress` | `tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=4` |
+| `GOROUTINES_STRESS=1 ./build/tasks-stress` | `tasks=100000 completed=100000 checksums=100000 lost=0 corrupt=0 workers=4 queue_peak=93617` (queue peak depends on dispatch timing; A-32) |
 | `strace -f -e trace=clone,clone3 ... ./build/tasks-stress` | 4 matches with `CRUG_TASKS_WORKERS=4` |
 | `make -C libcrug check-sanitizer` | ASan+UBSan clean |
 | `scripts/check-kernel-objects.sh out` | `kernel-objects: 20 objects, __crug_=0, libcrug=0` |
@@ -168,6 +177,7 @@ The five task programs are `spawn`, `yield`, `capture`, `owned` and
 |---|---|
 | `make -C libcrug PAL=fake check-PAL` | the PAL contract with no operating system |
 | `make -C libcrug PAL=linux check-tasks` | the scheduler on the real backend |
+| `make -C libcrug PAL=linux check-RUNTIME` | the runtime programs, including `burst-stacks`, the deferred-stack regression |
 | `make check-GOROUTINES` | the whole phase (DejaGnu compiler cases + runtime programs + the stress and `strace` counts) |
 | `make check-GOROUTINES_DG` | only the DejaGnu cases under `gcc/testsuite/crug.dg/goroutines/` |
 | `make -C libcrug check-sanitizer` | the task suite and the group API under ASan, UBSan and LeakSanitizer |
