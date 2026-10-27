@@ -21,6 +21,7 @@ a scope owns the tasks spawned inside it and waits for them.
 | ready queue | one global FIFO for tasks that have never run, plus one small per-worker FIFO for a task that yields; atomic spin lock, no stealing, no priorities; a task never leaves its worker (ADR 0009 A-1) |
 | scheduling | cooperative: until the entry returns or `yield ()` |
 | task stack | one private fixed stack, default 64 KiB, rounded up to a page; `CRUG_TASKS_STACK` |
+| allocation cache | bounded per-thread stack cache and per-class task/frame cache; `CRUG_TASKS_CACHE`, `CRUG_TASKS_TASK_CACHE` |
 | stack guard | one PAL guard page at the low end (`crug_pal_page_size ()`: 4096 bytes on x86-64, 16384 on Apple silicon; ADR 0008 A-1), canary at the first committed word |
 | preemption | none |
 | cancellation | none |
@@ -77,10 +78,35 @@ must be 0 once every scope has been left (the stress gate reads it).
 |---|---|---|
 | `CRUG_TASKS_WORKERS` | worker count for the process, read before the first spawn | 1..64 |
 | `CRUG_TASKS_STACK` | bytes per task stack, read before the first spawn | 16 KiB..16 MiB |
+| `CRUG_TASKS_CACHE` | stack slots in the shared cache; each thread also keeps up to 32 local slots; `0` disables | 0..65536 |
+| `CRUG_TASKS_TASK_CACHE` | cached task/frame blocks per size class; `0` disables | 0..65536 |
 | `GOROUTINES_STRESS` | makes `tasks-stress` run its 100000-task profile | any value |
 
 An out-of-range value is fatal at runtime with a diagnostic naming the
 variable, never silently clamped downward.
+
+## 4.1 Allocation caches
+
+`crug_task_spawn` no longer reserves, commits, protects and frees a stack for
+every task. A per-thread cache holds reusable stack slots; a small global cache
+feeds a thread whose local cache is empty, and completed tasks return their
+slots after `magic` and the canary have been checked. Task headers and frames
+are served from per-size-class bins; an over-large frame falls back to
+`malloc`.
+
+The cache is bounded and opt-outable. A corrupted stack or task is released
+rather than cached and still increments `stack_corrupt`. The per-thread caches
+are flushed by the worker when it exits, and the main thread flushes its own
+before `crug_task_runtime_try_shutdown` releases the global cache. A restart
+starts with an empty cache. This is an internal allocation policy: no header,
+ABI or execution model changed (ADR 0008 A-2).
+
+The performance probe is:
+
+    make -C libcrug PAL=linux bench-tasks
+
+Set `N`, `CRUG_TASKS_WORKERS`, `CRUG_TASKS_STACK` and the cache variables in the
+environment before spawning. It is a probe, not a gate.
 
 ## 5. What the runtime may not do
 

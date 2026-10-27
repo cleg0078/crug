@@ -109,8 +109,23 @@ rather than an 8 MiB thread stack.
 The allocation-free pool wins dispatch by about 16x; that ratio is recorded
 (`pool-ratio=13.8`) and **not gated**, because a pool is not the baseline a
 project starts from and a 64 KiB stack per task is a design decision of the
-runtime (ADR 0008), not an overhead of the language. Stack pooling is future
-work and needs its own ADR.
+runtime (ADR 0008), not an overhead of the language.
+
+A bounded allocation cache (ADR 0008 A-2) removes the per-spawn stack
+reserve/commit/protect and `malloc` path. The probe is
+`make -C libcrug PAL=linux bench-tasks`; it is not a gate because CI runners
+vary. With 1,000,000 no-op tasks and 16 KiB stacks:
+
+| workers | elapsed | ns/task |
+|---|---|---|
+| 1 | 0.378 s | 378 |
+| 2 | 0.524 s | 524 |
+| 4 | 0.945 s | 945 |
+
+The 0.5 s target is met on one worker; the multi-worker results are queue- and
+cache-lock bound, not allocation bound, and are recorded as the remaining
+scaling limit. The 4-worker row moved to 0.945 s after the local stack cache. The 100,000-task stress run drops from 0.71 s with the cache
+disabled to 0.17 s with it enabled on this host.
 
 ## 5. Channels
 

@@ -119,3 +119,26 @@ task spawn aborted with "cannot commit a task stack". PAL v1.1 added
 reserving `guard + stack`. D2's "4096-byte guard page" therefore reads "one
 PAL guard page"; the canary, the no-growth rule and the decline-is-not-an-error
 rule are unchanged.
+
+### A-2 (2026-10-27): bounded stack and task allocation caches
+
+D4's no-pool rule is superseded by a bounded cache. `crug_task_spawn` now takes
+a stack slot from a per-thread cache, and a completed task returns its slot to
+that cache; a small global cache feeds threads whose local cache is empty. Task
+headers and frames are served from global size-class bins. The defaults
+are 64 stack slots in the shared cache (plus up to 32 local slots per thread) and
+256 cached tasks per size class; both are
+bounded and both are disabled by setting `CRUG_TASKS_CACHE=0` or
+`CRUG_TASKS_TASK_CACHE=0` before the first spawn.
+
+The canary contract is unchanged: a slot is reused only after its canary and
+task magic have been checked, and a slot whose canary is wrong is released, not
+returned to the cache. `stack_corrupt` still counts every such event. All
+caches are flushed after the workers join in `crug_task_runtime_try_shutdown`,
+so a restart starts with an empty cache and no live stack or task is freed by
+the flush.
+
+This changes no public ABI: `crug_task_spawn`, `crug_task_stats` and the task
+execution model stay as they were. The 64 KiB default stack and the
+`CRUG_TASKS_STACK` range are unchanged; the cache only removes the per-spawn
+reserve/commit/malloc path.

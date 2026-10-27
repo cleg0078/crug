@@ -84,7 +84,9 @@ reads the runtime counters. Thresholds:
   preallocated queue and needs no per-task resource; Crug reserves and commits
   a 64 KiB guarded stack per task. The measured ratio therefore stays far
   above 1.5, and the gap is the documented cost of per-task stack ownership.
-  Stack pooling is future work and needs its own ADR; it is not part of M21.
+  A bounded allocation cache (ADR 0008 A-2) now removes the per-spawn stack
+  reserve/commit and task malloc from the hot path; the thresholds above are
+  unchanged.
 
 ### 2.5 Channels
 

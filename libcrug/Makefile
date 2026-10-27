@@ -88,6 +88,7 @@ PAL_OBJ := $(BUILD)/pal_$(PAL).o
 CONTRACT := $(BUILD)/pal-contract
 TASKS := $(BUILD)/tasks-test
 STRESS := ../build/tasks-stress
+BENCH := ../build/tasks-alloc-bench
 CHAN_TESTS := $(BUILD)/chan-basic $(BUILD)/chan-handoff $(BUILD)/chan-select
 LOG := build/check-pal-$(PAL).log
 
@@ -96,7 +97,7 @@ LOG := build/check-pal-$(PAL).log
 # use); the fake backend adds the deterministic join-failure and
 # spawn-during-shutdown cases, and the Linux-only case needs two real threads.
 RUNTIME_TESTS := $(BUILD)/chan-ticket $(BUILD)/chan-claim $(BUILD)/recv-scratch \
-	$(BUILD)/shutdown-status $(BUILD)/frame-alignment
+	$(BUILD)/shutdown-status $(BUILD)/frame-alignment $(BUILD)/cache-restart
 RUNTIME_ABORT_TESTS := $(BUILD)/frame-overflow
 ifeq ($(PAL),linux)
 RUNTIME_TESTS += $(BUILD)/shutdown-concurrent
@@ -120,7 +121,7 @@ CHECK_EXTRA := $(BUILD)/pal-guard-fault
 endif
 endif
 
-.PHONY: all check check-PAL check-GOROUTINES check-MULTI_OS check-RUNTIME check-tasks check-sanitizer lint clean
+.PHONY: all check check-PAL check-GOROUTINES check-MULTI_OS check-RUNTIME check-tasks bench-tasks check-sanitizer lint clean
 all: check-PAL
 
 $(BUILD):
@@ -154,6 +155,10 @@ $(STRESS): tests/tasks_stress.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) |
 	@mkdir -p ../build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/tasks_stress.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
+$(BENCH): tests/runtime/alloc_bench.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	@mkdir -p ../build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/alloc_bench.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
 $(BUILD)/chan-basic: tests/runtime/chan_basic.c core/chan.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/chan_basic.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
@@ -178,6 +183,9 @@ $(BUILD)/shutdown-status: tests/runtime/shutdown_status.c core/task.h $(CORE_OBJ
 
 $(BUILD)/frame-alignment: tests/runtime/frame_alignment.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/frame_alignment.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/cache-restart: tests/runtime/cache_restart.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/cache_restart.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
 $(BUILD)/shutdown-concurrent: tests/runtime/shutdown_concurrent.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/shutdown_concurrent.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
@@ -204,6 +212,9 @@ endif
 # backend even when the default PAL of the file is the fake one.
 check-GOROUTINES:
 	$(MAKE) PAL=linux check-tasks
+
+bench-tasks: $(BENCH)
+	@$(RUN) $(BENCH)
 
 check-tasks: $(TASKS) $(STRESS) check-RUNTIME
 	@mkdir -p build

@@ -80,8 +80,9 @@ programs above.
 - No Windows x86-64 or macOS ARM64 binary package; those ports are qualified by
   cross-built suites and Wine or CI, and packaging for them stays open.
 - The release artefacts are unsigned and carry no transparency record.
-- The task pool is about fourteen times slower than Crug's own per-task spawn:
-  every task reserves and commits a 64 KiB guarded stack by design (ADR 0008).
+- The task stack is a fixed 64 KiB guarded stack by default; the bounded
+  allocation cache reuses slots instead of reserving one per task
+  (ADR 0008 A-2). Stack growth remains unavailable.
 - Fuzzing is bounded by a budget and a nightly window; it is evidence, not a
   proof of absence.
 - Kernel code is plain GNU C: no ownership, drop, borrow or race analysis

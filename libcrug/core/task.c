@@ -44,6 +44,12 @@
 #define CRUG_TASK_CANARY 0x5152535455565758ull
 #define CRUG_TASK_GUARD_BYTES 4096u
 #define CRUG_TASK_WORKERS_DEFAULT_MAX 8u
+#define CRUG_STACK_CACHE_DEFAULT 64u
+#define CRUG_STACK_CACHE_LIMIT 65536u
+#define CRUG_TASK_CACHE_DEFAULT 256u
+#define CRUG_TASK_CACHE_LIMIT 65536u
+#define CRUG_TASK_CACHE_BINS 8u
+#define CRUG_STACK_LOCAL 32u
 #define CRUG_TASK_QUEUE_WAKE_ONE 1
 #define CRUG_TASK_SHUTDOWN_POLL_NS 1000000ull  /* 1 ms between status checks */
 #define CRUG_TASK_SHUTDOWN_POLLS 60000u        /* at most 60 s for a waiter  */
@@ -66,17 +72,30 @@ struct crug_scope
   _Atomic uint32_t pending;
 };
 
+/* One reusable stack slot.  Slots live in a small global cache so a spawn does
+   not reserve, commit and protect a private stack every time.  The canary is
+   reset before a slot is reused; a slot whose canary was overwritten is
+   released instead of cached (ADR 0008 A-2).  */
+struct crug_stack
+{
+  void *reserve;
+  size_t total;
+  void *top;
+  void *canary;
+  struct crug_stack *next;
+};
+
 struct crug_task
 {
   uint64_t magic;
   void *sp;
   struct crug_scope *scope;
-  void *stack_reserve;
-  size_t stack_reserve_size;
-  void *stack_canary;
+  struct crug_stack *stack;
   size_t frame_size;
+  size_t alloc_size;
   crug_task_entry entry;
   struct crug_task *next;
+  struct crug_task *cache_next;
   _Atomic uint32_t state;
   uint32_t id;
   /* The channel receive buffer of this task (task-internal.h).  It is lazy:
@@ -98,6 +117,7 @@ struct crug_sched
   _Atomic uint32_t epoch;
   _Atomic uint32_t shutdown;
   _Atomic uint32_t stopping;
+  _Atomic uint32_t sleepers;
   _Atomic uint32_t started;
   _Atomic uint32_t live;
   _Atomic uint64_t spawned;
@@ -126,6 +146,8 @@ struct crug_sched
 static struct crug_sched sched;
 static _Thread_local struct crug_task *current_task;
 static _Thread_local void *worker_sp;
+static _Thread_local struct crug_stack *local_stack_free;
+static _Thread_local uint32_t local_stack_count;
 
 /* The per-worker run queue.  A task is pinned to the worker thread that first
    runs it (ADR 0009 D3, amended in Phase 18): a C task's stack frames may hold
@@ -151,6 +173,393 @@ crug_runtime_fatal (const char *what)
   abort ();
 }
 
+
+/* ---- allocation caches ------------------------------------------------ */
+
+struct crug_task_bin
+{
+  _Atomic uint32_t lock;
+  struct crug_task *free;
+  uint32_t count;
+  uint32_t limit;
+};
+
+struct crug_stack_cache
+{
+  _Atomic uint32_t lock;
+  struct crug_stack *free;
+  uint32_t count;
+  uint32_t limit;
+};
+
+static struct crug_stack_cache stack_cache;
+static struct crug_task_bin task_bins[CRUG_TASK_CACHE_BINS];
+static _Atomic uint32_t stack_cache_ready;
+static _Atomic uint32_t task_cache_ready;
+
+static const size_t task_class_sizes[CRUG_TASK_CACHE_BINS] =
+{ 128u, 256u, 512u, 1024u, 2048u, 4096u, 8192u, 16384u };
+
+static void
+spin_lock (_Atomic uint32_t *lock)
+{
+  while (atomic_exchange_explicit (lock, 1u, memory_order_acquire) != 0)
+    ;
+}
+
+static void
+spin_unlock (_Atomic uint32_t *lock)
+{
+  atomic_store_explicit (lock, 0u, memory_order_release);
+}
+
+static uint32_t
+pick_cache_limit (const char *name, uint32_t fallback, uint32_t maximum)
+{
+  const char *text = getenv (name);
+  unsigned long value;
+  char *end = NULL;
+
+  if (text == NULL || *text == '\0')
+    return fallback;
+  value = strtoul (text, &end, 10);
+  if (end == text || *end != '\0' || value > maximum)
+    crug_runtime_fatal ("a task cache limit is out of range");
+  return (uint32_t) value;
+}
+
+static int
+task_class_index (size_t total)
+{
+  uint32_t i;
+
+  for (i = 0; i < CRUG_TASK_CACHE_BINS; i++)
+    if (total <= task_class_sizes[i])
+      return (int) i;
+  return -1;
+}
+
+static void
+task_cache_init (void)
+{
+  uint32_t limit;
+  uint32_t i;
+
+  if (atomic_load_explicit (&task_cache_ready, memory_order_acquire))
+    return;
+  limit = pick_cache_limit ("CRUG_TASKS_TASK_CACHE", CRUG_TASK_CACHE_DEFAULT,
+			    CRUG_TASK_CACHE_LIMIT);
+  for (i = 0; i < CRUG_TASK_CACHE_BINS; i++)
+    {
+      atomic_store_explicit (&task_bins[i].lock, 0u, memory_order_relaxed);
+      task_bins[i].free = NULL;
+      task_bins[i].count = 0;
+      task_bins[i].limit = limit;
+    }
+  atomic_store_explicit (&task_cache_ready, 1u, memory_order_release);
+}
+
+static void
+stack_cache_init (void)
+{
+  if (atomic_load_explicit (&stack_cache_ready, memory_order_acquire))
+    return;
+  atomic_store_explicit (&stack_cache.lock, 0u, memory_order_relaxed);
+  stack_cache.free = NULL;
+  stack_cache.count = 0;
+  stack_cache.limit = pick_cache_limit ("CRUG_TASKS_CACHE",
+				       CRUG_STACK_CACHE_DEFAULT,
+				       CRUG_STACK_CACHE_LIMIT);
+  atomic_store_explicit (&stack_cache_ready, 1u, memory_order_release);
+}
+
+static void stack_release (struct crug_stack *stack);
+
+static struct crug_stack *
+stack_new (void)
+{
+  struct crug_stack *stack;
+  void *reserve;
+  size_t guard;
+  size_t bytes;
+  size_t total;
+
+  guard = crug_pal_page_size ();
+  if (guard < CRUG_TASK_GUARD_BYTES)
+    guard = CRUG_TASK_GUARD_BYTES;
+  bytes = sched.stack_bytes;
+  bytes = (bytes + guard - 1u) & ~(guard - 1u);
+  total = guard + bytes;
+  reserve = crug_pal_memory_reserve (total);
+  if (reserve == NULL)
+    crug_runtime_fatal ("cannot reserve a task stack");
+  if (!crug_pal_memory_commit ((char *) reserve + guard, bytes))
+    crug_runtime_fatal ("cannot commit a task stack");
+  crug_pal_memory_protect_guard (reserve, guard);
+  stack = (struct crug_stack *) malloc (sizeof *stack);
+  if (stack == NULL)
+    {
+      crug_pal_memory_release (reserve, total);
+      crug_runtime_fatal ("cannot allocate a task stack slot");
+    }
+  stack->reserve = reserve;
+  stack->total = total;
+  stack->top = (char *) reserve + total;
+  stack->canary = (char *) reserve + guard;
+  *((uint64_t *) stack->canary) = CRUG_TASK_CANARY;
+  stack->next = NULL;
+  return stack;
+}
+
+static void
+stack_release (struct crug_stack *stack)
+{
+  if (stack == NULL)
+    return;
+  crug_pal_memory_release (stack->reserve, stack->total);
+  free (stack);
+}
+
+static void
+stack_local_flush (void)
+{
+  struct crug_stack *stack = local_stack_free;
+  struct crug_stack *drop = NULL;
+
+  local_stack_free = NULL;
+  local_stack_count = 0;
+  if (stack == NULL)
+    return;
+  if (!atomic_load_explicit (&stack_cache_ready, memory_order_acquire)
+      || stack_cache.limit == 0u)
+    {
+      while (stack != NULL)
+	{
+	  struct crug_stack *next = stack->next;
+	  stack_release (stack);
+	  stack = next;
+	}
+      return;
+    }
+  spin_lock (&stack_cache.lock);
+  while (stack != NULL)
+    {
+      struct crug_stack *next = stack->next;
+      if (stack_cache.count < stack_cache.limit)
+	{
+	  stack->next = stack_cache.free;
+	  stack_cache.free = stack;
+	  stack_cache.count++;
+	}
+      else
+	{
+	  stack->next = drop;
+	  drop = stack;
+	}
+      stack = next;
+    }
+  spin_unlock (&stack_cache.lock);
+  while (drop != NULL)
+    {
+      struct crug_stack *next = drop->next;
+      stack_release (drop);
+      drop = next;
+    }
+}
+
+static struct crug_stack *
+stack_alloc (void)
+{
+  struct crug_stack *stack;
+
+  if (!atomic_load_explicit (&stack_cache_ready, memory_order_acquire))
+    stack_cache_init ();
+  if (stack_cache.limit != 0u && local_stack_count != 0u)
+    {
+      stack = local_stack_free;
+      local_stack_free = stack->next;
+      local_stack_count--;
+      stack->next = NULL;
+      *((uint64_t *) stack->canary) = CRUG_TASK_CANARY;
+      return stack;
+    }
+  if (stack_cache.limit == 0u)
+    return stack_new ();
+
+  spin_lock (&stack_cache.lock);
+  while (stack_cache.free != NULL && local_stack_count < CRUG_STACK_LOCAL)
+    {
+      stack = stack_cache.free;
+      stack_cache.free = stack->next;
+      stack_cache.count--;
+      stack->next = local_stack_free;
+      local_stack_free = stack;
+      local_stack_count++;
+    }
+  spin_unlock (&stack_cache.lock);
+  if (local_stack_count != 0u)
+    {
+      stack = local_stack_free;
+      local_stack_free = stack->next;
+      local_stack_count--;
+      stack->next = NULL;
+      *((uint64_t *) stack->canary) = CRUG_TASK_CANARY;
+      return stack;
+    }
+  return stack_new ();
+}
+
+static void
+stack_put (struct crug_stack *stack)
+{
+  if (stack == NULL)
+    return;
+  if (!atomic_load_explicit (&stack_cache_ready, memory_order_acquire)
+      || stack_cache.limit == 0u)
+    {
+      stack_release (stack);
+      return;
+    }
+  if (local_stack_count < CRUG_STACK_LOCAL)
+    {
+      stack->next = local_stack_free;
+      local_stack_free = stack;
+      local_stack_count++;
+      return;
+    }
+  stack_local_flush ();
+  stack->next = local_stack_free;
+  local_stack_free = stack;
+  local_stack_count = 1;
+}
+
+static bool
+stack_is_intact (struct crug_stack *stack)
+{
+  uint64_t canary = 0;
+
+  if (stack == NULL || stack->canary == NULL)
+    return false;
+  memcpy (&canary, stack->canary, sizeof canary);
+  return canary == CRUG_TASK_CANARY;
+}
+
+static void
+stack_cache_flush (void)
+{
+  struct crug_stack *stack;
+
+  if (!atomic_load_explicit (&stack_cache_ready, memory_order_acquire))
+    return;
+  spin_lock (&stack_cache.lock);
+  stack = stack_cache.free;
+  stack_cache.free = NULL;
+  stack_cache.count = 0;
+  spin_unlock (&stack_cache.lock);
+  while (stack != NULL)
+    {
+      struct crug_stack *next = stack->next;
+      stack_release (stack);
+      stack = next;
+    }
+  atomic_store_explicit (&stack_cache_ready, 0u, memory_order_release);
+}
+
+static struct crug_task *
+task_alloc (size_t total)
+{
+  struct crug_task *task;
+  size_t size = total;
+  int bin;
+
+  if (!atomic_load_explicit (&task_cache_ready, memory_order_acquire))
+    task_cache_init ();
+  bin = task_class_index (total);
+  if (bin >= 0)
+    size = task_class_sizes[bin];
+  if (bin < 0 || task_bins[bin].limit == 0u)
+    {
+      task = (struct crug_task *) malloc (size);
+      if (task != NULL)
+	{
+	  task->alloc_size = size;
+	  task->recv_scratch = NULL;
+	  task->recv_scratch_size = 0;
+	}
+      return task;
+    }
+  spin_lock (&task_bins[bin].lock);
+  task = task_bins[bin].free;
+  if (task != NULL)
+    {
+      task_bins[bin].free = task->cache_next;
+      task_bins[bin].count--;
+    }
+  spin_unlock (&task_bins[bin].lock);
+  if (task == NULL)
+    {
+      task = (struct crug_task *) malloc (size);
+      if (task != NULL)
+	{
+	  task->alloc_size = size;
+	  task->recv_scratch = NULL;
+	  task->recv_scratch_size = 0;
+	}
+    }
+  return task;
+}
+
+static void
+task_free (struct crug_task *task)
+{
+  int bin;
+
+  if (task == NULL)
+    return;
+  bin = task_class_index (task->alloc_size);
+  if (bin >= 0 && task_bins[bin].limit != 0u)
+    {
+      spin_lock (&task_bins[bin].lock);
+      if (task_bins[bin].count < task_bins[bin].limit)
+	{
+	  task->cache_next = task_bins[bin].free;
+	  task_bins[bin].free = task;
+	  task_bins[bin].count++;
+	  spin_unlock (&task_bins[bin].lock);
+	  return;
+	}
+      spin_unlock (&task_bins[bin].lock);
+    }
+  free (task->recv_scratch);
+  free (task);
+}
+
+static void
+task_cache_flush (void)
+{
+  uint32_t i;
+
+  if (!atomic_load_explicit (&task_cache_ready, memory_order_acquire))
+    return;
+  for (i = 0; i < CRUG_TASK_CACHE_BINS; i++)
+    {
+      struct crug_task *task;
+
+      spin_lock (&task_bins[i].lock);
+      task = task_bins[i].free;
+      task_bins[i].free = NULL;
+      task_bins[i].count = 0;
+      spin_unlock (&task_bins[i].lock);
+      while (task != NULL)
+	{
+	  struct crug_task *next = task->cache_next;
+	  free (task->recv_scratch);
+	  free (task);
+	  task = next;
+	}
+    }
+  atomic_store_explicit (&task_cache_ready, 0u, memory_order_release);
+}
 /* ---- ready queue ------------------------------------------------------ */
 
 static void
@@ -301,6 +710,9 @@ runtime_start (void)
   workers = pick_workers ();
   sched.configured_workers = workers;
   sched.stack_bytes = pick_stack_bytes ();
+  stack_cache_init ();
+  task_cache_init ();
+  atomic_store_explicit (&sched.sleepers, 0u, memory_order_relaxed);
   sched.worker_count = workers;
   atomic_store_explicit (&sched.shutdown, 0u, memory_order_release);
   atomic_store_explicit (&sched.started, 1u, memory_order_release);
@@ -316,17 +728,19 @@ runtime_start (void)
 static void
 task_release (struct crug_task *task)
 {
-  uint64_t canary = 0;
+  bool intact = task->magic == CRUG_TASK_MAGIC && stack_is_intact (task->stack);
 
-  if (task->stack_canary != NULL)
-    memcpy (&canary, task->stack_canary, sizeof canary);
-  if (task->magic != CRUG_TASK_MAGIC || canary != CRUG_TASK_CANARY)
-    atomic_fetch_add_explicit (&sched.corrupt, 1u, memory_order_relaxed);
-  if (task->stack_reserve != NULL)
-    crug_pal_memory_release (task->stack_reserve, task->stack_reserve_size);
-  free (task->recv_scratch);
+  if (!intact)
+    {
+      atomic_fetch_add_explicit (&sched.corrupt, 1u, memory_order_relaxed);
+      stack_release (task->stack);
+      free (task->recv_scratch);
+      free (task);
+      return;
+    }
+  stack_put (task->stack);
   task->magic = 0;
-  free (task);
+  task_free (task);
 }
 
 /* The per-task receive buffer the channel runtime copies through; see
@@ -441,7 +855,9 @@ worker_next_task (void)
       if (atomic_load_explicit (&sched.shutdown, memory_order_acquire)
           && atomic_load_explicit (&sched.live, memory_order_acquire) == 0)
         return NULL;
+      atomic_fetch_add_explicit (&sched.sleepers, 1u, memory_order_acq_rel);
       crug_pal_wait_u32 (&sched.epoch, epoch);
+      atomic_fetch_sub_explicit (&sched.sleepers, 1u, memory_order_acq_rel);
     }
 }
 
@@ -455,7 +871,10 @@ crug_worker_main (void *arg)
       struct crug_task *task = worker_next_task ();
 
       if (task == NULL)
-        return;
+	{
+	  stack_local_flush ();
+	  return;
+	}
 
       atomic_store_explicit (&task->state, CRUG_TASK_RUNNING, memory_order_relaxed);
       current_task = task;
@@ -481,10 +900,7 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
 	      struct crug_scope *scope)
 {
   struct crug_task *task;
-  void *reserve;
-  size_t total;
-  size_t guard;
-  size_t stack;
+  struct crug_stack *stack;
   size_t frame_bytes;
   size_t align;
 
@@ -505,45 +921,27 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   if (sizeof *task > SIZE_MAX - frame_bytes)
     crug_runtime_fatal ("crug-CONC-028: the task frame size overflows");
 
-  /* The guard must start on a page boundary: a backend's protection call
-     rejects a misaligned range, and the page can be larger than 4 KiB
-     (16 KiB on Apple silicon).  */
-  guard = crug_pal_page_size ();
-  if (guard < CRUG_TASK_GUARD_BYTES)
-    guard = CRUG_TASK_GUARD_BYTES;
-  stack = sched.stack_bytes;
-  stack = (stack + guard - 1) & ~(guard - 1);
-  total = guard + stack;
-
-  reserve = crug_pal_memory_reserve (total);
-  if (reserve == NULL)
-    crug_runtime_fatal ("cannot reserve a task stack");
-
-  if (!crug_pal_memory_commit ((char *) reserve + guard, stack))
-    crug_runtime_fatal ("cannot commit a task stack");
-  crug_pal_memory_protect_guard (reserve, guard); /* optional capability */
-
-  task = (struct crug_task *) malloc (sizeof *task + frame_bytes);
+  stack = stack_alloc ();
+  task = task_alloc (sizeof *task + frame_bytes);
   if (task == NULL)
-    crug_runtime_fatal ("cannot allocate a task");
+    {
+      stack_release (stack);
+      crug_runtime_fatal ("cannot allocate a task");
+    }
 
   task->magic = CRUG_TASK_MAGIC;
-  task->stack_reserve = reserve;
-  task->stack_reserve_size = total;
-  task->recv_scratch = NULL;
-  task->recv_scratch_size = 0;
-  task->stack_canary = (char *) reserve + guard;
-  *((uint64_t *) task->stack_canary) = CRUG_TASK_CANARY;
+  task->stack = stack;
   task->frame_size = frame_size;
   task->entry = entry;
   task->scope = scope;
   task->next = NULL;
+  task->cache_next = NULL;
   atomic_store_explicit (&task->state, CRUG_TASK_READY, memory_order_relaxed);
   if (frame != NULL && frame_size > 0)
     memcpy (task->frame, frame, frame_size);
   memset (task->frame + frame_size, 0, frame_bytes - frame_size);
 
-  task->sp = crug_ctx_prepare_stack ((char *) reserve + total, crug_task_trampoline);
+  task->sp = crug_ctx_prepare_stack (stack->top, crug_task_trampoline);
   if (task->sp == NULL)
     crug_runtime_fatal ("cannot prepare a task stack");
 
@@ -563,7 +961,8 @@ spawn_common (crug_task_entry entry, const void *frame, size_t frame_size,
   atomic_fetch_add_explicit (&sched.spawned, 1u, memory_order_relaxed);
   queue_push_locked (task);
   queue_unlock ();
-  crug_pal_wake_one (&sched.epoch);
+  if (atomic_load_explicit (&sched.sleepers, memory_order_acquire) != 0u)
+    crug_pal_wake_one (&sched.epoch);
 }
 
 void
@@ -708,6 +1107,10 @@ crug_task_runtime_try_shutdown (void)
 	}
       sched.threads[i] = NULL;
     }
+
+  stack_local_flush ();
+  stack_cache_flush ();
+  task_cache_flush ();
 
   queue_lock ();
   sched.worker_count = 0;
