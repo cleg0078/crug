@@ -8,6 +8,19 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-27
+
+### Changed
+
+- **Release version.** `VERSION` and `crugc --version` now report `0.2.1`.
+  The language version stays `0.1.0`, the Crug and runtime ABIs stay `1`,
+  `.crugffi` stays `1.0` and the PAL contract stays `1.2`.
+- **CI job layout.** The compiler job runs the goroutine, channel and Send/Sync
+  suites, because they need the pinned compiler; the runtime job keeps the
+  compiler-free `libcrug` scheduler and channel checks. The three suite
+  wrappers normalise an empty `gcc.sum` count to zero instead of failing with
+  `Illegal number` and hiding the missing build.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added
