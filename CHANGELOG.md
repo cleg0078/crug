@@ -8,6 +8,8 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-27
+
 ### Changed
 
 - **Spawned tasks materialize their stack when a worker dispatches them.**
@@ -25,6 +27,9 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 - **Docs and gate.** TASKS.md, PERFORMANCE.md section 4 and ADR 0008 record the
   change; the Phase 14 gate is re-baselined by amendment A-32 (compiler-test
   count 27 to 31, and the queue peak is printed but no longer adjudicated).
+- **Release version.** `VERSION` and `crugc --version` now report `0.2.3`.
+  The language version stays `0.1.0`, the Crug and runtime ABIs stay `1`,
+  `.crugffi` stays `1.0` and the PAL contract stays `1.2`.
 
 ## [0.2.2] - 2026-10-27
 

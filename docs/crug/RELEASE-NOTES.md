@@ -1,6 +1,6 @@
-# Crug 0.2.2
+# Crug 0.2.3
 
-Status: release 0.2.2, 2026-10-27, carrying the post-`v0.1.0-rc1` defect batch
+Status: release 0.2.3, 2026-10-27, carrying the post-`v0.1.0-rc1` defect batch
 in section 8. The qualification numbers in sections 3 and 5 are the ones the
 Phase 25 gate (`docs/crug/EXIT-GATES.md`) recorded for the candidate, and every
 threshold is owned by `docs/crug/RELEASE-POLICY.md`; section 8 says what the
@@ -14,7 +14,7 @@ contract to C, carried by a pinned GCC 16.2.0 baseline. Every feature is opt-in:
 with no `-fcrug-*` flag the compiler produces the same objects as GCC 16.2, and
 the upstream testsuite remains the compatibility floor.
 
-`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.2`,
+`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.3`,
 `compiler: GCC 16.2.0`, `language version: 0.1.0`, `Crug ABI version: 1`,
 `runtime ABI version: 1`, `FFI metadata version: 1.0`, `PAL version: 1.2`.
 
@@ -50,7 +50,7 @@ the upstream testsuite remains the compatibility floor.
 | Feature suites | ownership, drop, borrow, strict, safe types, FFI, goroutines, scopes, channels, Send/Sync | `make check-OWNERSHIP` and siblings |
 | Zero cost | 12 comparisons, 0 added instructions, 0 added calls, identical optimised IR | `docs/crug/PERFORMANCE.md` |
 | Plain-C parity | 114 source/option pairs byte-identical to unmodified GCC 16.2 | `bench/run.py --pristine` |
-| Runtime | dispatch ratio 0.82 of pthread-per-task, 67.7 KiB per task against 8,032 KiB | `docs/crug/PERFORMANCE.md` |
+| Runtime | dispatch ratio 0.083 of pthread-per-task, 67.7 KiB per task against 8,032 KiB | `docs/crug/PERFORMANCE.md` |
 | Channels | 197 ns per round trip, 42.5M elements/s, 4,224 bytes per channel | `docs/crug/PERFORMANCE.md` |
 | Kernel | 2,980 translation units, 0 errors, 436 of 438 objects byte-identical (the two explained objects record the build timestamp and the compiler identification), boot to a freestanding `/init` | `docs/crug/KERNEL-BASELINE.md` |
 | Ports | 12-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
@@ -60,8 +60,8 @@ the upstream testsuite remains the compatibility floor.
 ## 4. Install and verify
 
 ```sh
-tar xzf crug-0.2.2-linux-x86_64.tar.gz
-export PATH=$PWD/crug-0.2.2/bin:$PATH
+tar xzf crug-0.2.3-linux-x86_64.tar.gz
+export PATH=$PWD/crug-0.2.3/bin:$PATH
 crugc --version
 crugc hello.c -o hello && ./hello
 crugc -fcrug-ownership hello-own.c -o hello-own && ./hello-own
@@ -72,7 +72,7 @@ crugc -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug \
 The `-L`/`-lcrug` pair follows the source file: a static archive is scanned when
 it is seen, so a library named first leaves the `crug_*` runtime symbols
 undefined. `docs/crug/BUILD-INSTRUCTIONS.md` covers the source build and the
-container image (`crug/pkg:0.2.2`), and `packaging/smoke/` holds the three
+container image (`crug/pkg:0.2.3`), and `packaging/smoke/` holds the three
 programs above.
 
 ## 5. Known limitations
@@ -81,8 +81,9 @@ programs above.
   cross-built suites and Wine or CI, and packaging for them stays open.
 - The release artefacts are unsigned and carry no transparency record.
 - The task stack is a fixed 64 KiB guarded stack by default; the bounded
-  allocation cache reuses slots instead of reserving one per task
-  (ADR 0008 A-2). Stack growth remains unavailable.
+  allocation cache reuses slots instead of reserving one per task, and a
+  spawned task materializes its stack only when a worker dispatches it
+  (ADR 0008 A-2 and A-3). Stack growth remains unavailable.
 - Fuzzing is bounded by a budget and a nightly window; it is evidence, not a
   proof of absence.
 - Kernel code is plain GNU C: no ownership, drop, borrow or race analysis
@@ -107,7 +108,7 @@ post-1.0 feature list in `docs/crug/COMPATIBILITY-POLICY.md`.
 ## 8. Post-rc1 fixes
 
 This section records the bug-fix batch after `v0.1.0-rc1` on top of
-`f86b7df`, first released as 0.2.0 and reissued as 0.2.1 and 0.2.2; no `rc2` tag is
+`f86b7df`, first released as 0.2.0 and reissued as 0.2.1, 0.2.2 and 0.2.3; no `rc2` tag is
 cut and the candidate claims in sections 1-7 are otherwise unchanged. The change implements the external audit of
 2026-10-23 (twenty-one defects, `docs/crug/KNOWN-ISSUES.md` K-003 to K-023):
 
@@ -155,6 +156,13 @@ the thirteen-case contract test were updated together.
 check, and the CI job split changed. No compiler, runtime or ABI behaviour
 changed from 0.2.0. 0.2.2 adds the bounded task stack and task/frame
 allocation caches (ADR 0008 A-2); the public task API and ABI are unchanged.
+
+0.2.3 moves stack materialization to dispatch (ADR 0008 A-3): a spawned task
+no longer reserves a stack until a worker runs it. A 480,000-task burst that
+spawns before it drains falls from 7.4-11.4 s and 32 GB of `VmPeak` to
+0.53-0.65 s and 1.5-1.8 GB at eight workers, and from 3.8 s and 31.5 GB to
+0.149 s and 689 MB at one worker; the public task API, the runtime ABI and the
+compiler are unchanged.
 
 Known limitations of these fixes, stated rather than hidden:
 
