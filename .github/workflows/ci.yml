@@ -1,11 +1,12 @@
 name: ci
 
 # The repository-wide gate. The four always-on jobs are the ones
-# scripts/check-ci-gate.sh requires: build proves the pinned GCC baseline and
-# plain-C compatibility, compiler builds the target libraries and proves the
-# ownership/borrow/ownership-drop front end, the 'go'/channel/Send-Sync suites
-# and the c2crug rewrite proofs, runtime proves the libcrug task scheduler and
-# the channel runtime, and
+# scripts/check-ci-gate.sh requires: build proves the pinned baseline and
+# plain-C compatibility after building the target libraries; compiler builds
+# the same target libraries for its linked suites and proves the ownership/
+# borrow/ownership-drop front end, the 'go'/channel/Send-Sync suites and the
+# c2crug rewrite proofs; runtime proves the libcrug task scheduler and the
+# channel runtime; and
 # gate-self-test proves that the gate adjudicator still fails fail-open
 # archives and MANUAL expectations. The fifth job, coverage, runs only on the
 # weekly schedule.
@@ -54,6 +55,8 @@ jobs:
             build-essential flex bison libgmp-dev libmpfr-dev libmpc-dev zstd
       - name: Build the pinned GCC baseline
         run: make baseline JOBS=$(nproc)
+      - name: Build the target libraries
+        run: make build-full JOBS=$(nproc)
       - name: Plain C compatibility
         run: make check-C_COMPAT
 
