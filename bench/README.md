@@ -67,6 +67,14 @@ bench/run.py --performance --check     # all five, report in bench/results/<date
   `docs/crug/RELEASE-POLICY.md` Section 2; the measured results and the
   methodology are in `docs/crug/PERFORMANCE.md`.
 
+## Raytracer demo
+
+`bench/raytracer/` holds a single-file Crug port of the Go/X11 ray tracer: one
+task per pixel over 800x600, a struct-element result channel of capacity 8192,
+X11 confined to the main thread, and the original stat section (spawn cost,
+throughput, `/proc/self/status` memory). It is a demonstration, not a gate
+arm; build and run instructions are in `bench/raytracer/README.md`.
+
 ## Rules
 
 - Each input records its provenance and licence in `bench/NOTICE`; per-input

@@ -8,6 +8,14 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+### Added
+
+- **Raytracer demo.** `bench/raytracer/` is a single-file Crug port of the
+  Go/X11 ray tracer that spawns one goroutine per pixel: 480,000 tasks, a
+  struct-element result channel of capacity 8192, X11 confined to the main
+  thread, and the original stat section (spawn cost, throughput and
+  `/proc/self/status` memory) translated to the Crug runtime counters.
+
 ## [0.2.3] - 2026-10-27
 
 ### Changed
