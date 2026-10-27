@@ -1,6 +1,6 @@
-# Crug 0.2.1
+# Crug 0.2.2
 
-Status: release 0.2.1, 2026-10-27, carrying the post-`v0.1.0-rc1` defect batch
+Status: release 0.2.2, 2026-10-27, carrying the post-`v0.1.0-rc1` defect batch
 in section 8. The qualification numbers in sections 3 and 5 are the ones the
 Phase 25 gate (`docs/crug/EXIT-GATES.md`) recorded for the candidate, and every
 threshold is owned by `docs/crug/RELEASE-POLICY.md`; section 8 says what the
@@ -14,7 +14,7 @@ contract to C, carried by a pinned GCC 16.2.0 baseline. Every feature is opt-in:
 with no `-fcrug-*` flag the compiler produces the same objects as GCC 16.2, and
 the upstream testsuite remains the compatibility floor.
 
-`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.1`,
+`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.2`,
 `compiler: GCC 16.2.0`, `language version: 0.1.0`, `Crug ABI version: 1`,
 `runtime ABI version: 1`, `FFI metadata version: 1.0`, `PAL version: 1.2`.
 
@@ -60,8 +60,8 @@ the upstream testsuite remains the compatibility floor.
 ## 4. Install and verify
 
 ```sh
-tar xzf crug-0.2.1-linux-x86_64.tar.gz
-export PATH=$PWD/crug-0.2.1/bin:$PATH
+tar xzf crug-0.2.2-linux-x86_64.tar.gz
+export PATH=$PWD/crug-0.2.2/bin:$PATH
 crugc --version
 crugc hello.c -o hello && ./hello
 crugc -fcrug-ownership hello-own.c -o hello-own && ./hello-own
@@ -72,7 +72,7 @@ crugc -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug \
 The `-L`/`-lcrug` pair follows the source file: a static archive is scanned when
 it is seen, so a library named first leaves the `crug_*` runtime symbols
 undefined. `docs/crug/BUILD-INSTRUCTIONS.md` covers the source build and the
-container image (`crug/pkg:0.2.1`), and `packaging/smoke/` holds the three
+container image (`crug/pkg:0.2.2`), and `packaging/smoke/` holds the three
 programs above.
 
 ## 5. Known limitations
@@ -107,7 +107,7 @@ post-1.0 feature list in `docs/crug/COMPATIBILITY-POLICY.md`.
 ## 8. Post-rc1 fixes
 
 This section records the bug-fix batch after `v0.1.0-rc1` on top of
-`f86b7df`, first released as 0.2.0 and reissued as 0.2.1; no `rc2` tag is
+`f86b7df`, first released as 0.2.0 and reissued as 0.2.1 and 0.2.2; no `rc2` tag is
 cut and the candidate claims in sections 1-7 are otherwise unchanged. The change implements the external audit of
 2026-10-23 (twenty-one defects, `docs/crug/KNOWN-ISSUES.md` K-003 to K-023):
 
@@ -151,9 +151,10 @@ The Crug runtime ABI stays 1. The PAL contract moves to 1.2 because
 `crug_pal_thread_join` returns `int` (ADR 0011 A-2); the four backends and
 the thirteen-case contract test were updated together.
 
-0.2.1 is a patch reissue: the version string, the launcher-only PAL release
+0.2.1 was a patch reissue: the version string, the launcher-only PAL release
 check, and the CI job split changed. No compiler, runtime or ABI behaviour
-changed from 0.2.0.
+changed from 0.2.0. 0.2.2 adds the bounded task stack and task/frame
+allocation caches (ADR 0008 A-2); the public task API and ABI are unchanged.
 
 Known limitations of these fixes, stated rather than hidden:
 

@@ -8,6 +8,18 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-27
+
+### Changed
+
+- **Task allocation caches.** `crug_task_spawn` now reuses task stacks through
+  a bounded per-thread cache and task/frame blocks through size-class bins;
+  corrupted slots are quarantined and all caches are released at shutdown.
+  `CRUG_TASKS_CACHE` and `CRUG_TASKS_TASK_CACHE` control the caches.
+- **Release version.** `VERSION` and `crugc --version` now report `0.2.2`.
+  The language version stays `0.1.0`, the Crug and runtime ABIs stay `1`,
+  `.crugffi` stays `1.0` and the PAL contract stays `1.2`.
+
 ## [0.2.1] - 2026-10-27
 
 ### Changed
