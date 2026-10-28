@@ -39,7 +39,7 @@ DejaGnu is bootstrapped, not installed: there is no `runtest` and no sudo. Each 
 | `make check-SAFE_TYPES` | `crug.dg/safe-types` (42) | The tally, bounds behaviour and owned-payload checks. |
 | `make check-GOROUTINES` | `crug.dg/goroutines` (17) | Compiler cases, five task programs and the 100,000-task stress with zero failures. |
 | `make check-SCOPE` | `crug.dg/scope` (14) | Scope cases, group programs, zero leaked groups and the two scope diagnostics. |
-| `make check-CHANNELS` | `crug.dg/channels` (24) | Channel cases, seven channel programs and the send-owned/select-own-recv rejections. |
+| `make check-CHANNELS` | `crug.dg/channels` (44) | Channel cases, eight channel programs, the over-aligned receive build and the send-owned/select-own-recv rejections. |
 | `make check-SEND_SYNC` | `crug.dg/send-sync` (10) | The case count plus raw pointer, thread affinity and FFI annotation rejections. |
 | `make check-C_COMPAT`, `check-GNU_C_COMPAT` | Option matrices and 50 GNU C files | Three matrices plus two checks, zero FAIL; 50 GNU C files, zero FAIL. |
 | `make check-CRUG_FLAGS` | `crug.dg/flags` (3) and flag scripts | Every flag alone, macro closure, accepted pairs, the three kernel conflicts, unknown-option rejection. |
@@ -137,9 +137,16 @@ The final checklist for a compiler change is: the owning suite, `scripts/check-d
 ## 7. Coverage archive
 
 Coverage is recorded as provenance, not as a threshold. `scripts/run-coverage.sh`
-builds the compiler with GCOV instrumentation, runs the crug.dg suites and writes
-`docs/crug/coverage/<HEAD>.json`: the commit, the `cc1` hash, the list of
-instrumented files, the per-file line counts and the computed totals.
+does not build or run anything: it validates the GCOV measurement that the audit
+harness produces outside the repository (`fuzz/scripts/run_gcov_corpus.py` and
+`fuzz/scripts/gcov_measure.py`) and writes `docs/crug/coverage/<HEAD>.json`:
+the commit, the `cc1` hash, the list of instrumented files, the per-file line
+counts and the computed totals. Each of the three inputs (measurement, profiles
+and corpus) must declare the revision it measured in a top-level `commit`
+field; a missing field exits 2 with a message naming the input, a different
+commit exits 1, and an existing archive for the same commit is not overwritten
+unless `--force` is passed (exit 1). `--self-test` proves the three
+absent-field rejections, the three mismatches and one successful archive.
 `scripts/check-coverage.sh` validates the schema, that the recorded HEAD is the
 current HEAD, the hashes and the internal arithmetic, and compares the totals
 with the ledger block in this file; a missing archive exits 2, and there is no

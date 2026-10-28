@@ -11,6 +11,7 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SUITE="$ROOT/gcc/testsuite/crug.dg/ffi/phase9"
+METADATA="$ROOT/gcc/testsuite/crug.dg/ffi/metadata"
 OUT="$ROOT/build/ffi-suite"
 VERBOSE=0
 [ "${1:-}" = "-v" ] && VERBOSE=1
@@ -95,6 +96,27 @@ case_run callback 0 - "$SUITE/run-callback.c" $F
 case_run callback-rejected 1 crug-FFI-009 "$SUITE/reject-callback.c" $F
 case_run nullable 0 - "$SUITE/run-nullable.c" $F
 case_run adjacent 0 - "$SUITE/adjacent/use.c" -fcrug-ffi-discover
+
+# Metadata-format cases (0.2.4).  Two sidecars would be noise in the tree and
+# are generated here: a line carrying an embedded NUL byte (F-02) and one with
+# 10,001 declarations (F-04).  The NUL case keeps a valid declaration before
+# the NUL, so before the fix the file compiled cleanly.
+printf 'crugffi 1.0;\nfn spaced_free consumes arg0 nullable;\0@@@\n' > "$OUT/nul-byte.crugffi"
+{
+  echo "crugffi 1.0;"
+  i=0
+  while [ $i -lt 10001 ]; do
+    echo "type t;"
+    i=$((i + 1))
+  done
+} > "$OUT/declcap.crugffi"
+
+case_run argref-spaced 0 - "$METADATA/argref-space.c" "-fcrug-ffi=$METADATA/argref-space.crugffi"
+case_run truncated-consumes 1 crug-FFI-003 "$METADATA/truncated-consumes.c" "-fcrug-ffi=$METADATA/truncated-consumes.crugffi"
+case_run truncated-returns 1 crug-FFI-003 "$METADATA/truncated-returns.c" "-fcrug-ffi=$METADATA/truncated-returns.crugffi"
+case_run returns-unowned 0 - "$METADATA/returns-unowned.c" "-fcrug-ffi=$METADATA/returns-unowned.crugffi"
+case_run nul-byte 1 crug-FFI-012 "$METADATA/argref-space.c" "-fcrug-ffi=$OUT/nul-byte.crugffi"
+case_run decl-cap 1 crug-FFI-010 "$METADATA/empty.c" "-fcrug-ffi=$OUT/declcap.crugffi"
 
 # Sidecar conflicts: two explicit files disagree about one declaration and the
 # run must fail with crug-FFI-004 (ADR 0007 D4).

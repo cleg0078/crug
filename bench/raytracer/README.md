@@ -105,8 +105,12 @@ slower, not faster.  That is a property of the runtime (see
 `docs/crug/PERFORMANCE.md` Section 4.1), not of the port; the port keeps the
 Go program's "spawn everything, then receive" shape on purpose.
 
-The memory report also shows the shape: 480,000 queued tasks reserve about
-1.1 GiB of address space before the receive loop drains them, and the peak is
-about 4 GiB with 8 workers (each worker also commits a 64 KiB stack and keeps
-the bounded stack/task caches).  Every stack is released by the time the
-render ends, so the post-render VmSize is back down to the worker stacks.
+The memory report also shows the shape: the spawn loop leaves VmSize at
+1146.83 MiB while the tasks are still queued, the peak reaches 3982.11 MiB
+with 8 workers, and after the render VmRSS falls to 75.88 MiB while VmSize
+stays at 662.86 MiB.  VmSize counts mapped address space, not resident pages.
+A spawned task only queues its header and frame (ADR 0008 A-3); the
+dispatching worker materializes a 64 KiB stack, and the bounded stack and
+task caches (ADR 0008 A-2) hold a limited number of them for reuse.  The
+shutdown that stops the runtime flushes both caches, so the cached stacks are
+released at exit.

@@ -64,7 +64,7 @@ clause      := 'returns' ret
              | 'opaque'
              | 'send' | 'sync' | '!send' | '!sync'
 
-ret         := 'owned' c-type [ 'nullable' ] [ 'drop' IDENT ]
+ret         := [ 'owned' ] c-type [ 'nullable' ] [ 'drop' IDENT ]
 argref      := 'arg' INT | 'ret'
 
 INT         := [0-9]+          (decimal, no sign, no leading '+' )
@@ -317,3 +317,27 @@ value-returning function as an expression statement, and standard destructors
 such as `fclose` return `int`. The call site discards the result. This keeps
 the existing `fopen`/`fclose` contracts valid (P3-005) while still rejecting a
 call shape that would not pass exactly one pointer.
+
+### A-3 (2026-10-28): `owned` is optional on `returns`
+
+D2 wrote `ret := 'owned' c-type [ 'nullable' ] [ 'drop' IDENT ]`, which makes
+`owned` mandatory, but the implementation has always accepted a bare
+`returns int` or `returns void`: `docs/crug/FFI.md` documents the spelling as
+"an unmanaged return; recorded for documentation only", and shipped fixtures
+(`gcc/testsuite/crug.dg/ffi/phase9/contracts.crugffi` and
+`conflict-a.crugffi`) rely on it. The grammar was wrong, not the parser, so D2
+line 67 now reads:
+
+```text
+ret         := [ 'owned' ] c-type [ 'nullable' ] [ 'drop' IDENT ]
+```
+
+An unowned return transfers no ownership. There is nothing for a `drop`
+clause to destroy, so the clause is accepted for spelling symmetry but names
+no destructor and is not resolved (`crug-FFI-011` stays silent); `nullable`
+is recorded and carries no obligation in v1 (D3's nullable row). `returns
+owned` still requires a pointer return type and a matching pointee type
+(`crug-FFI-006`). The unowned spellings are pinned by
+`gcc/testsuite/crug.dg/ffi/metadata/returns-unowned.{c,crugffi}`, alongside
+the existing owned fixtures.
+

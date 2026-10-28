@@ -29,7 +29,11 @@
    task runtime (crug-tasks.cc), so a Crug program needs no header.  A send
    boxes its value in a compound literal and passes its address; a receive
    returns a pointer to a per-thread buffer which is dereferenced here, so
-   the value comes back as an ordinary lvalue of the element type.
+   fills a temporary of the element type through crug_chan_recv_into, so the
+   value comes back as an ordinary lvalue with the element type's alignment.
+   An element with no constant size (a variable-length array type) keeps the
+   older form, which returns a pointer to a per-thread buffer that is
+   dereferenced here.
 
    The two _owned entry points carry the same code as their plain twins.  The
    ownership analysis looks up those names to know that a send ends the
@@ -46,6 +50,7 @@
 #include "stringpool.h"
 #include "stor-layout.h"
 #include "langhooks.h"
+#include "gimple-expr.h"
 #include "c-family/c-common.h"
 #include "c-family/crug-common.h"
 #include "diagnostic-core.h"
@@ -172,6 +177,8 @@ static tree chan_send_decl;
 static tree chan_send_owned_decl;
 static tree chan_recv_ptr_decl;
 static tree chan_recv_owned_decl;
+static tree chan_recv_into_decl;
+static tree chan_recv_into_owned_decl;
 static tree chan_close_decl;
 static tree chan_recv_claim_decl;
 static tree chan_send_claim_decl;
@@ -224,6 +231,23 @@ chan_recv_fndecl (bool owned)
     return chan_runtime_decl (&chan_recv_owned_decl, "crug_chan_recv_owned",
 			      type);
   return chan_runtime_decl (&chan_recv_ptr_decl, "crug_chan_recv_ptr", type);
+}
+
+/* int recv_into (void *chan, void *dst, size_t size): fill the caller's
+   storage with the next element and report whether a value was received
+   (1) or the channel was closed and drained (0).  The _owned spelling is
+   the one the ownership analysis recognises as handing a value over.  */
+
+static tree
+chan_recv_into_fndecl (bool owned)
+{
+  tree type = build_function_type_list (integer_type_node, ptr_type_node,
+					ptr_type_node, size_type_node,
+					NULL_TREE);
+  if (owned)
+    return chan_runtime_decl (&chan_recv_into_owned_decl,
+			      "crug_chan_recv_into_owned", type);
+  return chan_runtime_decl (&chan_recv_into_decl, "crug_chan_recv_into", type);
 }
 
 static tree
@@ -487,14 +511,46 @@ crug_channel_recv (location_t loc, tree channel)
   tree chan_type = TREE_TYPE (channel);
   tree element = crug_channel_element (chan_type);
   bool owned = crug_channel_owns_element (chan_type);
+  tree temp;
+  tree call;
+  tree init;
 
   if (element == NULL_TREE)
     return error_mark_node;
 
-  tree ptr = build_call_expr_loc (loc, chan_recv_fndecl (owned), 1,
-				  convert (ptr_type_node, channel));
-  ptr = convert (build_pointer_type (element), ptr);
-  return build1 (INDIRECT_REF, element, ptr);
+  /* An element with no constant size has no type to create a temporary of:
+     it keeps the pointer form.  */
+  if (element == error_mark_node
+      || !COMPLETE_TYPE_P (element)
+      || variably_modified_type_p (element, NULL_TREE))
+    {
+      tree ptr = build_call_expr_loc (loc, chan_recv_fndecl (owned), 1,
+				      convert (ptr_type_node, channel));
+      ptr = convert (build_pointer_type (element), ptr);
+      return build1 (INDIRECT_REF, element, ptr);
+    }
+
+  /* Receive into a temporary of the element type.  The pointer forms hand
+     back the shared per-task buffer, whose alignment is that of void *:
+     dereferencing it as an over-aligned element is undefined behaviour
+     (C-01).  A temporary of the element type is laid out with that type's
+     alignment, which is the contract crug_chan_recv_into documents.  The
+     TARGET_EXPR initializer is void, the form the gimplifier reads as
+     "evaluating this initializes the slot": the call fills the temporary
+     and the expression's value is the temporary, read after the call.  */
+  temp = create_tmp_var_raw (element, "recv");
+  DECL_SOURCE_LOCATION (temp) = loc;
+  TREE_ADDRESSABLE (temp) = 1;
+  layout_decl (temp, 0);
+  call = build_call_expr_loc (loc, chan_recv_into_fndecl (owned), 3,
+			      convert (ptr_type_node, channel),
+			      build1 (ADDR_EXPR, build_pointer_type (element),
+				      temp),
+			      TYPE_SIZE_UNIT (element));
+  init = build1 (CONVERT_EXPR, void_type_node, call);
+  temp = build4 (TARGET_EXPR, element, temp, init, NULL_TREE, NULL_TREE);
+  SET_EXPR_LOCATION (temp, loc);
+  return temp;
 }
 
 tree
@@ -579,5 +635,12 @@ bool
 crug_channel_recv_owned_call_p (tree expr)
 {
   tree call = chan_peel (expr);
-  return chan_call_named (call, "crug_chan_recv_owned");
+
+  /* The receive is a TARGET_EXPR whose void initializer fills the
+     temporary; look through it for the runtime call.  An element with no
+     constant size still uses the older pointer form.  */
+  if (call != NULL_TREE && TREE_CODE (call) == TARGET_EXPR)
+    call = chan_peel (TARGET_EXPR_INITIAL (call));
+  return chan_call_named (call, "crug_chan_recv_owned")
+	 || chan_call_named (call, "crug_chan_recv_into_owned");
 }

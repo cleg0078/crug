@@ -29,7 +29,12 @@ main (void)
 {
   int seen;
 
-  go group ();
+  /* Wait for the group before stopping the runtime: a bare spawn followed
+     by an immediate shutdown lets the group's inner scope spawn after the
+     stopping claim, which is a crug-CONC-029 fatal by contract.  */
+  scope {
+    go group ();
+  }
   crug_task_runtime_shutdown ();
   seen = inner;
 

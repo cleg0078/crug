@@ -14,8 +14,10 @@ if [ -z "$CRUGC" ]; then
   fi
 fi
 
-# Every Phase 9 diagnostic code must fire from a fixture, so the registry and
-# the compiler agree (docs/crug/DIAGNOSTICS.md, ADR 0007 D4).
+# Every FFI diagnostic code must fire from a fixture, so the registry and the
+# compiler agree (docs/crug/DIAGNOSTICS.md, ADR 0007 D4).  Two inputs cannot
+# live in the repository and are generated here: the size/entry cap (FFI-010)
+# and a sidecar with an embedded NUL byte (FFI-012).
 SUITE="$ROOT/gcc/testsuite/crug.dg/ffi/phase9"
 OUT="$ROOT/build/ffi-policy"
 rm -rf "$OUT"
@@ -76,8 +78,15 @@ else
   sed -n '1,5p' "$OUT/FFI-010.log"
 fi
 
+# FFI-012 is a NUL byte inside a metadata line; a file with one cannot be
+# stored in the repository (a text patch would drop it), so it is generated
+# here too.  The suite generates the same input.
+NUL="$OUT/nul.crugffi"
+printf 'crugffi 1.0;\nfn spaced_free consumes arg0 nullable;\0@@@\n' > "$NUL"
+expect FFI-012 -O2 "-fcrug-ffi=$NUL" "$ROOT/gcc/testsuite/crug.dg/ffi/metadata/argref-space.c"
+
 if [ $MISSING -eq 0 ]; then
-  echo "ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011"
+  echo "ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011 FFI-012"
   exit 0
 fi
 echo "ffi-policy: $MISSING codes did not fire"

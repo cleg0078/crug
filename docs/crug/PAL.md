@@ -30,16 +30,16 @@ cheap, and a stale comment is how the boundary erodes.
 `libcrug/arch/` holds architecture and ABI dependent context switching. It is
 empty in Phase 13; Phase 14 adds the x86-64 System V switch there.
 
-## 2. PAL surface (v1.1)
+## 2. PAL surface (v1.2)
 
 The header is normative; this table is the map.
 
 | Area | Entry point | Contract |
 |---|---|---|
-| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `1`, `1`, `(1 << 16) \| 1` today |
+| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `1`, `2`, `(1 << 16) \| 2` today |
 | page size | `size_t crug_pal_page_size (void)` | the granularity of reserve/commit/protect_guard: a power of two, at least 4096 (v1.1) |
 | status | `int crug_pal_thread_create (crug_pal_thread **out, void (*entry)(void *), void *arg)` | 0 on success, non-zero on failure, reason in `crug_pal_last_error()` |
-| threads | `void crug_pal_thread_join (crug_pal_thread *thread)` | waits for the entry to finish and releases the handle |
+| threads | `int crug_pal_thread_join (crug_pal_thread *thread)` | waits for the entry to finish and, on success, releases the handle and returns 0; a NULL handle is `CRUG_PAL_EINVAL` and a failed system join is `CRUG_PAL_ESYS`, both nonzero, and in either case the handle is not released (v1.2) |
 | threads | `uint32_t crug_pal_cpu_count (void)` | at least 1 |
 | wait/wake | `void crug_pal_wait_u32 (_Atomic uint32_t *addr, uint32_t expected)` | blocks while `*addr == expected`; spurious returns allowed |
 | wait/wake | `void crug_pal_wake_one`, `crug_pal_wake_all` | releases one or every waiter on `addr`; a wake with no waiter is not remembered |
@@ -72,7 +72,7 @@ epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
 `crug_pal_page_size ()` at the low end from `memory_protect_guard`, and reads
 the clock for its statistics. The contract
 suite covers exactly those calls, so a runtime linked against a new backend is
-tested by the same twelve cases as the fake one. A task group (Phase 15,
+tested by the same thirteen cases as the fake one. A task group (Phase 15,
 `SCOPE.md`) adds no PAL call of its own: a waiter uses `wait_u32` on the group's
 pending count on the main thread and `yield` inside a task. Channels (Phase 16,
 `CHANNELS.md`) are clients too: a blocked send or receive yields inside a task
@@ -122,7 +122,7 @@ thirteen cases, all written against the header:
 |---|---|
 | `version-and-names` | the suite and the backend agree on 1.2, and every error class has a spelling |
 | `thread-create-join` | the entry has run before `join` returns, the handle is not NULL, and `join` returns 0 |
-| `thread-join-failure` | a failing join returns nonzero, does not free the handle and does not report the thread as joined |
+| `thread-join-rejects-null` | a NULL handle is refused with nonzero and `CRUG_PAL_EINVAL` |
 | `thread-rejects-null-entry` | a NULL entry fails with `CRUG_PAL_EINVAL` |
 | `cpu-count` | the count is plausible (1..65536) |
 | `wait-wake` | a waiter that has not observed the wake is released by `wake_all` |
@@ -134,16 +134,17 @@ thirteen cases, all written against the header:
 | `error-mapping` | a zero-size reservation is `EINVAL` and a success clears the slot |
 | `shutdown-idempotent` | two shutdowns are defined behaviour |
 
-Measured (2026-10-20; Wine, qemu and the macOS CI job where noted):
+Measured (2026-10-28, after v1.2; Linux host):
 
 ```text
-pal-contract[fake]:         12 cases, 0 failed, 1 skipped   (memory-guard)
-pal-contract[linux]:        12 cases, 0 failed, 0 skipped
-pal-contract[linux-aarch64]: 12 cases, 0 failed, 0 skipped  (qemu, Phase 18)
-pal-contract[windows]:      12 cases, 0 failed, 0 skipped   (wine on Linux, Phase 18)
-pal-contract[darwin]:       12 cases, 0 failed, 0 skipped   (macos-14 CI job, Phase 18)
+pal-contract[fake]:  13 cases, 0 failed, 1 skipped   (memory-guard)
+pal-contract[linux]: 13 cases, 0 failed, 0 skipped
 guard-fault: SIGSEGV on the guarded page as claimed
 ```
+
+The 2026-10-20 port run recorded twelve cases for `linux-aarch64` (qemu),
+`windows` (Wine) and `darwin` (macOS CI job) before v1.2 added the thirteenth;
+those rows are historical and were not re-measured here.
 
 Phase 18 added the Windows and Darwin backends and the AArch64 and Microsoft x64
 context switches; every backend links the same `core/pal_contract.c` unchanged
@@ -156,7 +157,7 @@ Two checks make the pair a contract rather than two scripts:
   they differ, if Linux skips anything, if the fake skips anything other than
   guard pages, if the Linux guard page does not fault, or if the fake backend's
   object references a system symbol (`nm -u`). It prints
-  `check-pal: fake and linux share 12 contract cases, 0 failures`.
+  `check-pal: fake and linux share 13 contract cases, 0 failures; fake backend links no system primitive, guard pages fault on linux`.
 - `tests/linux/pal_guard_fault.c` writes into the guarded range inside a
   child process and requires SIGSEGV; it lives outside `core/` because process
   control is not the core's business.
@@ -212,10 +213,10 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
 
 | Command | Expectation |
 |---|---|
-| `make -C libcrug check-PAL PAL=fake` | exit 0; `pal-contract[fake]: 12 cases, 0 failed, 1 skipped` |
-| `make -C libcrug check-PAL PAL=linux` | exit 0; `pal-contract[linux]: 12 cases, 0 failed, 0 skipped` and the guard-fault line |
+| `make -C libcrug check-PAL PAL=fake` | exit 0; `pal-contract[fake]: 13 cases, 0 failed, 1 skipped` |
+| `make -C libcrug check-PAL PAL=linux` | exit 0; `pal-contract[linux]: 13 cases, 0 failed, 0 skipped` and the guard-fault line |
 | `make -C libcrug check` | both backends, then the lint |
-| `scripts/check-pal.sh` | exit 0; same 12 case names on both backends, no unexpected skip, no system symbols in the fake object |
+| `scripts/check-pal.sh` | exit 0; same 13 case names on both backends, no unexpected skip, no system symbols in the fake object |
 | `scripts/lint-no-os-apis.sh libcrug/core` | exit 0; 0 references |
 | `grep -R 'asm' libcrug/core` | no line |
 | `make -C libcrug check-MULTI_OS` | exit 0; contract, tasks and three plain-C channel programs under one command (Phase 18) |

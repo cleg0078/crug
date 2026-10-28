@@ -35,7 +35,11 @@
 #   Builds a temporary git repository with a four-check gate document holding
 #   one passing check, one fail-open check (declared marker never printed),
 #   one MANUAL check and one unparsed CHECK line. It must report checks: 4,
-#   failed: 3 and exactly one PASS. Nothing is written into this repository.
+#   failed: 3 and exactly one PASS. It then probes synthetic expectations
+#   containing '*', '?', backslash, a bare N and double spaces, asserting both
+#   the emitted ERE and its match/no-match results, so an escaping regression
+#   or the deleted-space bug fails the self-test. Nothing is written into this
+#   repository.
 #
 # The repository's gcc/ directory is prepended to PATH, so the CHECK lines can
 # write crugc as the gate document does; it resolves to gcc/crugc.
@@ -63,7 +67,7 @@ while (($#)); do
     --self-test) mode=self-test ;;
     --parse-expectation) mode=parse-expectation ;;
     --timeout) timeout_s=${2:-}; [[ $timeout_s =~ ^[0-9]+$ ]] || { echo 'gate.sh: --timeout needs a number' >&2; exit 2; }; shift ;;
-    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,51p' "$0"; exit 0 ;;
     -*) echo "gate.sh: unknown option $1" >&2; exit 2 ;;
     *) sel+=("$1") ;;
   esac
@@ -119,8 +123,43 @@ FIXTURE
     echo 'gate.sh: self-test: archived log does not record checks=4' >&2
     ok=0
   fi
+  # Synthetic expectations containing regex metacharacters. Both the exact
+  # ERE and its match/no-match results matter: under the pre-fix builder
+  # 'a*b' matched 'aab', 'a?b' matched 'ab', a marker backslash acted as a
+  # regex escape, and the space before a bare N was deleted.
+  probe_regex() {
+    # probe_regex MARKER EXPECTED_ERE [TEXT EXPECT_MATCH]...
+    local marker=$1 want=$2 exp out rc ere g text expect
+    shift 2
+    printf -v exp 'exit 0, printing `%s`' "$marker"
+    out=$(bash "$tmp/scripts/gate.sh" --parse-expectation "$exp" 2>&1)
+    rc=$?
+    ere=$(printf '%s\n' "$out" | grep '^marker' | cut -f3)
+    if [ "$rc" -ne 0 ] || [ "$ere" != "$want" ]; then
+      echo "gate.sh: self-test: marker [$marker] -> [$ere] (rc=$rc), want [$want]" >&2
+      ok=0
+      return 0
+    fi
+    while [ "$#" -ge 2 ]; do
+      text=$1 expect=$2
+      shift 2
+      printf '%s\n' "$text" > "$tmp/probe-literal"
+      if grep -Eq -e "$ere" "$tmp/probe-literal"; then g=1; else g=0; fi
+      if [ "$g" -ne "$expect" ]; then
+        echo "gate.sh: self-test: marker [$marker] ere [$ere] on [$text] match=$g want=$expect" >&2
+        ok=0
+      fi
+    done
+  }
+  probe_regex 'a*b' 'a\*b' 'a*b' 1 'aab' 0
+  probe_regex 'a?b' 'a\?b' 'a?b' 1 'ab' 0
+  probe_regex 'a\b' 'a\\b' 'a\b' 1 'a b' 0
+  probe_regex 'tail\' 'tail\\' 'tail\' 1 'tail' 0
+  probe_regex 'count N' 'count [0-9]+' 'count 42' 1 'count42' 0
+  probe_regex 'x  N  y' 'x  [0-9]+  y' 'x  5  y' 1 'x 5 y' 0
+  probe_regex 'drop-suite: <N> tests' 'drop-suite: [0-9]+ tests' 'drop-suite: 7 tests' 1
   if [ "$ok" -eq 1 ]; then
-    echo 'gate.sh: self-test: OK (4 checks, 3 failures: fail-open marker, MANUAL, unparsed)'
+    echo 'gate.sh: self-test: OK (4 adjudication checks, 3 failures: fail-open marker, MANUAL, unparsed; 7 marker-regex probes)'
     return 0
   fi
   echo 'gate.sh: self-test output:' >&2
@@ -234,15 +273,27 @@ parse_expectation() {
 }
 
 # marker_regex MARKER prints an extended regular expression for grep -E.
+#
+# Every extended-regex metacharacter is escaped: '.', '^', '$', '*', '+', '?',
+# '(', ')', '[', ']', '{', '}', '|' and backslash. This builder recognises only
+# the intended syntax: a <placeholder> token, a '...' tail, $(cat VERSION) and
+# one bare N numeric meta-variable. A backslash in a marker therefore matches a
+# literal backslash instead of acting as an escape, and '*', '?' match
+# themselves instead of quantifying or making optional.
+#
+# The bare N is a numeric meta-variable only when it is delimited by whitespace
+# or by the marker boundaries (the pre-fix sed accepted exactly ' N ', '^N '
+# and ' N$'), and it is replaced in place so the spaces around it survive
+# verbatim: a marker 'count N' keeps the literal space before N (the old sed
+# replacement deleted it, producing 'count[0-9]+' and an expectation that could
+# never match).
 marker_regex() {
-  local m=$1 out='' i c rest tok
+  local m=$1 out='' i c rest tok prev next
   if [[ $m == *'$(cat VERSION)'* ]]; then
     if [[ -z $VERSION ]]; then return 1; fi
     m=${m//'$(cat VERSION)'/$VERSION}
   fi
   if [[ $m == *'$('* ]]; then return 1; fi
-  # One gate marker uses a bare N as a numeric meta-variable.
-  m=$(printf '%s' "$m" | sed -e 's/ N / <num> /g' -e 's/^N /<num> /' -e 's/ N$/<num>/')
   m=${m//'<os>/<arch>'/'<hostpair>'}
   i=0
   while ((i < ${#m})); do
@@ -266,10 +317,20 @@ marker_regex() {
         i=$((i + 3))
         continue
       fi
+    elif [[ $c == N ]]; then
+      prev=''
+      next=''
+      ((i > 0)) && prev=${m:i-1:1}
+      ((i + 1 < ${#m})) && next=${m:i+1:1}
+      if [[ ( -z $prev || $prev =~ [[:space:]] ) && ( -z $next || $next =~ [[:space:]] ) ]]; then
+        out+='[0-9]+'
+        i=$((i + 1))
+        continue
+      fi
     fi
     case $c in
-      '.'|'^'|'$'|'+'|'('|')'|'['|']'|'{'|'}'|'|') out+="\\$c" ;;
-      '\') out+='\' ;;
+      '.'|'^'|'$'|'*'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|') out+="\\$c" ;;
+      '\') out+='\\' ;;
       *) out+=$c ;;
     esac
     i=$((i + 1))

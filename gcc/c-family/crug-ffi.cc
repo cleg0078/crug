@@ -80,8 +80,16 @@ static bool ffi_option_seen;
 
 /* Diagnostics.  A .crugffi file is not part of the line map, so the message
    carries its own file:line prefix; the stable code is what the gates and
-   the documentation refer to.  */
+   the documentation refer to.  The helpers take printf formats, and one of
+   them uses the GNU 'm' (errno) conversion, so they are annotated with
+   gnu_printf rather than the ISO printf archetype.  */
 
+#define ATTRIBUTE_FFI_PRINTF(m, n) \
+  __attribute__ ((__format__ (__gnu_printf__, m, n)))
+
+static void
+ffi_file_error (const char *path, int code, const char *fmt, ...)
+  ATTRIBUTE_FFI_PRINTF (3, 4);
 static void
 ffi_file_error (const char *path, int code, const char *fmt, ...)
 {
@@ -101,6 +109,9 @@ ffi_file_error (const char *path, int code, const char *fmt, ...)
 
 static void
 ffi_error (const char *path, int line, int code, const char *fmt, ...)
+  ATTRIBUTE_FFI_PRINTF (4, 5);
+static void
+ffi_error (const char *path, int line, int code, const char *fmt, ...)
 {
   char msg[512];
   va_list ap;
@@ -112,6 +123,29 @@ ffi_error (const char *path, int line, int code, const char *fmt, ...)
   va_end (ap);
   snprintf (suffix, sizeof suffix, "crug-FFI-%03d", code);
   error ("%s:%d: %s [%s]", path, line, msg, suffix);
+}
+
+/* Like ffi_error, but also reports a column inside the line.  A byte that is
+   not part of any token (an embedded NUL) cannot be located by line alone
+   and never reaches the parser, so its diagnostic carries both.  */
+
+static void
+ffi_error_column (const char *path, int line, int column, int code,
+		  const char *fmt, ...) ATTRIBUTE_FFI_PRINTF (5, 6);
+static void
+ffi_error_column (const char *path, int line, int column, int code,
+		  const char *fmt, ...)
+{
+  char msg[512];
+  va_list ap;
+
+  char suffix[32];
+
+  va_start (ap, fmt);
+  vsnprintf (msg, sizeof msg, fmt, ap);
+  va_end (ap);
+  snprintf (suffix, sizeof suffix, "crug-FFI-%03d", code);
+  error ("%s:%d:%d: %s [%s]", path, line, column, msg, suffix);
 }
 
 /* Tokenizer and parser.  */
@@ -265,6 +299,16 @@ check_repeated_op (ffi_parser &p, const ffi_fn_decl &fn, const ffi_op &op)
 static void
 parse_ctype (ffi_parser &p, ffi_op &op)
 {
+  /* 'returns' or 'returns owned' may end the file, leaving the type to be
+     parsed at EOF.  Diagnose that instead of silently failing (the take
+     below marks the parser failed but prints nothing).  */
+  if (at_end (p))
+    {
+      ffi_error (p.path, p.toks.empty () ? 1 : p.toks.back ().line, 3,
+		 "expected a C type, found the end of the file");
+      p.failed = true;
+      return;
+    }
   std::string w = take (p);
 
   if (w == "void")
@@ -272,6 +316,14 @@ parse_ctype (ffi_parser &p, ffi_op &op)
   else if (w == "struct" || w == "union" || w == "enum")
     {
       op.tag_kind = w;
+      if (at_end (p))
+	{
+	  ffi_error (p.path, p.toks.back ().line, 3,
+		     "expected a tag name after '%s', found the end of the file",
+		     w.c_str ());
+	  p.failed = true;
+	  return;
+	}
       op.type_name = take (p);
     }
   else
@@ -292,11 +344,25 @@ parse_op_modifiers (ffi_parser &p, ffi_op &op)
       else if (strcmp (w, "drop") == 0)
 	{
 	  p.pos++;
+	  if (at_end (p))
+	    {
+	      ffi_error (p.path, p.toks.back ().line, 3,
+			 "expected a destructor name after 'drop', found the end of the file");
+	      p.failed = true;
+	      return;
+	    }
 	  op.drop = take (p);
 	}
       else if (strcmp (w, "until") == 0)
 	{
 	  p.pos++;
+	  if (at_end (p))
+	    {
+	      ffi_error (p.path, p.toks.back ().line, 3,
+			 "expected a thread name after 'until', found the end of the file");
+	      p.failed = true;
+	      return;
+	    }
 	  op.until = take (p);
 	}
       else
@@ -313,8 +379,20 @@ parse_op_modifiers (ffi_parser &p, ffi_op &op)
 static bool
 parse_argref (ffi_parser &p, int *arg)
 {
+  /* A clause may end the file ('fn f consumes' with no operand), which
+     leaves the argument reference to be parsed at EOF.  Index the token
+     vector only when a token is there: reading past its end used to trip
+     the libstdc++ bounds assertion inside cc1.  */
+  if (at_end (p))
+    {
+      ffi_error (p.path, p.toks.empty () ? 1 : p.toks.back ().line, 3,
+		 "expected 'argN' or 'ret', found the end of the file");
+      p.failed = true;
+      return false;
+    }
   const int line = p.toks[p.pos].line;
   std::string w = take (p);
+  std::string sep_arg;
   const char *digits = NULL;
 
   if (w == "ret")
@@ -324,8 +402,12 @@ parse_argref (ffi_parser &p, int *arg)
     }
   if (w == "arg")
     {
-      std::string n = take (p);
-      digits = n.c_str ();
+      /* The index may be a token of its own ('arg 0'), so its storage has
+	 to outlive this block: a block-local string used to be destroyed
+	 before the digits were converted, and the caller then read freed
+	 memory (CR-01).  */
+      sep_arg = take (p);
+      digits = sep_arg.c_str ();
     }
   else if (w.compare (0, 3, "arg") == 0 && w.size () > 3)
     digits = w.c_str () + 3;
@@ -457,7 +539,8 @@ parse_fn (ffi_parser &p, bool explicit_p)
 {
   ffi_fn_decl fn;
 
-  fn.line = at_end (p) ? 0 : p.toks[p.pos].line;
+  fn.line = at_end (p) ? (p.toks.empty () ? 1 : p.toks.back ().line)
+			: p.toks[p.pos].line;
   fn.file = p.path;
   fn.explicit_p = explicit_p;
   fn.resolved = false;
@@ -478,7 +561,15 @@ static void
 parse_type (ffi_parser &p, bool explicit_p)
 {
   ffi_type_decl t;
-  int line = at_end (p) ? 0 : p.toks[p.pos].line;
+  int line = at_end (p) ? (p.toks.empty () ? 1 : p.toks.back ().line)
+			: p.toks[p.pos].line;
+  /* 'type' may end the file; say so rather than failing silently.  */
+  if (at_end (p))
+    {
+      ffi_error (p.path, line, 3, "expected a type name after 'type'");
+      p.failed = true;
+      return;
+    }
   std::string w = take (p);
 
   t.drop = "";
@@ -510,7 +601,16 @@ parse_type (ffi_parser &p, bool explicit_p)
     {
       std::string c = take (p);
       if (c == "drop")
-	t.drop = take (p);
+	{
+	  if (at_end (p))
+	    {
+	      ffi_error (p.path, p.toks.back ().line, 3,
+			 "expected a destructor name after 'drop', found the end of the file");
+	      p.failed = true;
+	      return;
+	    }
+	  t.drop = take (p);
+	}
       else if (c == "send")
 	t.send = true;
       else if (c == "sync")
@@ -554,7 +654,8 @@ parse_ffi_file (const char *path, bool explicit_p)
   if (f == NULL)
     {
       if (explicit_p)
-	ffi_file_error (path, 1, "cannot read metadata file: %m");
+	ffi_file_error (path, 1, "cannot read metadata file: %s",
+			xstrerror (errno));
       return false;
     }
 
@@ -565,6 +666,9 @@ parse_ffi_file (const char *path, bool explicit_p)
   int lineno = 0;
   long bytes = 0;
   bool too_big = false;
+  /* Declarations parsed in this file, duplicates included (FFI-010).  The
+     merged map is not a bound: repeated clauses collapse into one entry.  */
+  int decls = 0;
 
   while ((len = getline (&line, &cap, f)) >= 0)
     {
@@ -576,6 +680,20 @@ parse_ffi_file (const char *path, bool explicit_p)
 	  too_big = true;
 	  break;
 	}
+      /* getline returns every byte up to the newline, and a file may hold an
+	 embedded NUL.  The token loops below stop at NUL, so without this
+	 check the rest of the line would silently disappear, including an
+	 invalid byte that should be rejected.  Report the byte instead of
+	 treating it as end-of-line (FFI-012).  */
+      for (ssize_t i = 0; i < len; i++)
+	if (line[i] == '\0')
+	  {
+	    ffi_error_column (path, lineno, (int) i + 1, 12,
+			      "NUL byte in the metadata file");
+	    free (line);
+	    fclose (f);
+	    return false;
+	  }
       for (ssize_t i = 0; i < len; i++)
 	if (line[i] == '#')
 	  {
@@ -645,13 +763,12 @@ parse_ffi_file (const char *path, bool explicit_p)
   const char *ver = p.toks[1].text.c_str ();
   char *end = NULL;
   long major = strtol (ver, &end, 10);
-  long minor = 0;
   if (end == ver || *end != '.')
     {
       ffi_error (path, p.toks[1].line, 1, "malformed version '%s'", ver);
       return false;
     }
-  minor = strtol (end + 1, &end, 10);
+  strtol (end + 1, &end, 10);
   if (*end != '\0')
     {
       ffi_error (path, p.toks[1].line, 1, "malformed version '%s'", ver);
@@ -710,6 +827,12 @@ parse_ffi_file (const char *path, bool explicit_p)
 		     kw.c_str ());
 	  p.failed = true;
 	  break;
+	}
+      if (++decls > 10000)
+	{
+	  ffi_error (path, line_no, 10,
+		     "metadata declares more than 10000 entries");
+	  return false;
 	}
     }
   if (p.failed)

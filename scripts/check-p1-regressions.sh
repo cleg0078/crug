@@ -9,7 +9,14 @@
 # fail-open evidence:
 #
 #   - scripts/gate.sh --self-test rejects a MANUAL expectation, a missing
-#     output marker and an unparsed CHECK line;
+#     output marker and an unparsed CHECK line, and checks marker regex
+#     escaping for '*', '?', backslash, a bare N and double spaces;
+#   - scripts/run-coverage.sh --self-test rejects a coverage input that does
+#     not declare the commit it measured (exit 2) and a mismatching commit
+#     (exit 1);
+#   - scripts/check-ci-gate.sh --self-test proves the Actions run selection
+#     ignores scheduled runs, picks the newest push/pull_request/manual run on
+#     HEAD and fails on a non-success winner;
 #   - scripts/check-p0-open.sh rejects a broken ledger container, a malformed
 #     row, an open P0 and a fixed P0/P1 with no regression test.
 #
@@ -37,7 +44,7 @@ die () { warn "$*"; exit 2; }
 while [ $# -gt 0 ]; do
 	case $1 in
 	--self-test) mode=self-test ;;
-	-h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+	-h|--help) sed -n '2,31p' "$0"; exit 0 ;;
 	*) die "unknown argument $1" ;;
 	esac
 	shift
@@ -109,6 +116,8 @@ ledger_negatives () {
 
 adjudicator_tests () {
 	run 'gate adjudicator self-test' bash "$ROOT/scripts/gate.sh" --self-test
+	run 'coverage provenance self-test' sh "$ROOT/scripts/run-coverage.sh" --self-test
+	run 'ci-gate run-selection self-test' sh "$ROOT/scripts/check-ci-gate.sh" --self-test
 	run 'archive replay self-test' sh "$ROOT/scripts/check-gate-archives.sh" --self-test
 	run 'ledger validator on the real ledger' sh "$ROOT/scripts/check-p0-open.sh"
 	ledger_negatives

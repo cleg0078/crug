@@ -47,6 +47,17 @@ crug_task_yield (void)
 {
 }
 
+/* The receive path asks the scheduler for a task-private buffer.  This stub
+   models the main-thread path (crug_task_recv_scratch returns NULL outside a
+   task), so chan.c falls back to its own thread-local buffer; the runtime does
+   define the real symbol.  */
+void *
+crug_task_recv_scratch (size_t need)
+{
+  (void) need;
+  return NULL;
+}
+
 static void
 invariant_failed (uint32_t op, const char *what)
 {

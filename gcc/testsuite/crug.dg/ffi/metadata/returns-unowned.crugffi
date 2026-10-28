@@ -1,0 +1,5 @@
+crugffi 1.0;
+fn live_count returns int;
+fn nothing returns void;
+fn maybe returns int nullable;
+fn ignored returns int drop my_free;

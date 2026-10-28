@@ -5,7 +5,10 @@
 #   1. a check run named "kernel-compat" concluded success on that exact commit;
 #   2. "kernel-compat" is a required status check on the branch in branch protection;
 #   3. .github/workflows/ci.yml exists and declares the four required jobs;
-#   4. a completed run of .github/workflows/ci.yml concluded success on HEAD;
+#   4. the newest completed push, pull_request or workflow_dispatch run of
+#      .github/workflows/ci.yml on HEAD concluded success. Scheduled (cron)
+#      runs are excluded: the weekly coverage job runs on the same workflow,
+#      so a green schedule run must not hide a failed push run on HEAD;
 #   5. the CI gate context (default "gate-self-test") is required by branch
 #      protection, so a red CI gate blocks a merge instead of only warning.
 #
@@ -22,6 +25,11 @@
 #   CI_REQUIRED_CONTEXT       CI job required by branch protection
 #                             (default: gate-self-test)
 # Exit: 0 all facts hold; 1 a fact is missing or false; 2 tooling/token missing.
+#
+# --self-test also exercises the run selection over canned GitHub Actions JSON
+# (schedule-only, a schedule run shadowing a failed push run, a newer failed
+# pull_request run, a wrong-workflow run, a wrong-commit run and an in-progress
+# run). It needs python3, but no token and no network.
 
 set -u
 
@@ -64,9 +72,84 @@ check_ci_workflow () {
 	return 0
 }
 
+# ci_run_select FILE SHA WORKFLOW picks the newest workflow run on SHA that a
+# merge or a manual dispatch actually triggered. Scheduled (cron) runs are
+# excluded on purpose: ci.yml also runs weekly for the coverage job, and a
+# green schedule run must not shadow a failed push run on the same commit.
+# It prints one machine-readable line
+#   event=<event> run_number=<n> status=<status> conclusion=<conclusion>
+# and, when the winner is not a completed success, the human line
+#   ci-gate: latest <workflow> on <sha> is <status>/<conclusion>
+# on stderr. Exit 0 only when the winner concluded success.
+ci_run_select () {
+	python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+
+path, sha, workflow = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as fh:
+    data = json.load(fh)
+qualifying = {"push", "pull_request", "workflow_dispatch"}
+runs = [r for r in data.get("workflow_runs", [])
+        if r.get("event") in qualifying
+        and (r.get("path") or "").endswith(workflow)
+        and r.get("head_sha") == sha]
+if not runs:
+    print("ci-gate: no push/pull_request/workflow_dispatch run of %s on %s"
+          % (workflow, sha), file=sys.stderr)
+    sys.exit(1)
+best = max(runs, key=lambda r: (r.get("created_at") or r.get("run_started_at") or "",
+                                r.get("run_number") or 0,
+                                r.get("id") or 0))
+print("event=%s run_number=%s status=%s conclusion=%s" % (
+    best.get("event"), best.get("run_number"), best.get("status"),
+    best.get("conclusion")))
+if best.get("status") != "completed" or best.get("conclusion") != "success":
+    print("ci-gate: latest %s on %s is %s/%s" % (
+        workflow, sha, best.get("status"), best.get("conclusion")),
+        file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+selftest_runs () {
+	command -v python3 >/dev/null 2>&1 || { echo "ci-gate: python3 not found" >&2; return 1; }
+	st=$(mktemp -d) || { echo "ci-gate: self-test: cannot create a temporary directory" >&2; return 1; }
+	trap 'rm -rf "$st"' EXIT HUP INT TERM
+	st_sha=$(git rev-parse HEAD 2>/dev/null) || st_sha=0000000000000000000000000000000000000000
+	ok=1
+	run_case () {
+		rc_name=$1 rc_want=$2 rc_line=$3
+		printf '%s\n' "$4" > "$st/$rc_name.json"
+		rc_out=$(ci_run_select "$st/$rc_name.json" "$st_sha" "$CI_WORKFLOW" 2>"$st/$rc_name.err")
+		rc_got=$?
+		if [ "$rc_got" -ne "$rc_want" ]; then
+			echo "ci-gate: self-test[$rc_name]: exit $rc_got, want $rc_want" >&2
+			ok=0
+		fi
+		if [ "$rc_out" != "$rc_line" ]; then
+			echo "ci-gate: self-test[$rc_name]: selection '$rc_out', want '$rc_line'" >&2
+			ok=0
+		fi
+		if [ -n "${5:-}" ] && ! grep -Fq "$5" "$st/$rc_name.err"; then
+			echo "ci-gate: self-test[$rc_name]: stderr misses '$5'" >&2
+			ok=0
+		fi
+	}
+	run_case schedule-only 1 '' "{\"workflow_runs\":[{\"event\":\"schedule\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":11,\"created_at\":\"2026-10-26T05:00:00Z\",\"run_started_at\":\"2026-10-26T05:00:00Z\",\"id\":11}]}" 'no push/pull_request/workflow_dispatch run'
+	run_case schedule-shadows-red-push 1 'event=push run_number=10 status=completed conclusion=failure' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"failure\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10},{\"event\":\"schedule\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":11,\"created_at\":\"2026-10-26T05:00:00Z\",\"run_started_at\":\"2026-10-26T05:00:00Z\",\"id\":11}]}" 'ci-gate: latest .github/workflows/ci.yml on '
+	run_case schedule-plus-green-push 0 'event=push run_number=10 status=completed conclusion=success' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10},{\"event\":\"schedule\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":11,\"created_at\":\"2026-10-26T05:00:00Z\",\"run_started_at\":\"2026-10-26T05:00:00Z\",\"id\":11}]}"
+	run_case pull-request-newer-red 1 'event=pull_request run_number=12 status=completed conclusion=failure' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10},{\"event\":\"pull_request\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"failure\",\"run_number\":12,\"created_at\":\"2026-10-26T09:00:00Z\",\"run_started_at\":\"2026-10-26T09:00:00Z\",\"id\":12}]}"
+	run_case workflow-dispatch-only 0 'event=workflow_dispatch run_number=3 status=completed conclusion=success' "{\"workflow_runs\":[{\"event\":\"workflow_dispatch\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":3,\"created_at\":\"2026-10-25T12:00:00Z\",\"run_started_at\":\"2026-10-25T12:00:00Z\",\"id\":3}]}"
+	run_case other-workflow-ignored 0 'event=push run_number=10 status=completed conclusion=success' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10},{\"event\":\"push\",\"path\":\".github/workflows/other.yml\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"failure\",\"run_number\":12,\"created_at\":\"2026-10-26T09:00:00Z\",\"run_started_at\":\"2026-10-26T09:00:00Z\",\"id\":12}]}"
+	run_case wrong-commit 1 '' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"1111111111111111111111111111111111111111\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10}]}" 'no push/pull_request/workflow_dispatch run'
+	run_case in-progress-newest 1 'event=push run_number=13 status=in_progress conclusion=None' "{\"workflow_runs\":[{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"completed\",\"conclusion\":\"success\",\"run_number\":10,\"created_at\":\"2026-10-20T10:00:00Z\",\"run_started_at\":\"2026-10-20T10:00:00Z\",\"id\":10},{\"event\":\"push\",\"path\":\"$CI_WORKFLOW\",\"head_sha\":\"$st_sha\",\"status\":\"in_progress\",\"conclusion\":null,\"run_number\":13,\"created_at\":\"2026-10-26T11:00:00Z\",\"run_started_at\":\"2026-10-26T11:00:00Z\",\"id\":13}]}"
+	return $((1 - ok))
+}
+
 if [ "${1:-}" = --self-test ]; then
 	check_ci_workflow || exit 1
-	echo "ci-gate: self-test: OK ($CI_WORKFLOW declares: $CI_JOBS)"
+	selftest_runs || exit 1
+	echo "ci-gate: self-test: OK (8 canned run-selection cases; $CI_WORKFLOW declares: $CI_JOBS)"
 	exit 0
 fi
 
@@ -159,27 +242,7 @@ case $code in
 	;;
 esac
 
-python3 - "$tmp/workflows.json" "$sha" "$CI_WORKFLOW" <<'PY'
-import json, sys
-path, sha, workflow = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as fh:
-    data = json.load(fh)
-runs = [r for r in data.get("workflow_runs", [])
-        if (r.get("path") or "").endswith(workflow)
-        and r.get("head_sha") == sha]
-if not runs:
-    print("ci-gate: no run of %s on %s" % (workflow, sha), file=sys.stderr)
-    sys.exit(1)
-best = max(runs, key=lambda r: (r.get("run_started_at") or "",
-                                r.get("run_number") or 0))
-if best.get("status") != "completed" or best.get("conclusion") != "success":
-    print("ci-gate: latest %s on %s is %s/%s" % (
-        workflow, sha, best.get("status"), best.get("conclusion")),
-        file=sys.stderr)
-    sys.exit(1)
-PY
-wf_rc=$?
-[ "$wf_rc" -eq 0 ] || exit 1
+ci_run_select "$tmp/workflows.json" "$sha" "$CI_WORKFLOW" >/dev/null || exit 1
 
 code=$(curl -sS -o "$tmp/protection.json" -w '%{http_code}' \
 	-H "$auth" -H "$accept" \

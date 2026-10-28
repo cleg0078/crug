@@ -249,9 +249,9 @@ The grammar is covered by `gcc/testsuite/crug.dg`; each directory is run by
 | `borrow/` (46 files, `make check-BORROW`: 88 tests) | `ref`/`mut` declarations and all borrow diagnostics |
 | `drop/` (`make check-DROP`: 39 passes) | destruction points and the drop diagnostics |
 | `strict/` (11 files, `make check-STRICT_UNSAFE`: 21 tests) | `unsafe`, `raw`, and the strict policy |
-| `goroutines/` (`make check-GOROUTINES`: 27 compiler tests) | `go` forms, `go:` labels, arity errors |
+| `goroutines/` (`make check-GOROUTINES`: 31 compiler tests) | `go` forms, `go:` labels, arity errors |
 | `scope/` (`make check-SCOPE`: 23 compiler tests + 8 programs) | `scope`, `goto` rules, waiting and destruction order |
-| `channels/` (`make check-CHANNELS`: 40 compiler tests + 7 programs) | `chan` types, `send`/`recv`/`close`, `select` arms |
+| `channels/` (`make check-CHANNELS`: 49 compiler tests + 8 programs) | `chan` types, `send`/`recv`/`close`, `select` arms |
 | `safe-types/` (`make check-SAFE_TYPES`: 77 expected passes) | `slice`, `option`, `result` and payload enums |
 | `diagnostics/` (`make check-DIAGNOSTICS`: 50 goldens) | one minimal fixture and stable code per common diagnostic |
 

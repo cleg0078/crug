@@ -98,12 +98,16 @@ The runtime is a separate deliverable with its own versions.
   `struct crug_scope_stats` and `struct crug_chan_stats` field sets.
   Additions are additive: a program that uses no `scope` and no channel never
   references the newer symbols.
-- **PAL contract version 1.1**: `libcrug/pal/include/crug_pal.h` exports
-  `CRUG_PAL_VERSION_MAJOR` (1), `CRUG_PAL_VERSION_MINOR` (1) and
-  `CRUG_PAL_ABI_VERSION`. Version 1.1 added
-  `crug_pal_page_size`, which the task runtime now uses to size its stack
-  guard (ADR 0011 amendment A-1). A backend implements the whole contract; it
-  never adds a function the core must know about.
+- **PAL contract version 1.2**: `libcrug/pal/include/crug_pal.h` exports
+  `CRUG_PAL_VERSION_MAJOR` (1), `CRUG_PAL_VERSION_MINOR` (2) and
+  `CRUG_PAL_ABI_VERSION` (`(1 << 16) | 2`). Version 1.1 added
+  `crug_pal_page_size`, which the task runtime uses to size its stack guard
+  (ADR 0011 amendment A-1). Version 1.2 made `crug_pal_thread_join` return
+  `int`: 0 after a successful join, which releases the handle, and a nonzero
+  code for a NULL handle (`CRUG_PAL_EINVAL`) or a failed system join
+  (`CRUG_PAL_ESYS`) with the handle kept. The contract suite has thirteen
+  cases. A backend implements the whole contract; it never adds a function the
+  core must know about.
 - The runtime ABI is OS- and architecture-independent (`docs/crug/ABI.md`
   section 6): Linux x86-64 and AArch64, Windows x86-64 and macOS ARM64 expose
   the same signatures, and a port adds a backend without changing them.

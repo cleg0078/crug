@@ -106,13 +106,29 @@ struct crug_ostate
   /* Where the value was last moved away, for the origin note under
      "use of moved value" and "move of already-moved value".  */
   location_t move_loc;
+  /* True when the destruction that a scope performs on this object is a
+     correct destruction of it whatever this state says: the object is still
+     owned, or an explicit drop () already destroyed it and cleared the
+     variable, so the guarded destruction skips it.  At a join the flag is
+     the conjunction of the alternatives, which is what makes "drop () on one
+     path only" a value that is destroyed exactly once on every path.  */
+  bool guarded_destroy;
+  /* True when the value was received from a channel with an owning element.
+     The receiver is its owner, but the element type erased the destructor, so
+     an explicit drop () is the receiver's explicit release and needs no known
+     destructor.  A join keeps the flag only when every alternative received
+     the value, like guarded_destroy.  */
+  bool received_owned;
 
   crug_ostate ()
-    : state (CRUG_EMPTY), dtor (NULL_TREE), move_loc (UNKNOWN_LOCATION) {}
+    : state (CRUG_EMPTY), dtor (NULL_TREE), move_loc (UNKNOWN_LOCATION),
+      guarded_destroy (false), received_owned (false) {}
   crug_ostate (crug_state s, tree d)
-    : state (s), dtor (d), move_loc (UNKNOWN_LOCATION) {}
+    : state (s), dtor (d), move_loc (UNKNOWN_LOCATION),
+      guarded_destroy (false), received_owned (false) {}
   crug_ostate (crug_state s, tree d, location_t loc)
-    : state (s), dtor (d), move_loc (loc) {}
+    : state (s), dtor (d), move_loc (loc), guarded_destroy (false),
+      received_owned (false) {}
 };
 
 typedef std::map<tree, crug_ostate> state_map;
@@ -122,7 +138,10 @@ typedef std::map<tree, crug_ostate> state_map;
 static void
 set_moved (state_map &env, tree decl, location_t loc)
 {
+  state_map::const_iterator it = env.find (decl);
+  bool received = it != env.end () && it->second.received_owned;
   env[decl] = crug_ostate (CRUG_MOVED, NULL_TREE, loc);
+  env[decl].received_owned = received;
 }
 
 /* Point at the place a moved value was moved away from.  The note is part
@@ -229,6 +248,10 @@ struct crug_borrow
      is used by the crug-BORROW-019 note, LENDER_DEPTH by the escape rules.  */
   location_t origin;
   size_t lender_depth;
+  /* True when the binding was assigned on only some of the paths that reach
+     a join: it may name no lender at all afterwards, so no later reborrow or
+     call may assume it borrows anything.  */
+  bool maybe_absent;
 };
 
 /* Provenance of a local pointer value: the set of object roots it may point
@@ -251,6 +274,10 @@ struct crug_target
   std::vector<state_map> edges;
   std::vector<std::map<tree, crug_borrow> > borrow_edges;
   state_map cases;
+  /* The ownership state at the entry of a switch: a case label can always be
+     reached from the dispatch with that state, whatever the arm textually
+     before it did.  Empty for a loop.  */
+  state_map entry;
 };
 
 struct crug_goto
@@ -302,6 +329,10 @@ struct crug_fn_ctx
   /* Set when a goto or label makes the pointer provenance path-insensitive:
      no disjointness proof is then possible.  */
   bool ptr_roots_unknown = false;
+  /* Pointer variables whose address the function takes.  A store through
+     memory may then write them, so the provenance recorded for their values
+     does not survive such a store (ADR 0010).  */
+  std::set<tree> escaped_ptrs;
   /* Bindings declared with ref or mut, initialized or not, and the frame
      depth of every owning or borrowing declaration that has a lifetime.  */
   std::set<tree> borrow_declared;
@@ -885,6 +916,10 @@ crug_is_borrow_decl (tree decl, bool *is_mut)
 
 /* The object a pointer expression designates, for the scoped-borrow rule.  */
 static tree expr_base_decl (tree e);
+
+/* The allocation catalogue is defined later in this file; the alias proof
+   needs to know which calls name a brand-new object.  */
+static bool is_fresh_allocation_call (tree t);
 
 /* Record the block of a 'scope' statement and its group handle.  The parser
    calls this once the block has been parsed, before the analysis runs.  */
@@ -1712,6 +1747,20 @@ static void
 set_owned (state_map &env, tree decl, tree dtor)
 {
   env[decl] = crug_ostate (CRUG_OWNED, dtor);
+  env[decl].guarded_destroy = true;
+}
+
+/* Bind a value received from a channel with an owning element: the receiver
+   owns it from here, but the element type erased the destructor, so an
+   explicit drop () is the receiver's release and is accepted without a known
+   destructor.  Leaving the binding untouched still reports crug-OWN-007.  */
+
+static void
+set_owned_received (state_map &env, tree decl)
+{
+  env[decl] = crug_ostate (CRUG_OWNED, NULL_TREE);
+  env[decl].guarded_destroy = true;
+  env[decl].received_owned = true;
 }
 
 static void
@@ -1726,6 +1775,8 @@ set_owned_from (state_map &env, tree decl, const crug_ostate &src)
 {
   env[decl] = crug_ostate (CRUG_OWNED, src.dtor);
   env[decl].variant_dtors = src.variant_dtors;
+  env[decl].guarded_destroy = true;
+  env[decl].received_owned = src.received_owned;
 }
 
 /* True when destroying DECL would call something.  For an owning payload
@@ -1898,6 +1949,7 @@ register_borrow (crug_fn_ctx &ctx, tree binding, bool is_mut, tree lender,
   b.is_mut = is_mut;
   b.lender = lender;
   b.lenders.insert (lender);
+  b.maybe_absent = false;
   b.depth = fresh ? ctx.frames.size () - 1 : old->second;
   b.origin = origin;
   /* A borrowed parameter has no local lender, so it lives as long as the
@@ -1924,6 +1976,16 @@ resolve_lender (crug_fn_ctx &ctx, tree binding)
   if (it == ctx.borrows.end () || it->second.lenders.size () != 1)
     return NULL_TREE;
   return *it->second.lenders.begin ();
+}
+
+/* True when BINDING may name no lender at all: it was assigned on only some
+   of the paths that reach a join.  */
+
+static bool
+borrow_maybe_absent (crug_fn_ctx &ctx, tree binding)
+{
+  std::map<tree, crug_borrow>::const_iterator it = ctx.borrows.find (binding);
+  return it != ctx.borrows.end () && it->second.maybe_absent;
 }
 
 /* True when LENDER has a live borrow; SHARED and MUT report which kinds.  */
@@ -2128,6 +2190,25 @@ alias_roots (crug_fn_ctx &ctx, tree e)
 	return a;
       }
 
+    case CALL_EXPR:
+      {
+	enum crug_intrinsic kind;
+	/* move (...) hands the very object it names to the callee, so it has
+	   the same provenance as its operand.  */
+	if (is_intrinsic_call (e, &kind) && kind == CRUG_INTR_MOVE)
+	  return alias_roots (ctx, CALL_EXPR_ARG (e, 0));
+	/* A fresh allocation names an object no existing pointer can view, so
+	   it is disjoint from every other argument of the call.  The call
+	   expression itself is its root: two allocations are never equal.  */
+	if (is_fresh_allocation_call (e))
+	  {
+	    info.known = true;
+	    info.roots.insert (e);
+	    return info;
+	  }
+	return info;
+      }
+
     default:
       return info;
     }
@@ -2156,6 +2237,38 @@ record_ptr_roots (crug_fn_ctx &ctx, tree decl, tree value)
     }
   info.roots.insert (decl);
   ctx.ptr_roots[decl] = info;
+
+  /* Taking the address of a pointer variable exposes its storage: a later
+     store through memory may write it, and that store invalidates the value
+     recorded here.  */
+  tree v = value != NULL_TREE ? STRIP_NOPS (value) : NULL_TREE;
+  if (v != NULL_TREE && TREE_CODE (v) == ADDR_EXPR)
+    {
+      tree target = STRIP_NOPS (TREE_OPERAND (v, 0));
+      if ((TREE_CODE (target) == VAR_DECL || TREE_CODE (target) == PARM_DECL)
+	  && TREE_TYPE (target) != NULL_TREE
+	  && POINTER_TYPE_P (TREE_TYPE (target)))
+	ctx.escaped_ptrs.insert (target);
+    }
+}
+
+/* A store of a pointer through memory may write any pointer variable whose
+   address escaped.  The provenance recorded for such a variable is stale
+   afterwards, so a later disjointness proof would be unjustified (ADR 0010):
+   drop the entry and let alias_roots report an unknown value.  */
+
+static void
+invalidate_escaped_ptrs (crug_fn_ctx &ctx, tree lhs, tree rhs)
+{
+  if (rhs == NULL_TREE || TREE_TYPE (rhs) == NULL_TREE
+      || !POINTER_TYPE_P (TREE_TYPE (rhs)))
+    return;
+  if (TREE_CODE (lhs) != INDIRECT_REF && TREE_CODE (lhs) != MEM_REF
+      && TREE_CODE (lhs) != COMPONENT_REF && TREE_CODE (lhs) != ARRAY_REF)
+    return;
+  for (std::set<tree>::const_iterator i = ctx.escaped_ptrs.begin ();
+       i != ctx.escaped_ptrs.end (); ++i)
+    ctx.ptr_roots.erase (*i);
 }
 
 static tree
@@ -2213,6 +2326,8 @@ merge_into (crug_fn_ctx &ctx, state_map &dst, const state_map &other,
 	  else
 	    j->second = choose_dtor (ctx, d, j->second, i->second, loc);
 	}
+      merged.guarded_destroy = sa.guarded_destroy && sb.guarded_destroy;
+      merged.received_owned = sa.received_owned && sb.received_owned;
       dst[d] = merged;
     }
 }
@@ -2234,7 +2349,9 @@ merge_borrows (crug_fn_ctx &ctx, std::map<tree, crug_borrow> &dst,
       std::map<tree, crug_borrow>::iterator d = dst.find (i->first);
       if (d == dst.end ())
 	{
-	  dst[i->first] = i->second;
+	  crug_borrow absent = i->second;
+	  absent.maybe_absent = true;
+	  dst[i->first] = absent;
 	  ctx.liveness_failed = true;
 	  continue;
 	}
@@ -2326,8 +2443,13 @@ join_borrow_alternatives (crug_fn_ctx &ctx,
        i != merged.end (); ++i)
     if (seen[i->first] != alts.size ())
       {
-	i->second.lenders.clear ();
-	i->second.lender = NULL_TREE;
+	/* The binding is absent from some alternative, so the borrow may not
+	   exist on that path.  Keep the lenders it actually names: the object
+	   is borrowed on at least one path, so no move, drop or reborrow of it
+	   may be proven safe, and liveness becomes path-sensitive.  Clearing
+	   the set instead would make the binding match every lender in
+	   has_live_borrow() and reject unrelated objects.  */
+	i->second.maybe_absent = true;
 	ctx.liveness_failed = true;
       }
   dst.swap (merged);
@@ -2449,7 +2571,24 @@ collect_drops (crug_fn_ctx &ctx, state_map &env, size_t keep_depth,
 		warn_unadopted (ctx, d, loc);
 	      break;
 	    case CRUG_MAYBE_MOVED:
+	      /* Some alternatives destroyed the value early and cleared the
+		 variable, the others still own it: the guarded destruction
+		 frees exactly the paths that skipped the early drop, and the
+		 paths that took it hold NULL by then.  */
+	      if (st.guarded_destroy && state_needs_drop (st, d))
+		{
+		  out.push_back (make_drop (d, st));
+		  break;
+		}
+	      if (state_needs_drop (st, d))
+		ambiguous_state (ctx, d, st.state, loc);
+	      else if (state_dtor_unknown (st, d))
+		warn_unadopted (ctx, d, loc);
+	      break;
 	    case CRUG_MAYBE_EMPTY:
+	      /* A path that never initialized the object cannot be repaired
+		 by a guard: destroying it would read an uninitialized
+		 pointer.  */
 	      if (state_needs_drop (st, d))
 		ambiguous_state (ctx, d, st.state, loc);
 	      else if (state_dtor_unknown (st, d))
@@ -2508,6 +2647,26 @@ is_allocation_call (tree t)
     if (strcmp (name, allocs[i]) == 0)
       return true;
   return false;
+}
+
+/* True for the allocation calls whose result names a brand-new object.  Unlike
+   realloc and reallocarray, which may return the pointer they were given, they
+   never make the result an alias of an object that already exists, so the
+   alias proof may use them (ADR 0010).  */
+
+static bool
+is_fresh_allocation_call (tree t)
+{
+  if (!is_allocation_call (t))
+    return false;
+
+  tree fn = CALL_EXPR_FN (t);
+  if (fn != NULL_TREE && TREE_CODE (fn) == ADDR_EXPR)
+    fn = TREE_OPERAND (fn, 0);
+  const char *name = IDENTIFIER_POINTER (DECL_NAME (fn));
+  return strcmp (name, "realloc") != 0
+	 && strcmp (name, "reallocarray") != 0
+	 && strcmp (name, "__builtin_realloc") != 0;
 }
 
 static tree
@@ -2575,6 +2734,27 @@ is_null_pointer (tree t)
   if (t == null_pointer_node)
     return true;
   return TREE_CODE (t) == INTEGER_CST && integer_zerop (t);
+}
+
+/* True when the explicit destruction of DECL also clears the variable.
+   Pass B emits such a destruction as 'if (p) dtor (p); p = 0;', which makes
+   the guarded destruction at the end of the scope a no-op on the path that
+   already destroyed the value.  That is what lets a drop () in one
+   alternative of a conditional be destroyed exactly once on every path
+   without a hidden run-time flag (ADR 0003 D5, ADR 0004).  An owned object
+   that is not a pointer cannot be cleared, so a conditional drop () of it
+   stays unprovable.  */
+
+static bool
+drop_clears_variable (tree decl)
+{
+  if (decl == NULL_TREE
+      || (TREE_CODE (decl) != VAR_DECL && TREE_CODE (decl) != PARM_DECL))
+    return false;
+  tree type = TREE_TYPE (decl);
+  if (type == NULL_TREE || TREE_CODE (type) != POINTER_TYPE)
+    return false;
+  return !TREE_READONLY (decl);
 }
 
 /* Mark an object as moved out of and return the ownership it passed on.  */
@@ -2754,6 +2934,9 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
     crug_error_at (loc, "crug-BORROW-005", "cannot drop %qD while it is borrowed", r);
 
   crug_state st = state_of (env, r);
+  /* True when the destruction of this drop also clears the variable, which
+     makes the guarded destruction at the end of the scope skip it.  */
+  bool clears = false;
 
   switch (st)
     {
@@ -2766,18 +2949,29 @@ check_drop (crug_fn_ctx &ctx, state_map &env, tree call, location_t loc)
     case CRUG_MAYBE_EMPTY:
       if (state_needs_drop (env[r], r))
 	ambiguous_state (ctx, r, st, loc);
+      else if (env[r].received_owned)
+	/* One alternative already consumed the received value and the other
+	   still owns it: a second consumption is exactly as unprovable as it
+	   is for a value with a destructor.  */
+	ambiguous_state (ctx, r, st, loc);
       else if (state_dtor_unknown (env[r], r))
 	warn_unadopted (ctx, r, loc);
       break;
     case CRUG_OWNED:
       if (state_needs_drop (env[r], r))
-	ctx.explicit_drops[call].push_back (make_drop (r, env[r]));
-      else if (!owns_payload_enum_type_p (TREE_TYPE (r)))
+	{
+	  ctx.explicit_drops[call].push_back (make_drop (r, env[r]));
+	  clears = drop_clears_variable (r);
+	}
+      else if (!env[r].received_owned
+	       && !owns_payload_enum_type_p (TREE_TYPE (r)))
 	warn_unadopted (ctx, r, loc);
       break;
     }
 
   set_moved (env, r, loc);
+  if (clears)
+    env[r].guarded_destroy = true;
 }
 
 /* The destructor that the payload of an owned payload-enum variant brings
@@ -2925,6 +3119,50 @@ assign_owning_enum (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
   set_owned (env, decl, NULL_TREE);
 }
 
+/* The destructor an initializer expression confers on the declared object
+   when it hands over an owned value with a known destructor on every path.
+   A conditional initializer has one arm per path; it confers a destructor
+   only when every arm does, and the arms must agree (crug-OWN-010).  */
+
+static tree
+initializer_dtor (crug_fn_ctx &ctx, const state_map &env, tree decl,
+		  tree expr, location_t loc)
+{
+  if (expr == NULL_TREE || expr == error_mark_node)
+    return NULL_TREE;
+  tree r = expr;
+  STRIP_NOPS (r);
+
+  enum crug_intrinsic kind;
+  if (TREE_CODE (r) == CALL_EXPR && is_intrinsic_call (r, &kind))
+    {
+      if (kind == CRUG_INTR_MOVE)
+	return dtor_of (env, STRIP_NOPS (CALL_EXPR_ARG (r, 0)));
+      if (kind == CRUG_INTR_ADOPT)
+	{
+	  tree dtor = STRIP_NOPS (CALL_EXPR_ARG (r, 1));
+	  if (dtor != NULL_TREE && TREE_CODE (dtor) == ADDR_EXPR)
+	    dtor = TREE_OPERAND (dtor, 0);
+	  return dtor;
+	}
+      return NULL_TREE;
+    }
+
+  if (is_allocation_call (r))
+    return known_free ();
+
+  if (TREE_CODE (r) == COND_EXPR)
+    {
+      tree a = initializer_dtor (ctx, env, decl, TREE_OPERAND (r, 1), loc);
+      tree b = initializer_dtor (ctx, env, decl, TREE_OPERAND (r, 2), loc);
+      if (a == NULL_TREE || b == NULL_TREE)
+	return NULL_TREE;
+      return choose_dtor (ctx, decl, a, b, loc);
+    }
+
+  return NULL_TREE;
+}
+
 /* Assign the ownership state that EXPR confers on DECL.  */
 
 static void
@@ -2982,14 +3220,18 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
       return;
     }
 
-  /* A receive from a channel with an owned element hands over a value the
-     caller must release.  The destructor is not part of the channel type:
-     the element type erased it, so the state is owned with no known
-     destructor (ADR 0025 D3/D4).  */
-  if (TREE_CODE (r) == CALL_EXPR && crug_channel_recv_owned_call_p (r))
+  /* A receive from a channel with an owning element hands over a value the
+     receiver owns.  The destructor is not part of the channel type (the
+     element type erased it), so the binding is owned with no known
+     destructor, and an explicit drop () is the receiver's release
+     (ADR 0025 D3/D4, ADR 0026 D4).  The initializer is a TARGET_EXPR for a
+     constant-size element and an INDIRECT_REF of the runtime pointer below
+     that; crug_channel_recv_owned_call_p peels both and matches either
+     runtime entry point.  */
+  if (crug_channel_recv_owned_call_p (r))
     {
       walk_expr (ctx, env, expr, loc);
-      set_owned (env, decl, NULL_TREE);
+      set_owned_received (env, decl);
       return;
     }
 
@@ -3018,6 +3260,17 @@ assign_from_expr (crug_fn_ctx &ctx, state_map &env, tree decl, tree expr,
     {
       walk_expr (ctx, env, expr, loc);
       set_owned (env, decl, known_free ());
+      return;
+    }
+
+  /* A conditional initializer carries the destructor of its arms; walk_expr
+     has already joined the arms' ownership states, so only the destructor the
+     joined path confers is still missing.  */
+  if (TREE_CODE (r) == COND_EXPR)
+    {
+      tree dtor = initializer_dtor (ctx, env, decl, r, loc);
+      walk_expr (ctx, env, expr, loc);
+      set_owned (env, decl, dtor);
       return;
     }
 
@@ -3088,7 +3341,8 @@ check_borrow (crug_fn_ctx &ctx, state_map &env, tree call, bool want_mut,
 	  return NULL_TREE;
 	}
       tree root = resolve_lender (ctx, r);
-      if (root == NULL_TREE && ctx.borrows.find (r) != ctx.borrows.end ())
+      if ((root == NULL_TREE || borrow_maybe_absent (ctx, r))
+	  && ctx.borrows.find (r) != ctx.borrows.end ())
 	{
 	  crug_error_at (loc, "crug-BORROW-024", "cannot reborrow %qD: it may refer to different "
 		    "objects on different paths, so no single lender can be "
@@ -3550,7 +3804,8 @@ borrow_arg_lender (crug_fn_ctx &ctx, tree e, bool *is_mut)
 	*is_mut = mut;
       /* A binding that borrowed different objects on different paths has no
 	 single lender; report it as unknown instead of inventing one.  */
-      if (lender == NULL_TREE && ctx.borrows.find (e) != ctx.borrows.end ())
+      if ((lender == NULL_TREE || borrow_maybe_absent (ctx, e))
+	  && ctx.borrows.find (e) != ctx.borrows.end ())
 	return NULL_TREE;
       return lender != NULL_TREE ? lender : e;
     }
@@ -4084,6 +4339,19 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	for (int i = 0; i < call_expr_nargs (t); i++)
 	  {
 	    tree arg = CALL_EXPR_ARG (t, i);
+	    /* A callee that receives the address of a pointer variable may
+	       store through it, so the provenance recorded for that variable
+	       does not survive the call.  */
+	    tree adr = arg != NULL_TREE ? STRIP_NOPS (arg) : NULL_TREE;
+	    if (adr != NULL_TREE && TREE_CODE (adr) == ADDR_EXPR)
+	      {
+		tree target = STRIP_NOPS (TREE_OPERAND (adr, 0));
+		if ((TREE_CODE (target) == VAR_DECL
+		     || TREE_CODE (target) == PARM_DECL)
+		    && TREE_TYPE (target) != NULL_TREE
+		    && POINTER_TYPE_P (TREE_TYPE (target)))
+		  ctx.ptr_roots.erase (target);
+	      }
 	    /* An out_owned parameter writes the owned value; taking its
 	       address is how the callee initializes an empty object, not a
 	       read of that object.  */
@@ -4162,6 +4430,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	       and the borrow binding itself is not assigned.  */
 	    walk_expr (ctx, env, lhs, loc);
 	    walk_expr (ctx, env, rhs, loc);
+	    invalidate_escaped_ptrs (ctx, lhs, rhs);
 	    return;
 	  }
 	if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
@@ -4212,6 +4481,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		&& TREE_TYPE (lhs) != NULL_TREE
 		&& POINTER_TYPE_P (TREE_TYPE (lhs)))
 	      record_ptr_roots (ctx, lhs, rhs);
+	    invalidate_escaped_ptrs (ctx, lhs, rhs);
 	  }
 	return;
       }
@@ -4247,13 +4517,83 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 
     case TARGET_EXPR:
     case COMPOUND_EXPR:
+    case TRUTH_NOT_EXPR:
+      /* Every operand executes, in order.  */
+      break;
+
     case COND_EXPR:
+      {
+	/* The arms are alternatives, not a sequence: each one starts from the
+	   state the condition leaves behind, and only what survives on both
+	   paths survives the join.  Walking them one after the other would
+	   treat a drop () or move () in the arm that runs as if it also ran
+	   on the path that skips it (ADR 0003 D5).  */
+	walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
+
+	state_map then_env = env;
+	state_map else_env = env;
+	std::map<tree, crug_borrow> const borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> const roots_base = ctx.ptr_roots;
+	walk_expr (ctx, then_env, TREE_OPERAND (t, 1), loc);
+	std::map<tree, crug_borrow> then_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> then_roots = ctx.ptr_roots;
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	walk_expr (ctx, else_env, TREE_OPERAND (t, 2), loc);
+	std::map<tree, crug_borrow> else_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> else_roots = ctx.ptr_roots;
+
+	/* A view or a provenance binding that exists on only one of the two
+	   arms is conditional, exactly as for a void conditional.  */
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	bpaths.push_back (&then_borrows);
+	bpaths.push_back (&else_borrows);
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	rpaths.push_back (&then_roots);
+	rpaths.push_back (&else_roots);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+
+	state_map merged = then_env;
+	merge_into (ctx, merged, else_env, loc);
+	env.swap (merged);
+	return;
+      }
+
     case TRUTH_ANDIF_EXPR:
     case TRUTH_ORIF_EXPR:
-    case TRUTH_NOT_EXPR:
-      /* These carry statements or short-circuit control flow; walking the
-	 operands in order is enough for the ownership state.  */
-      break;
+      {
+	/* The right operand may not run at all.  Its effects are therefore an
+	   alternative of its own: merged against the state the left operand
+	   leaves, so a drop () or move () it performs stays conditional.  */
+	walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
+
+	state_map taken_env = env;
+	state_map skipped_env = env;
+	std::map<tree, crug_borrow> const borrow_base = ctx.borrows;
+	std::map<tree, crug_root_info> const roots_base = ctx.ptr_roots;
+	walk_expr (ctx, taken_env, TREE_OPERAND (t, 1), loc);
+	std::map<tree, crug_borrow> taken_borrows = ctx.borrows;
+	std::map<tree, crug_root_info> taken_roots = ctx.ptr_roots;
+
+	ctx.borrows = borrow_base;
+	ctx.ptr_roots = roots_base;
+	std::vector<const std::map<tree, crug_borrow> *> bpaths;
+	bpaths.push_back (&taken_borrows);
+	bpaths.push_back (&borrow_base);
+	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	rpaths.push_back (&taken_roots);
+	rpaths.push_back (&roots_base);
+	join_borrow_alternatives (ctx, ctx.borrows, bpaths);
+	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
+
+	state_map merged = taken_env;
+	merge_into (ctx, merged, skipped_env, loc);
+	env.swap (merged);
+	return;
+      }
 
     default:
       break;
@@ -4440,9 +4780,26 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    if (prev != NULL_TREE)
 	      end_borrows_at (ctx, prev, stmt);
 	    prev = stmt;
-	    if (!reach
-		&& (TREE_CODE (stmt) == LABEL_EXPR
-		    || TREE_CODE (stmt) == CASE_LABEL_EXPR))
+	    if (!reach && TREE_CODE (stmt) == CASE_LABEL_EXPR)
+	      {
+		/* The previous arm ended on an exit edge, so this label is
+		   reached from the dispatch, not from the text before it: the
+		   arms of a switch are alternatives, not a sequence.  Start
+		   the arm from the state the switch had at its entry (ADR 0003
+		   D5).  A label inside a nested block keeps the conservative
+		   fallthrough state, because the block's own frame is not part
+		   of the entry map.  */
+		for (size_t k = ctx.targets.size (); k > 0; --k)
+		  if (!ctx.targets[k - 1].is_loop)
+		    {
+		      if (!ctx.targets[k - 1].entry.empty ()
+			  && ctx.frames.size () == ctx.targets[k - 1].keep_depth)
+			env = ctx.targets[k - 1].entry;
+		      break;
+		    }
+		reach = true;
+	      }
+	    else if (!reach && TREE_CODE (stmt) == LABEL_EXPR)
 	      reach = true;
 	    if (!reach)
 	      continue;
@@ -4903,6 +5260,7 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	crug_target target;
 	target.is_loop = false;
 	target.keep_depth = ctx.frames.size ();
+	target.entry = before;
 	ctx.targets.push_back (target);
 
 	bool body_reach = walk_stmt (ctx, env, body_tree, loc);
@@ -4912,19 +5270,40 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
 
-	/* A switch with no default can skip every case; the pre-switch state is
-	   then a possible exit.  The entry states of the cases are not exits: a
-	   case that falls into another case has already been merged through the
-	   fallthrough environment.  */
-	state_map merged = before;
+	/* The arms are alternatives: the state after the switch is the join of
+	   the arm that falls out of the body and every arm that broke.  The
+	   pre-switch state is an exit only for a switch with no default, which
+	   can skip every case; when a default covers all paths and every arm
+	   exits, the pre-switch state is not a path to the join.  */
+	state_map merged;
+	bool have_path = false;
 	if (body_reach)
 	  {
 	    merged = env;
-	    if (!has_default)
+	    have_path = true;
+	  }
+	if (!has_default)
+	  {
+	    if (have_path)
 	      merge_into (ctx, merged, before, loc);
+	    else
+	      {
+		merged = before;
+		have_path = true;
+	      }
 	  }
 	for (size_t i = 0; i < done.edges.size (); i++)
-	  merge_into (ctx, merged, done.edges[i], loc);
+	  {
+	    if (have_path)
+	      merge_into (ctx, merged, done.edges[i], loc);
+	    else
+	      {
+		merged = done.edges[i];
+		have_path = true;
+	      }
+	  }
+	if (!have_path)
+	  merged = before;
 	env = merged;
 
 	ctx.borrows = borrow_base;
@@ -5152,9 +5531,27 @@ rewrite_cb (tree *tp, int *walk_subtrees, void *data)
 	  tree seq = NULL_TREE;
 	  for (size_t i = 0; i < ed->second.size (); i++)
 	    {
-	      tree stmt = drop_stmt_tree (ed->second[i], node_location (*tp));
+	      const crug_drop &dr = ed->second[i];
+	      tree stmt = drop_stmt_tree (dr, node_location (*tp));
 	      seq = seq == NULL_TREE ? stmt
 		: build2 (COMPOUND_EXPR, void_type_node, seq, stmt);
+	      /* The explicit destruction also clears the variable, so the
+		 guarded destruction at the end of the scope skips it.  That is
+		 what makes a drop () in one alternative of a conditional a
+		 value that is destroyed exactly once on every path (ADR 0003
+		 D5).  A scope handle and the payload of an owning enum are not
+		 cleared: their destructors consume what they need.  */
+	      if (dr.scope_handle == NULL_TREE && dr.enum_type == NULL_TREE
+		  && drop_clears_variable (dr.decl))
+		{
+		  location_t dloc = node_location (*tp);
+		  tree zero = fold_convert_loc (dloc, TREE_TYPE (dr.decl),
+						null_pointer_node);
+		  tree clear = build2 (MODIFY_EXPR, TREE_TYPE (dr.decl),
+				       dr.decl, zero);
+		  SET_EXPR_LOCATION (clear, dloc);
+		  seq = build2 (COMPOUND_EXPR, void_type_node, seq, clear);
+		}
 	    }
 	  if (seq == NULL_TREE)
 	    seq = build_empty_stmt (node_location (*tp));
@@ -5272,6 +5669,7 @@ crug_check_function (tree fndecl, tree body, bool has_scope)
       /* The parameter is its own root: the caller owns the object.  */
       b.lender = NULL_TREE;
       b.lenders.insert (a);
+      b.maybe_absent = false;
       b.depth = 0;
       b.origin = DECL_SOURCE_LOCATION (a);
       b.lender_depth = 0;

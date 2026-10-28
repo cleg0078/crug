@@ -18,11 +18,13 @@ The report is JSON, validated against docs/crug/c2crug-report.schema.json.
 """
 
 import argparse
+import bisect
 import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 
 VERSION = "0.1.0"
@@ -350,10 +352,10 @@ def enclosing_call(line, pos):
 _CONTROL_TOKEN_RE = re.compile(
     r"[A-Za-z_]\w*|\d[\w.]*|==|!=|<=|>=|->|\+\+|--|&&|\|\||<<|>>|\S")
 _IDENT_RE = re.compile(r"^" + IDENT + r"$")
-_EXIT_CALLS = frozenset(("exit", "_exit", "abort", "quick_exit"))
+_EXIT_CALLS = frozenset(("exit", "_exit", "abort", "quick_exit", "longjmp"))
 _EXIT_RE = re.compile(
     r"\b(return|goto|break|continue)\b"
-    r"|\b(exit|_exit|abort|quick_exit)[ \t]*\(")
+    r"|\b(exit|_exit|abort|quick_exit|longjmp)[ \t]*\(")
 
 
 def tokenize_lines(clines, first, last):
@@ -365,12 +367,146 @@ def tokenize_lines(clines, first, last):
     return tokens
 
 
-class _ControlScanError(Exception):
-    """The lexical statement scan could not follow the source."""
+_GNU_SPELLING = {
+    "__asm": "asm", "__asm__": "asm",
+    "__attribute": "attribute", "__attribute__": "attribute",
+    "__const": "const", "__const__": "const",
+    "__inline": "inline", "__inline__": "inline",
+    "__restrict": "restrict", "__restrict__": "restrict",
+    "__signed": "signed", "__signed__": "signed",
+    "__typeof": "typeof", "__typeof__": "typeof",
+    "__volatile": "volatile", "__volatile__": "volatile",
+    "__extension__": None,
+}
 
 
-class _ControlScanStop(Exception):
-    """The release token was found, or it was not a statement start."""
+def normalise_tokens(tokens):
+    """Canonicalise GNU alternate keyword spellings, then drop no-ops."""
+    out = []
+    for text, line in tokens:
+        text = _GNU_SPELLING.get(text, text)
+        if text is None:
+            continue
+        out.append((text, line))
+    return out
+
+
+_MARKER_RE = re.compile(
+    r'^#[ \t]*(?:line[ \t]+)?(\d+)[ \t]+"((?:[^"\\]|\\.)*)"')
+
+
+def preprocess_source(path, cpp="cc", cpp_args=()):
+    """Preprocess one translation unit and map its tokens back to its lines.
+
+    Returns {"ok": bool, "error": str or None, "clines": list or None}.  The
+    preprocessed text is rebuilt line by line for this file only: every
+    non-marker output line is attributed to the source line named by the last
+    #line marker, so callers can compare a function body token for token with
+    the original source.
+    """
+    real = os.path.realpath(path)
+    command = [cpp, "-E", "-x", "c"] + list(cpp_args) + [real]
+    try:
+        proc = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=120, universal_newlines=True, errors="surrogateescape")
+    except OSError as exc:
+        return {"ok": False, "clines": None,
+                "error": "%s could not be run: %s" % (cpp, exc)}
+    except subprocess.SubprocessError as exc:
+        return {"ok": False, "clines": None,
+                "error": "%s did not finish: %s" % (cpp, exc)}
+    if proc.returncode != 0:
+        diagnostic = (proc.stderr.strip().splitlines() or ["no diagnostic"])[0]
+        return {"ok": False, "clines": None,
+                "error": "the preprocessor failed: %s" % diagnostic}
+    per_line = {}
+    current_file = None
+    current_line = 0
+    for raw in proc.stdout.split("\n"):
+        marker = _MARKER_RE.match(raw)
+        if marker:
+            current_line = int(marker.group(1))
+            current_file = os.path.realpath(marker.group(2))
+            continue
+        if current_file == real:
+            per_line[current_line] = per_line.get(current_line, "") + " " + raw
+            current_line += 1
+    if not per_line:
+        return {"ok": False, "clines": None,
+                "error": "the preprocessor produced no lines for this file"}
+    last = max(per_line)
+    source_lines = len(read_text(real).split("\n"))
+    if last > source_lines:
+        return {"ok": False, "clines": None,
+                "error": "a macro expanded across source lines; the "
+                         "preprocessed body cannot be mapped back"}
+    joined = "\n".join(per_line.get(n, "") for n in range(1, last + 1))
+    cleaned, _ = strip_code(joined)
+    return {"ok": True, "error": None, "clines": cleaned.split("\n")}
+
+
+def _control_token_texts(line):
+    """Raw C token texts of one source line."""
+    return [m.group(0) for m in _CONTROL_TOKEN_RE.finditer(line)]
+
+
+def _tokens_texts(line):
+    """Normalised token texts of one source line."""
+    tokens = [(text, 0) for text in _control_token_texts(line)]
+    return [text for text, _line in normalise_tokens(tokens)]
+
+
+def _decl_prefix_texts(line):
+    """Normalised tokens of a declaration prefix, up to its top-level '='."""
+    depth = 0
+    prefix = []
+    for text in _control_token_texts(line):
+        if text == "=" and depth == 0:
+            break
+        if text in "([{":
+            depth += 1
+        elif text in ")]}":
+            depth = max(0, depth - 1)
+        prefix.append(text)
+    return [t for t, _line in normalise_tokens([(t, 0) for t in prefix])]
+
+
+def _exit_kinds(clines, first, last):
+    """Ordered control-flow exit tokens of a line range.
+
+    Comparing the source and preprocessed sequences shows whether a macro
+    introduced or removed a return, goto, break, continue or exit call.
+    """
+    tokens = tokenize_lines(clines, first, last)
+    kinds = []
+    for pos, (text, _line) in enumerate(tokens):
+        if text in ("return", "goto", "break", "continue"):
+            kinds.append(text)
+        elif text in _EXIT_CALLS and pos + 1 < len(tokens) \
+                and tokens[pos + 1][0] == "(":
+            kinds.append(text)
+    return kinds
+
+
+def _source_release_lines(clines, first, last, name, release_fn):
+    """Lines whose text names release_fn (name)."""
+    pattern = re.compile(r"\b" + re.escape(release_fn) + r"\s*\(\s*"
+                         + re.escape(name) + r"\s*\)")
+    return [k for k in range(first, last + 1) if pattern.search(clines[k])]
+
+
+def _is_name_operand(tokens, name):
+    texts = [text for text, _line in _strip_outer_parens(tokens)]
+    return texts == [name]
+
+
+def _is_null_operand(tokens):
+    """True for 0, NULL, and the common (void *)0 spelling of NULL."""
+    texts = [text for text, _line in _strip_outer_parens(tokens)]
+    if texts in (["0"], ["NULL"]):
+        return True
+    return texts == ["(", "void", "*", ")", "0"]
 
 
 def _strip_outer_parens(tokens):
@@ -398,12 +534,18 @@ def _is_null_test(tokens, name):
     texts = [text for text, _line in tokens]
     if texts == ["!", name]:
         return True
-    if len(texts) == 3 and texts[0] == name and texts[1] == "==" \
-            and texts[2] in ("NULL", "0"):
-        return True
-    if len(texts) == 3 and texts[0] in ("NULL", "0") \
-            and texts[1] == "==" and texts[2] == name:
-        return True
+    depth = 0
+    for pos, (text, _line) in enumerate(tokens):
+        if text in "([{":
+            depth += 1
+        elif text in ")]}":
+            depth -= 1
+        elif text == "==" and depth == 0:
+            left = tokens[:pos]
+            right = tokens[pos + 1:]
+            if _is_name_operand(left, name) and _is_null_operand(right):
+                return True
+            return _is_null_operand(left) and _is_name_operand(right, name)
     return False
 
 
@@ -424,6 +566,7 @@ class _ControlScanner:
         self.target = target
         self.found = None
         self.ifs = []
+        self.starts = []
 
     def _peek(self, offset=0):
         pos = self.i + offset
@@ -460,6 +603,7 @@ class _ControlScanner:
             inner.append((token, line))
 
     def _check_target(self, level, context):
+        self.starts.append((self.i, (level, tuple(context))))
         if self.target is not None and self.i == self.target:
             self.found = (level, tuple(context))
             raise _ControlScanStop()
@@ -505,6 +649,7 @@ class _ControlScanner:
                 continue
             break
         self._check_target(level, context)
+        pos = self.i
         token, line = self._peek()
         if token == "{":
             self._take()
@@ -558,22 +703,23 @@ class _ControlScanner:
                     "end_line": line, "terminal": None}
         if token == "}":
             raise _ControlScanError("unexpected }")
-        return self._simple(line)
+        return self._simple(line, pos)
 
-    def _simple(self, line):
+    def _simple(self, line, pos):
         first = self._peek()[0]
         terminal = None
         if first == "return":
-            terminal = {"kind": "return", "line": line}
+            terminal = {"kind": "return", "line": line, "pos": pos}
         elif first == "goto":
             self._take()
             target, _ln = self._take()
-            terminal = {"kind": "goto", "line": line, "target": target}
+            terminal = {"kind": "goto", "line": line, "pos": pos,
+                        "target": target}
         elif first in ("break", "continue"):
-            terminal = {"kind": first, "line": line}
+            terminal = {"kind": first, "line": line, "pos": pos}
         elif first in _EXIT_CALLS and self._peek(1)[0] == "(":
             terminal = {"kind": "abort" if first == "abort" else "exit",
-                        "line": line}
+                        "line": line, "pos": pos}
         self._skip_to_semicolon()
         return {"kind": "simple", "start_line": line,
                 "end_line": self._line(), "terminal": terminal}
@@ -655,8 +801,14 @@ def _terminal_of(stmt):
     return stmt
 
 
-def guard_covers_exit(ifs, labels, exit_line, name, release_line):
-    """True when a top-level null guard's then branch ends at exit_line."""
+def guard_covers_exit(ifs, labels, exit_line, name, release_line,
+                      exit_pos=None):
+    """True when a top-level null guard's then branch ends at this exit.
+
+    exit_pos, when given, is the token index of the exit that must be the
+    guard's terminal statement, so two exits on one physical line cannot
+    borrow each other's guard.
+    """
     for info in ifs:
         if info["level"] != 0 or info["has_else"]:
             continue
@@ -664,6 +816,8 @@ def guard_covers_exit(ifs, labels, exit_line, name, release_line):
             continue
         terminal = _terminal_of(info["then"])
         if terminal is None or terminal["line"] != exit_line:
+            continue
+        if exit_pos is not None and terminal.get("pos") != exit_pos:
             continue
         kind = terminal["kind"]
         if kind not in ("return", "exit", "abort", "goto"):
@@ -674,6 +828,64 @@ def guard_covers_exit(ifs, labels, exit_line, name, release_line):
                 continue
         return True
     return False
+
+
+class _FunctionFacts:
+    """Per-function caches shared by every candidate of that function."""
+
+    def __init__(self, clines, start, end):
+        self.start = start
+        self.end = end
+        self.tokens = tokenize_lines(clines, start, end)
+        scanner = _ControlScanner(self.tokens, None)
+        self.scan_ok = True
+        try:
+            scanner.run()
+        except _ControlScanError:
+            self.scan_ok = False
+        self.ifs = scanner.ifs
+        self.starts = dict(scanner.starts)
+        self.labels = function_label_lines(clines, start, end)
+        self.label_lines = sorted(self.labels.values())
+        self.directive_lines = [k for k in range(start, end + 1)
+                                if clines[k].lstrip().startswith("#")]
+        self.body_depth = {}
+        depth = 0
+        for k in range(start, end + 1):
+            depth += clines[k].count("{") - clines[k].count("}")
+            self.body_depth[k] = depth
+        self.func_depth = self.body_depth[start]
+        self.exits = []
+        self.occ = {}
+        for pos, (token, line) in enumerate(self.tokens):
+            if token in ("return", "goto", "break", "continue"):
+                self.exits.append((pos, line))
+            elif token in _EXIT_CALLS and pos + 1 < len(self.tokens) \
+                    and self.tokens[pos + 1][0] == "(":
+                self.exits.append((pos, line))
+            if _IDENT_RE.match(token):
+                self.occ.setdefault(token, []).append((pos, line))
+
+    def release_position(self, release_line, release_fn):
+        for pos, (token, line) in enumerate(self.tokens):
+            if line == release_line and token == release_fn:
+                return pos
+        return None
+
+    def identifier_lines(self, name):
+        return sorted({line for _pos, line in self.occ.get(name, [])})
+
+    def first_label_between(self, first, last):
+        k = bisect.bisect_left(self.label_lines, first)
+        if k < len(self.label_lines) and self.label_lines[k] <= last:
+            return self.label_lines[k]
+        return None
+
+    def first_occurrence_line_after(self, name, line):
+        for _pos, ln in self.occ.get(name, []):
+            if ln > line:
+                return ln
+        return None
 
 
 def load_sidecars(root):
@@ -693,6 +905,19 @@ def load_sidecars(root):
             text = read_text(path)
             text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
             lines = [l.split("#", 1)[0] for l in text.splitlines()]
+            header_ok = False
+            for line in lines:
+                first = line.strip()
+                if not first:
+                    continue
+                head = re.match(r"crugffi[ \t]+(\d+)\.(\d+)[ \t]*;", first)
+                header_ok = head is not None and int(head.group(1)) == 1
+                break
+            if not header_ok:
+                print("c2crug: ignoring sidecar %s: the first line is not a "
+                      "'crugffi 1.<minor>;' header" %
+                      os.path.relpath(path, root), file=sys.stderr)
+                continue
             current = None
             clauses = []
             for line in lines:
@@ -770,17 +995,32 @@ def split_params(params):
     return out
 
 
-def analyse_source(path, rel, owned_return, consumes):
+def analyse_source(path, rel, owned_return, consumes, preproc=None):
     """Return (entries, transformed_text or None).
 
     A pointer is migrated only when its origin and its single release are
-    both structurally proven; everything ambiguous becomes a raw entry.
+    both structurally proven; everything ambiguous becomes a raw entry.  When
+    preproc is the result of preprocess_source(), the proof itself runs on the
+    preprocessed text, so a macro can neither hide an exit nor invent a
+    release.  A function is eligible for rewriting only when the declaration
+    prefix and the release call it rewrites are spelled identically in the
+    source and after preprocessing, and preprocessing introduces or removes
+    no control-flow exit token; otherwise it is reported ineligible.
     """
     text = read_text(path)
     cleaned, _ = strip_code(text)
     lines = text.split("\n")
     clines = cleaned.split("\n")
     entries = []
+    if preproc is None:
+        preproc = preprocess_source(path)
+    preproc_ok = bool(preproc.get("ok"))
+    pp_clines = preproc.get("clines") if preproc_ok else None
+    if pp_clines is not None and len(pp_clines) < len(clines):
+        pp_clines = pp_clines + [""] * (len(clines) - len(pp_clines))
+    pp_view = pp_clines if preproc_ok else clines
+    unusable = preproc.get("error")
+    state = {"eligibility": "eligible" if preproc_ok else "ineligible"}
 
     def add(kind, lineno, col, confidence, reason, applied, extra=None):
         entry = {
@@ -796,10 +1036,18 @@ def analyse_source(path, rel, owned_return, consumes):
                 "line": lineno,
                 "text": lines[lineno - 1].rstrip() if lineno - 1 < len(lines) else "",
             },
+            "preprocessed": preproc_ok,
+            "eligibility": state["eligibility"],
         }
         if extra:
             entry.update(extra)
         entries.append(entry)
+
+    def add_ineligible(lineno, col, reason):
+        previous = state["eligibility"]
+        state["eligibility"] = "ineligible"
+        add("raw", lineno, col, 0.0, reason, False)
+        state["eligibility"] = previous
 
     release_fns = set([HEAP_RELEASE])
     release_fns.update(d for d in owned_return.values() if d)
@@ -808,12 +1056,26 @@ def analyse_source(path, rel, owned_return, consumes):
     funcs = find_functions(clines)
 
     for (hdr, start, end, fname, params) in funcs:
-        depth = 0
-        body_depth = {}
-        for k in range(start, end + 1):
-            depth += clines[k].count("{") - clines[k].count("}")
-            body_depth[k] = depth
-        func_depth = body_depth[start]
+        source_directive = any(
+            clines[k].lstrip().startswith("#") for k in range(start, end + 1))
+        if not preproc_ok:
+            body_eligible = False
+            inelig_reason = ("the function body could not be preprocessed (%s)"
+                             % unusable)
+        elif source_directive:
+            body_eligible = False
+            inelig_reason = "a preprocessor directive inside the function body"
+        elif _exit_kinds(clines, start, end) != _exit_kinds(pp_clines, start,
+                                                            end):
+            body_eligible = False
+            inelig_reason = "macro expansion inside the function body"
+        else:
+            body_eligible = True
+            inelig_reason = None
+        state["eligibility"] = "eligible" if body_eligible else "ineligible"
+        facts = _FunctionFacts(pp_view, start, end)
+        func_depth = facts.func_depth
+        body_depth = facts.body_depth
         for i in range(start + 1, end):
             parsed = parse_pointer_declaration(clines[i])
             if parsed is None:
@@ -834,8 +1096,18 @@ def analyse_source(path, rel, owned_return, consumes):
             if len(declarators) != 1 or declarators[0][0] is None:
                 continue
             name, init = declarators[0]
-            init_fn = single_call_name(init)
+            parsed_pp = parse_pointer_declaration(pp_view[i])
+            if parsed_pp is None or parsed_pp["problem"] \
+                    or len(parsed_pp["declarators"]) != 1 \
+                    or parsed_pp["declarators"][0][0] != name:
+                add_ineligible(i + 1, len(indent) + 1,
+                               "macro expansion inside the function body")
+                continue
+            init_fn = single_call_name(parsed_pp["declarators"][0][1])
             if init_fn is None:
+                if single_call_name(init) is not None:
+                    add_ineligible(i + 1, len(indent) + 1,
+                                   "macro expansion inside the function body")
                 continue
             if init_fn in HEAP_FNS:
                 release_fn = HEAP_RELEASE
@@ -854,11 +1126,31 @@ def analyse_source(path, rel, owned_return, consumes):
                     "the sidecar declares %s as owned but names no destructor"
                     % init_fn, False)
                 continue
+            if not body_eligible:
+                add("raw", i + 1, len(indent) + 1, 0.0, inelig_reason, False)
+                continue
+            src_release = set(_source_release_lines(clines, i + 1, end, name,
+                                                    release_fn))
+            pp_release = set(_source_release_lines(pp_clines, i + 1, end, name,
+                                                   release_fn))
+            spans_ok = (_decl_prefix_texts(clines[i])
+                        == _decl_prefix_texts(pp_clines[i]))
+            if spans_ok:
+                for k in src_release:
+                    if _tokens_texts(clines[k]) != _tokens_texts(pp_clines[k]):
+                        spans_ok = False
+                        break
+            if not spans_ok or src_release != pp_release:
+                add_ineligible(i + 1, len(indent) + 1,
+                               "macro expansion inside the function body")
+                continue
             problem = None
             problem_line = None
             release_lines = []
-            for k in range(i + 1, end):
-                line = clines[k]
+            for k in facts.identifier_lines(name):
+                if k <= i or k >= end:
+                    continue
+                line = pp_clines[k]
                 for mo in re.finditer(r"\b" + re.escape(name) + r"\b", line):
                     pos = mo.start()
                     before = line[:pos]
@@ -914,6 +1206,11 @@ def analyse_source(path, rel, owned_return, consumes):
                     "the pointer is released more than once", False)
                 continue
             rel_line = release_lines[0]
+            rel_pos = facts.release_position(rel_line, release_fn)
+            if rel_pos is None:
+                add("raw", i + 1, len(indent) + 1, 0.0,
+                    "the release call is not in the token stream", False)
+                continue
             stmt_re = re.compile(r"^[ \t]*" + re.escape(release_fn)
                                  + r"[ \t]*\(\s*" + re.escape(name)
                                  + r"\s*\)[ \t]*;[ \t]*$")
@@ -927,9 +1224,17 @@ def analyse_source(path, rel, owned_return, consumes):
                     "the declaration is not a top-level statement at "
                     "function depth", False)
                 continue
-            top_level, context, ifs = release_control_context(
-                clines, start, end, rel_line, release_fn)
-            label_line = label_line_between(clines, i + 1, rel_line)
+            if not facts.scan_ok:
+                top_level = False
+                context = "the control context could not be lexically analysed"
+            elif rel_pos not in facts.starts:
+                top_level = False
+                context = "the release is not a statement boundary"
+            else:
+                level, inner = facts.starts[rel_pos]
+                top_level = level == 0
+                context = "; ".join(inner) or "a nested statement"
+            label_line = facts.first_label_between(i + 1, rel_line)
             if not top_level:
                 reason = ("the release at line %d is on a conditional path "
                           "(%s)" % (rel_line + 1, context))
@@ -944,27 +1249,23 @@ def analyse_source(path, rel, owned_return, consumes):
                     "a label or goto target lies between the declaration "
                     "and the release (line %d)" % (label_line + 1), False)
                 continue
-            labels = function_label_lines(clines, start, end)
             exit_bad = None
             guarded = False
-            for k in range(i + 1, rel_line):
-                if not _EXIT_RE.search(clines[k]):
+            for pos, line in facts.exits:
+                if line <= i or pos >= rel_pos:
                     continue
-                if guard_covers_exit(ifs, labels, k, name, rel_line):
+                if guard_covers_exit(facts.ifs, facts.labels, line, name,
+                                     rel_line, pos):
                     guarded = True
                     continue
-                exit_bad = k
+                exit_bad = line
                 break
             if exit_bad is not None:
                 add("raw", i + 1, len(indent) + 1, 0.0,
                     "an early exit at line %d can skip the release"
                     % (exit_bad + 1), False)
                 continue
-            used_after = None
-            for k in range(rel_line + 1, end):
-                if re.search(r"\b" + re.escape(name) + r"\b", clines[k]):
-                    used_after = k
-                    break
+            used_after = facts.first_occurrence_line_after(name, rel_line)
             if used_after is not None:
                 add("raw", i + 1, len(indent) + 1, 0.0,
                     "the pointer is used after its release (line %d)"
@@ -989,22 +1290,8 @@ def analyse_source(path, rel, owned_return, consumes):
                     "release_to": "drop",
                 }})
 
-    # global declarations are never rewritten
-    for i, line in enumerate(clines):
-        parsed = parse_pointer_declaration(line)
-        if parsed is None:
+        if not body_eligible:
             continue
-        if any(start < i < end for (hdr, start, end, fname, params)
-               in funcs):
-            continue
-        init_fns = [single_call_name(init)
-                    for _declname, init in parsed["declarators"] if init]
-        if any(fn in HEAP_FNS or fn in owned_return for fn in init_fns):
-            add("raw", i + 1, len(parsed["indent"]) + 1, 0.0,
-                "file-scope storage is not migrated by Phase 12", False)
-
-    # borrow suggestions, never applied
-    for (hdr, start, end, fname, params) in funcs:
         body = "\n".join(clines[start + 1:end])
         for param in split_params(params):
             pm = re.match(r"(?P<type>.*?)\*(?P<pname>" + IDENT +
@@ -1015,9 +1302,6 @@ def analyse_source(path, rel, owned_return, consumes):
             type_tokens = pm.group("type").split()
             if any(w in type_tokens for w in
                    ("own", "ref", "mut", "raw", "restrict")):
-                continue
-            if any(re.search(r"\b" + re.escape(pname) + r"\b", t)
-                   for t in []):
                 continue
             writes = re.search(r"\*\s*" + re.escape(pname) + r"\b\s*=|"
                                + re.escape(pname) + r"\s*->\s*\w+\s*=|"
@@ -1038,10 +1322,28 @@ def analyse_source(path, rel, owned_return, consumes):
                                        fname, suggestion),
                 False, {"suggestion": suggestion})
 
+    state["eligibility"] = "eligible" if preproc_ok else "ineligible"
+
+    # global declarations are never rewritten
+    in_function = [False] * len(clines)
+    for (_hdr, start, end, _fname, _params) in funcs:
+        for k in range(start + 1, end):
+            in_function[k] = True
+    for i, line in enumerate(clines):
+        parsed = parse_pointer_declaration(line)
+        if parsed is None:
+            continue
+        if in_function[i]:
+            continue
+        init_fns = [single_call_name(init)
+                    for _declname, init in parsed["declarators"] if init]
+        if any(fn in HEAP_FNS or fn in owned_return for fn in init_fns):
+            add("raw", i + 1, len(parsed["indent"]) + 1, 0.0,
+                "file-scope storage is not migrated by Phase 12", False)
+
     transformed = "\n".join(lines) if any(e["kind"] == "own" for e in entries) \
         else None
     return entries, transformed
-
 
 def build_report(mode, entries, sources):
     return {
@@ -1107,6 +1409,19 @@ def validate_report(report):
                 errors.append("applied entry needs a full evidence location")
         if e["kind"] == "raw" and e["applied"]:
             errors.append("a raw entry may not be applied")
+        if "preprocessed" not in e:
+            errors.append("entry missing preprocessed: %r" % e)
+        elif not isinstance(e["preprocessed"], bool):
+            errors.append("preprocessed must be a boolean: %r" % e)
+        if e.get("eligibility") not in ("eligible", "ineligible"):
+            errors.append("unknown eligibility %r in %r"
+                          % (e.get("eligibility"), e))
+        elif e["eligibility"] == "ineligible":
+            if e["applied"]:
+                errors.append("an ineligible entry may not be applied: %r" % e)
+            if e["confidence"] != 0:
+                errors.append("an ineligible entry needs confidence 0: %r"
+                              % e)
     own = sum(1 for e in report.get("entries", []) if e["kind"] == "own")
     raw = sum(1 for e in report.get("entries", []) if e["kind"] == "raw")
     counts = report.get("counts", {})
@@ -1115,13 +1430,14 @@ def validate_report(report):
     return errors
 
 
-def cmd_analyze(root, report_path):
+def cmd_analyze(root, report_path, cpp="cc", cpp_args=None):
     owned_return, consumes = load_sidecars(root)
     entries = []
     sources = []
     for path, rel in walk_sources(root):
         sources.append({"file": rel, "sha256": sha256_file(path)})
-        found, _ = analyse_source(path, rel, owned_return, consumes)
+        preproc = preprocess_source(path, cpp, cpp_args or ())
+        found, _ = analyse_source(path, rel, owned_return, consumes, preproc)
         entries.extend(found)
     entries.sort(key=lambda e: (e["file"], e["line"], e["column"]))
     # --analyze changes nothing: the report is a plan, so nothing is applied.
@@ -1146,7 +1462,7 @@ def cmd_analyze(root, report_path):
     return 0
 
 
-def cmd_safe(root, out, report_path, diff_only):
+def cmd_safe(root, out, report_path, diff_only, cpp="cc", cpp_args=None):
     if not diff_only:
         if os.path.exists(out):
             print("c2crug: output directory already exists: %s" % out,
@@ -1159,7 +1475,9 @@ def cmd_safe(root, out, report_path, diff_only):
     diffs = []
     for path, rel in walk_sources(root):
         sources.append({"file": rel, "sha256": sha256_file(path)})
-        found, transformed = analyse_source(path, rel, owned_return, consumes)
+        preproc = preprocess_source(path, cpp, cpp_args or ())
+        found, transformed = analyse_source(path, rel, owned_return, consumes,
+                                            preproc)
         entries.extend(found)
         if transformed is not None:
             if diff_only:
@@ -1218,6 +1536,12 @@ def main(argv):
     ap.add_argument("root", nargs="?")
     ap.add_argument("-o", "--output", default=None)
     ap.add_argument("--report", default=None)
+    ap.add_argument("--cpp", default="cc", metavar="PATH",
+                    help="preprocessor used to detect macro expansion "
+                         "(default: cc)")
+    ap.add_argument("--cpp-arg", action="append", default=None,
+                    metavar="ARG", dest="cpp_args",
+                    help="extra argument for the preprocessor (repeatable)")
     ap.add_argument("--version", action="store_true")
     args = ap.parse_args(argv)
     if args.version:
@@ -1232,15 +1556,16 @@ def main(argv):
         print("c2crug: not a directory: %s" % root, file=sys.stderr)
         return 2
     if args.analyze:
-        return cmd_analyze(root, args.report)
+        return cmd_analyze(root, args.report, args.cpp, args.cpp_args)
     if args.diff:
         out = args.output or (root.rstrip("/") + "-crug")
-        return cmd_safe(root, out, args.report, True)
+        return cmd_safe(root, out, args.report, True,
+                        args.cpp, args.cpp_args)
     out = args.output
     if not out:
         print("c2crug: --safe needs -o OUT", file=sys.stderr)
         return 2
-    return cmd_safe(root, out, args.report, False)
+    return cmd_safe(root, out, args.report, False, args.cpp, args.cpp_args)
 
 
 if __name__ == "__main__":

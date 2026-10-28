@@ -19,7 +19,8 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TOP_KEYS = {"schema", "tool", "version", "mode", "sources", "entries",
             "counts"}
 ENTRY_KEYS = {"file", "line", "column", "kind", "applied", "confidence",
-              "reason", "evidence", "suggestion", "transformation"}
+              "reason", "evidence", "suggestion", "transformation",
+              "preprocessed", "eligibility"}
 EVIDENCE_KEYS = {"file", "line", "text"}
 TRANSFORM_KEYS = {"declaration_line", "release_line", "release_from",
                   "release_to"}
@@ -73,7 +74,8 @@ def check(report):
             errors.append("%s is not an object" % where)
             continue
         missing = {"file", "line", "column", "kind", "applied", "confidence",
-                   "reason", "evidence"} - set(entry)
+                   "reason", "evidence", "preprocessed",
+                   "eligibility"} - set(entry)
         if missing:
             errors.append("%s missing %s" % (where, ", ".join(sorted(missing))))
             continue
@@ -89,6 +91,18 @@ def check(report):
             errors.append("%s reason is empty" % where)
         if not isinstance(entry["applied"], bool):
             errors.append("%s applied is not a boolean" % where)
+        if not isinstance(entry["preprocessed"], bool):
+            errors.append("%s preprocessed is not a boolean" % where)
+        if entry["eligibility"] not in ("eligible", "ineligible"):
+            errors.append("%s eligibility is not eligible or ineligible"
+                          % where)
+        elif entry["eligibility"] == "ineligible":
+            if entry["applied"]:
+                errors.append("%s an ineligible entry may not be applied"
+                              % where)
+            if entry["confidence"] != 0:
+                errors.append("%s an ineligible entry needs confidence 0"
+                              % where)
         if not isinstance(entry["confidence"], (int, float)) or \
                 isinstance(entry["confidence"], bool) or \
                 not 0 <= entry["confidence"] <= 1:

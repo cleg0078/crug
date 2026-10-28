@@ -159,6 +159,12 @@ cache window, not with the burst. The window rows are a probe, not part of
 | memory per channel | 4224 B (4096 ring + 128 overhead) | < 64 KiB |
 | scaling, 1/2/4 pairs | 41.4 / 41.2 / 40.6M elements/s | recorded only |
 
+`recv` now copies directly into the receiving task's own storage through
+`crug_chan_recv_into` / `crug_chan_recv_into_owned`: there is no scratch
+hand-off and no shared buffer on the receive path. The receive scratch cache
+only backs the legacy pointer forms and is bounded at 64 KiB per task. The
+numbers above are kept from the recorded qualification run.
+
 Every arm agreed on the checksum, 2048 channels passed their own checksum, and
 no element was lost or reordered. Scaling is recorded rather than gated because
 this host is shared and oversubscribed; a 1/2/4-pair ratio near 1.0 means the

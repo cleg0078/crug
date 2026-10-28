@@ -181,3 +181,23 @@ owner. Accepted: an assignment that initializes a fresh owned value, and
 passing `&empty` to an FFI `out_owned` argument. The state machine and the
 join rule are unchanged; the check is a read/write distinction in the pass, not
 a new state.
+
+## 9. Post-rc1: explicit drop clears the variable (2026-10-28)
+
+An explicit `drop (x)` on an owned pointer variable runs the destructor and
+then stores NULL in the variable; it does not only mark the variable moved. The
+guarded destruction at the end of the scope reads NULL and destroys nothing, so
+an object dropped on one path is destroyed exactly once whichever path runs. A
+drop inside a conditional (`if (c) drop (p);`) and a drop inside a loop are
+accepted with no `crug-DROP-006`. A later use of the variable is still a
+moved-value diagnostic: `crug-UAM-001` after an unconditional drop and
+`crug-UAM-004` after a conditional one. A conditional expression that drops on
+one arm and then drops again outside it (`c ? drop (p) : 0; drop (p);`) is
+still rejected, now as `crug-DROP-006` at the declaration with a note at the
+second drop, because the second drop's state depends on the arm.
+
+The explicit destruction is emitted as `if (p) dtor (p); p = 0;`: the
+destructor call is guarded, so a drop site that executes more than once (for
+example one inside a loop) calls the destructor only while the variable is
+non-NULL. A destructor supplied through `adopt` is therefore not invoked with
+NULL by this lowering.

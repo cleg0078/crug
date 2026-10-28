@@ -291,11 +291,13 @@ crug_chan_send_owned (void *chan, const void *element)
   chan_send_common (chan, element, "send");
 }
 
-static void *
-chan_recv_common (void *handle, const char *who)
+/* The blocking receive loop shared by the pointer and the receive-into
+   forms.  It copies the element into OUT (which the caller has sized and
+   aligned) and returns 1 when a value was taken and 0 when the channel was
+   closed and drained; OUT then holds a zeroed element.  It never allocates.  */
+static int
+chan_recv_loop (struct crug_chan *chan, void *out)
 {
-  struct crug_chan *chan = chan_check (handle, who);
-  void *out = chan_recv_buffer (chan);
   int handoff = chan->capacity == 0;
 
   if (handoff)
@@ -332,9 +334,19 @@ chan_recv_common (void *handle, const char *who)
 	atomic_fetch_sub_explicit (&chan->recv_waiters, 1u, memory_order_acq_rel);
       chan_unlock (chan);
       if (took || closed)
-	return out;
+	return took;
       chan_idle ();
     }
+}
+
+static void *
+chan_recv_common (void *handle, const char *who)
+{
+  struct crug_chan *chan = chan_check (handle, who);
+  void *out = chan_recv_buffer (chan);
+
+  (void) chan_recv_loop (chan, out);
+  return out;
 }
 
 void *
@@ -347,6 +359,29 @@ void *
 crug_chan_recv_owned (void *chan)
 {
   return chan_recv_common (chan, "recv");
+}
+
+static int
+chan_recv_into_common (void *handle, void *dst, size_t size, const char *who)
+{
+  struct crug_chan *chan = chan_check (handle, who);
+
+  if (dst == NULL)
+    chan_fatal ("a receive needs a value buffer");
+  chan_check_size (chan, size, who);
+  return chan_recv_loop (chan, dst);
+}
+
+int
+crug_chan_recv_into (void *chan, void *dst, size_t size)
+{
+  return chan_recv_into_common (chan, dst, size, "receive into");
+}
+
+int
+crug_chan_recv_into_owned (void *chan, void *dst, size_t size)
+{
+  return chan_recv_into_common (chan, dst, size, "receive into");
 }
 
 int

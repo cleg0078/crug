@@ -217,12 +217,34 @@ Phase 7 gate is in the same document (amendment A-8).
 ## 7. Post-rc1: joins and proven disjointness (2026-10-26)
 
 Two rules close the audited holes. First, the borrow state is joined like the
-move state: when two predecessors end with different lender sets, the join keeps
-a lender live only if both sides agree, and a borrow that is live on one path and
-released on the other is rejected at the join instead of being silently dropped.
-Second, `crug-BORROW-024` replaces the old optimistic credit: a `mut`
-parameter, and any alias fact, needs a proven disjoint root. The code is
-rejected when the compiler cannot prove disjointness, when an indirect call
-passes pointer arguments (the facts stay unproven), or when a `mut` lender is
-not unique. A borrow of an empty owned value remains accepted at an FFI
-`out_owned` argument; `borrow()` of an empty owner is not a read.
+move state. A borrow present on every predecessor keeps the union of its
+lenders, so every lender it names stays unavailable for a move, drop or
+reborrow; differing lender sets are not narrowed to the subset both sides
+agree on. A borrow that exists on only one path stays live and is marked
+may-be-absent; it keeps the lenders it named, so it is not treated as matching
+every live borrow and an unrelated object stays available, while a reborrow
+through it cannot prove a lender and reports `crug-BORROW-024`. A join where
+a borrow is absent on one path, or where its lender set or mutability differs,
+makes liveness path-dependent: for the rest of the function every registered
+borrow counts as live (the lexical rule), so the path that did not create a
+borrow cannot release its lender. The join rejects nothing by itself;
+what fails later is a move, drop or reborrow that conflicts with the joined
+state.
+
+Second, `crug-BORROW-024` replaces the old optimistic credit for the call
+boundary: a `mut` parameter, and any alias fact, needs a proven disjoint root.
+The code is rejected when the compiler cannot prove disjointness, when an
+indirect call passes pointer arguments (the facts stay unproven), or when a
+`mut` lender is not unique. The proof is also lost for a pointer variable
+whose address is taken and then written through an indirect store: the
+compiler no longer knows what it points at, so a later call with `mut` or
+`own` parameters reports `crug-BORROW-024` instead of assuming disjointness.
+Two expressions need no annotation on their own: `move (x)` hands over the
+provenance of `x`, and a fresh allocation (`malloc`, `calloc`, `strdup`,
+`aligned_alloc` and their builtins) is a new root that no existing pointer can
+name, so either may sit beside another view as an `own` or `mut` argument.
+`realloc` and `reallocarray` may return the pointer they were given, so their
+result stays unknown and a call that needs the proof reports
+`crug-BORROW-024`.
+A borrow of an empty owned value remains accepted at an FFI `out_owned`
+argument; `borrow()` of an empty owner is not a read.

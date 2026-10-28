@@ -8,6 +8,12 @@
    a task that receives, yields and then reads its value would observe the
    other task's element (docs/crug/CHANNELS.md, docs/crug/TASKS.md).
 
+   It also declares the test seams that force the two runtime interleavings a
+   regression test cannot hit reliably: crug_task_start_hook() runs after the
+   worker handles are published and before the first thread is created, and
+   crug_task_join_hook() runs before each worker is joined.  Both are weak and
+   empty in a normal build.
+
    This header is included by libcrug/core only.  It is deliberately not
    installed and not part of task.h: the ABI between the compiler and libcrug
    stays task.h version 1.  */
@@ -27,6 +33,11 @@ extern "C" {
    task (the main thread or an arbitrary PAL thread keeps its own buffer).
    Allocation failure is fatal: a receive cannot fail silently.  */
 void *crug_task_recv_scratch (size_t need);
+
+/* Test seams for the runtime start/shutdown handshake (S-01).  A test that
+   defines either symbol overrides the empty weak definition in task.c.  */
+void crug_task_start_hook (void);
+void crug_task_join_hook (unsigned index, void *handle);
 
 #ifdef __cplusplus
 }

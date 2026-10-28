@@ -66,9 +66,29 @@ void crug_chan_send_owned (void *chan, const void *element);
    thread) and return a pointer to it.  The pointer is valid until the next
    receive on the same task or thread: two tasks that share a worker never
    share the buffer.  On a closed and empty channel the buffer holds a zeroed
-   element.  */
+   element.
+
+   The pointer forms keep one per-thread receive buffer for a thread the
+   runtime does not own (an external thread calling into libcrug).  That buffer
+   is released only when the task or worker that used it ends, so an ephemeral
+   external thread leaks one buffer (the K entry for C-02).  Use
+   crug_chan_recv_into (below) on such threads: it writes into caller storage
+   and allocates nothing.  */
 void *crug_chan_recv_ptr (void *chan);
 void *crug_chan_recv_owned (void *chan);
+
+/* Blocking receive into caller-provided storage.  dst must point to at least
+   size bytes, size must equal the channel element size, and the storage must
+   be aligned for the element type: this form never uses the shared per-task
+   buffer, so the compiler can lower 'recv' into a temporary of the exact
+   element type (and its alignment) instead of reading through a void *.
+   Returns 1 when a value was received, 0 when the channel is closed and
+   drained; dst then holds a zeroed element (a NULL pointer for an owned
+   element).  recv_into_owned is the spelling the compiler emits for an owned
+   element type; both are behaviourally identical and block like the pointer
+   forms above.  */
+int crug_chan_recv_into (void *chan, void *dst, size_t size);
+int crug_chan_recv_into_owned (void *chan, void *dst, size_t size);
 
 /* The non-blocking claim pair the select lowering uses.  recv_claim returns 1
    and copies the element into out when one is available, 0 when a blocking

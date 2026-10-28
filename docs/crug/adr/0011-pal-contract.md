@@ -178,13 +178,18 @@ There is no retry contract; the caller decides. The four backends
 (`linux`, `windows`, `darwin`, `fake`) return the native result
 (`pthread_join`, `WaitForSingleObject`/`CloseHandle` status), and the fake
 backend honours `CRUG_FAKE_JOIN_FAIL` and returns 1 without freeing. A NULL
-handle returns 1. `CRUG_PAL_VERSION_MINOR` is 2 and `CRUG_PAL_ABI_VERSION` is
+handle returns nonzero with `CRUG_PAL_EINVAL` (all four backends return `-1`).
+`CRUG_PAL_VERSION_MINOR` is 2 and `CRUG_PAL_ABI_VERSION` is
 `(1 << 16) | 2`; the header is 1.2.
 
 The suite has thirteen cases: `thread-create-join` asserts the 0 result, and
-`thread-join-failure` asserts that a failing join returns nonzero, keeps the
-handle and leaves `joined` clear. The existing twelve cases and every other
-signature are unchanged. From 1.0 on, a signature change of this kind is a new
-major version; the exception is recorded here because at rc1 the PAL has no
-consumer outside this repository and all four backends changed in the same
-commit. The Crug runtime ABI stays 1 (ABI.md section 6).
+`thread-join-rejects-null` asserts that a NULL handle is refused with
+`CRUG_PAL_EINVAL`. A backend whose join fails after running the entry is
+modelled by the fake backend's `CRUG_FAKE_JOIN_FAIL` path, which
+`libcrug/tests/runtime/join_failure.c` exercises through the runtime: the
+failure leaves the worker state intact and a later checked shutdown reports
+it again. The existing twelve cases and every other signature are unchanged.
+From 1.0 on, a signature change of this kind is a new major version; the
+exception is recorded here because at rc1 the PAL has no consumer outside this
+repository and all four backends changed in the same commit. The Crug runtime
+ABI stays 1 (ABI.md section 6).

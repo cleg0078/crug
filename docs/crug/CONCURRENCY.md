@@ -242,9 +242,9 @@ programs under `libcrug/tests/`. Each suite has a wrapper script and a
 
 | Check | Expected result |
 | --- | --- |
-| `make check-GOROUTINES` | `goroutines: 28 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
+| `make check-GOROUTINES` | `goroutines: 31 compiler test(s), 5 task program(s), 100000 tasks on 4 worker threads, 0 failure(s)` |
 | `make check-SCOPE` | `scope: 23 compiler test(s), 8 group program(s), 0 leaked group(s), 0 failure(s)` |
-| `make check-CHANNELS` | `channels: 40 compiler test(s), 7 channel program(s), 0 failure(s)` |
+| `make check-CHANNELS` | `channels: 49 compiler test(s), 8 channel program(s), 0 failure(s)` |
 | `make check-SEND_SYNC` | `send-sync: 14 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` |
 | `make check-MULTI_OS` | Linux x86_64 and the cross targets pass their jobs |
 
@@ -269,9 +269,11 @@ receive storage is per-task. Shutdown has a checked form returning 0/1/2/3 and
 a spawn during shutdown is fatal (TASKS.md section 9, `crug-CONC-029`); frame
 size arithmetic is checked (`crug-CONC-028`). The PAL contract moves to 1.2
 because `crug_pal_thread_join` returns `int` (ADR 0011 A-2). Re-baselined
-counts at the fix commit: goroutines 28 compiler cases + 5 programs, channels
-43 + 7, tasks 17/125, runtime Linux 6 + 1 fatal and fake 6 + 2 fatal, PAL 13/0
-on Linux. The audit's two-sender defect behind this rewrite is R4-RT-001.
+counts measured on 2026-10-28: goroutines 31 compiler cases + 5 programs,
+channels 44 + 7, tasks 17 checks (125 completed), runtime Linux 15 programs
++ 2 expected-fatal programs, and PAL 13/0 on Linux. On the fake backend the
+same lists are seven programs and two expected-fatal programs. The audit's
+two-sender defect behind this rewrite is R4-RT-001.
 
 Staleness note (ADR 0025 D5 amendment): a select send arm's value expression
 is evaluated on every claim pass and again in the closed-send abort path, so it

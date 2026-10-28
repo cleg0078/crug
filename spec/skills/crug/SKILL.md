@@ -138,7 +138,7 @@ mut struct buf *m = borrow_mut (b);    /* exclusive: write, must be alone  */
 - Lifetimes end at the **last read** (last-use), so the owner becomes usable again right after the last use of the borrow. Loops are treated conservatively (all borrows live); `goto` falls back to the lexical rule.
 - While a shared borrow is live: no write through it (`crug-BORROW-008`), no `borrow_mut`, no move/release/drop/assign of the owner, and no read of the owner. While a mutable borrow is live: no second `borrow`/`borrow_mut`, no read of the owner.
 - A borrow may cross a call **only** as a `ref`/`mut` argument (`crug-BORROW-020`); it cannot be returned (`019`), stored (`018`), or put in a struct/typedef.
-- Passing a plain pointer where `ref T *` is expected is accepted by default; at a `mut T *` parameter it is accepted but proves nothing. `-fcrug-alias-facts` is the mode where exclusivity is enforced (`crug-BORROW-021/022/024`) — use it when you want the optimizer's `restrict`, not by default.
+- Passing a plain pointer where `ref T *` is expected is accepted by default; at a `mut T *` parameter it is accepted but proves nothing. `-fcrug-alias-facts` is the mode where exclusivity is enforced (`crug-BORROW-021/022/023`, plus `024` when disjointness cannot be proven) — use it when you want the optimizer's `restrict`, not by default.
 - Everything erases: `ref T *` and `mut T *` have the representation of `T *`, and `borrow(e)` lowers to `e`. Zero cost, proven by the project's byte-identity checks.
 
 Practical rule: borrow for parameters (`ref` = read, `mut` = write) and keep the owner at the call site. Do not try to make borrows a data structure; they are call-scoped views.
@@ -152,7 +152,7 @@ Requirements (`crug-CONC-*`): `f` must be a **function with a prototype returnin
 
 `yield ();` gives up the worker after the current task. A task is **pinned to the first worker that runs it** and never migrates; the scheduler is cooperative — no preemption, no cancellation, no priorities, no work stealing. A CPU-bound loop that never yields or blocks starves its worker: insert `yield ();` every few thousand iterations, or split the work into more tasks than workers.
 
-Runtime API (`task.h`): `crug_task_spawn`, `crug_task_yield`, `crug_task_runtime_shutdown` (runs every remaining task, joins the workers; idempotent), `crug_task_runtime_try_shutdown` (0 stopped, 1 nothing to stop, 2 called from a task, 3 join failure), `crug_task_stats_get`, `crug_task_current_id`, and the scope group calls `crug_scope_enter/leave`, `crug_task_spawn_scoped`, `crug_scope_stats_get`. Spawning during shutdown is fatal (`crug-CONC-029`); a frame too large for the copy is `crug-CONC-028`.
+Runtime API (`task.h`): `crug_task_spawn`, `crug_task_yield`, `crug_task_runtime_shutdown` (runs every remaining task, joins the workers, releases the stacks; idempotent and restartable; fatal when called from a task, which uses the checked form instead), `crug_task_runtime_try_shutdown` (0 stopped, 1 nothing to stop, 2 called from a task, 3 join failure), `crug_task_stats_get`, `crug_task_current_id`, and the scope group calls `crug_scope_enter/leave`, `crug_task_spawn_scoped`, `crug_scope_stats_get`. Spawning during shutdown is fatal (`crug-CONC-029`); a frame too large for the copy is `crug-CONC-028`.
 
 Stacks are **fixed**: 64 KiB default, one guard page, a canary. A task that recurses deeply or has big locals dies (or is reported by `stack_corrupt`); size `CRUG_TASKS_STACK` up instead. Since 0.2.3 the stack is materialised only when a worker dispatches the task (ADR 0008 A-3), so a spawn burst is cheap in both time and address space.
 
@@ -162,7 +162,7 @@ Stacks are **fixed**: 64 KiB default, one guard page, a canary. A task that recu
 chan struct job jobs = channel (0);            /* capacity 0: rendezvous handoff */
 chan struct result results = channel (1000);   /* buffered: 1000 in flight      */
 
-send (jobs, j);              /* blocks while full                          */
+send (jobs, j);              /* completes when the receiver consumes it    */
 struct job j = recv (jobs);  /* blocks while empty                         */
 close (jobs);                /* idempotent; send after close is fatal      */
 ```
@@ -172,7 +172,7 @@ close (jobs);                /* idempotent; send after close is fatal      */
 - The element must be a **complete object type** (`crug-CONC-019`): give every struct a tag, because `typedef struct { ... } X;` has no complete type at the `chan` declaration. Not `void`, not a function, not incomplete.
 - An owned element requires `send (ch, move (p))` (`crug-CONC-003`); an adopted element uses the adopt form (`023`). A `select` cannot receive from an owning-element channel (`017`) — use `recv`.
 - `select` arms: `case v = recv (ch):`, `case recv (ch):`, `case send (ch, v):`, and exactly one `default:` which must be last. It is a rotation over non-blocking claims, so keep the send expression side-effect free and avoid `select` in the hottest loop.
-- Introspection: `crug_chan_len`, `crug_chan_cap`, `crug_chan_stats_get` (created, live, sent, received, wait). The `recv` buffer is per task/thread and valid only until the next `recv` — copy out of it, as a declaration does.
+- Introspection: `crug_chan_len`, `crug_chan_cap`, `crug_chan_stats_get` (created, live, sent, received, wait). `recv` lowers to `crug_chan_recv_into` / `crug_chan_recv_into_owned` (destination of element size, aligned; returns 1 for a value, 0 when closed and drained). The old pointer forms (`crug_chan_recv_ptr` / `_owned`) still exist for compatibility; their per-thread scratch is 16-byte aligned and can be retained by a detached external thread.
 
 ## 6. A complete verified program
 

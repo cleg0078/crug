@@ -1,7 +1,8 @@
 # c2crug - migration from C to Crug
 
-**Status:** implemented (Phase 12, 2026-10-19). Decision record: ADR 0023.
-Gate: `EXIT-GATES.md` phase 12, amendment A-15. Corpus: `migration/`.
+**Status:** implemented (Phase 12, 2026-10-19); preprocessor-aware `--safe` added
+2026-10-28. Decision record: ADR 0023. Gate: `EXIT-GATES.md` phase 12,
+amendment A-15. Corpus: `migration/`.
 
 `c2crug` is a Python 3 (standard library only) tool at the repository root. It
 reads C, and writes a Crug migration that is *provably* equivalent for the
@@ -25,6 +26,11 @@ Exactly one mode is required.  `./c2crug --version` is the exception: it
 prints `c2crug <version>` and exits 0 without a source tree, so a build script
 can probe the tool before it has a corpus.
 
+`--cpp PATH` selects the preprocessor (`cc` by default) and `--cpp-arg ARG`
+adds an argument, repeatable. The tool preprocesses function bodies with
+`-E -x c` and maps the `#line` markers back; this affects eligibility only and
+never writes the preprocessed text to the output tree.
+
 ## 2. What `--safe` inserts and rewrites
 
 For a variable whose ownership is proven (section 3):
@@ -43,6 +49,13 @@ else in the file is edited, including `raw` declarations.
 `drop` requires `-fcrug-ownership`; a sidecar-derived release function is
 handled the same way (`fclose` becomes `drop`, and the sidecar is passed with
 `-fcrug-ffi=`).
+
+A body is rewrite-eligible only when its declaration prefix and release span
+are token-identical to the preprocessed body and preprocessing adds or removes
+no exit token. Otherwise the declaration stays `raw` at confidence 0, with one
+of these reasons in the report: the function body could not be preprocessed, a
+preprocessor directive inside the function body, or macro expansion inside the
+function body.
 
 ## 3. The proof
 
@@ -71,7 +84,8 @@ analysis; it is conservative in the one direction that matters.
 
 | Kind | Confidence | Applied |
 |------|-----------|---------|
-| `own` | 1.00 | yes |
+| `own`, straight-line release | 1.00 | yes |
+| `own`, release after a proven null guard | 0.80 | yes |
 | `raw` | 0.00 | never |
 | `borrow-suggestion` `ref` | 0.80 | never |
 | `borrow-suggestion` `mut` | 0.60 | never |
@@ -84,13 +98,21 @@ The report (`--report FILE`) is validated against
 `docs/crug/c2crug-report.schema.json` by
 `scripts/validate-c2crug-report.py`, an independent checker: schema id
 `crug-c2crug-report-v1`, per-file SHA-256, and per-entry file, line, column,
-kind, applied, confidence, reason, evidence (`file`/`line`/`text`) and,
+kind, applied, confidence, reason, evidence (`file`/`line`/`text`),
+`preprocessed` (bool), `eligibility` (`eligible` or `ineligible`), and,
 for applied entries, the transformation. Runs print:
 
 `
-file.c:12:5: own confidence=1.00 single malloc from the allocation catalogue released once by free on a straight-line path [not applied]
-file.c:20:5: raw confidence=0.00 the release at line 22 is on a conditional path [not applied]
+03-file.c:12:3: own confidence=0.80 single fopen from the .crugffi contract for fopen released once by fclose after a proven null guard [not applied]
+03-file.c:26:3: own confidence=0.80 single fopen from the .crugffi contract for fopen released once by fclose after a proven null guard [not applied]
+witnesses/same-line-exits.c:13:3: raw confidence=0.00 an early exit at line 15 can skip the release [not applied]
 `
+
+The two null-guard entries are the `03-file.c` case: the guard proves 0.80, not
+1.00. The four witnesses under `migration/witnesses/` each keep their owning
+pointer `raw` at confidence 0; `hidden-alias.c`, `nested-return.c` and
+`free-redefinition.c` are ineligible after macro expansion, while
+`same-line-exits.c` is eligible but raw on the early exit.
 
 `--analyze` prints one line per candidate and never applies an edit, so every
 line ends `[not applied]`; a report written by `--safe` marks the entries it
@@ -102,8 +124,12 @@ The tool reads every `.crugffi` under the tree. It needs two things:
 `fn NAME returns owned TYPE [nullable] drop DROPFN;` teaches it that a call
 returns owned storage released by `DROPFN`, and `fn FN consumes argN;` is
 accepted (and recorded) so that a release function can also be a consuming call.
-`migration/libc.crugffi` is the corpus example for `fopen`/`fclose`. The
-tool consumes sidecars; it never generates them (ADR 0007 owns the format).
+`migration/libc.crugffi` is the corpus example for `fopen`/`fclose`. A sidecar
+is read only when its first non-empty line is a `crugffi 1.<minor>;` header
+with major version exactly 1; otherwise the tool prints
+`c2crug: ignoring sidecar PATH: the first line is not a 'crugffi 1.<minor>;' header`
+and continues without it. The tool consumes sidecars; it never generates them
+(ADR 0007 owns the format).
 
 ## 6. The corpus
 
@@ -122,9 +148,13 @@ tool consumes sidecars; it never generates them (ADR 0007 owns the format).
 
 `make -C migration test` builds the original corpus with `cc` and diffs each
 program's output against `migration/expected/*.out`. The same target builds the
-migrated tree with `crugc`; both print
-`migration: 8 programs pass`. Measured: 5 `own` applied, 5 `raw`
-preserved, 10 of 222 source lines changed (4.5%), comment lines 16 -> 16.
+migrated tree with `crugc`; both print `migration: 8 programs pass`. The eight
+programs yield 5 `own`, 5 `raw` and 2 borrow suggestions.
+
+Measured on the whole `migration/` tree (20 sources, including `proofs/` and
+`witnesses/`): 25 entries, 6 `own`, 16 `raw`, 3 suggestions; `--safe` applies
+six entries and `--diff` reports 5 changed files and 12 of 491 source lines
+(2.4%).
 
 ## 7. Limits
 
@@ -139,7 +169,7 @@ migrated program still compiles as plain C and still frees manually.
 
 | Check | Result |
 |-------|--------|
-| `python3 scripts/test-c2crug.py` | 36 checks over 11 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected, command line (`--version` without a tree, a run without a mode exits 2) |
+| `python3 scripts/test-c2crug.py` | 140 checks over 30 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected, command line (`--version` without a tree, a run without a mode exits 2), preprocessing eligibility, sidecar headers, report fields |
 | `scripts/check-c2crug.sh` | the whole flow on `migration/`: analyze, safe, validate, compile with `crugc`, differential run, churn/comment band, report-to-tree agreement |
 | `scripts/c2crug-diff.sh SRC OUT [MAX]` | changed lines <= MAX% and comment lines equal |
 | `make check-C2CRUG` | both of the first two |
@@ -155,8 +185,11 @@ only when it directly controls an early exit that dominates the release; a
 guard anywhere else proves nothing and the declaration stays raw. No transform
 is applied without a proof, so a file that cannot be proven is left alone
 rather than half-rewritten. Multi-declarator top-level declarations stay raw.
-The corpus result is 6 `own` and 12 `raw` declarations; the safe run changes
-5 files, 12 of 361 lines and 32 comment lines. The proof fixtures live in
-`migration/proofs/` and `scripts/check-c2crug-proofs.sh` runs them, while
-`scripts/test-c2crug.py` covers 73 checks over 20 cases including the new
-negative cases (a conditional free, an unrelated guard, a multi-declarator).
+The corpus result is 6 `own` and 16 `raw` declarations with 3 borrow
+suggestions over 20 sources; the safe run applies six entries in five files and
+`--diff` changes 12 of 491 lines (2.4%). The proof fixtures live in
+`migration/proofs/` and `scripts/check-c2crug-proofs.sh` runs them; the four
+`migration/witnesses/` regressions stay raw as described in section 4, and
+`scripts/test-c2crug.py` covers 140 checks over 30 cases, including the
+negative cases (a conditional free, an unrelated guard, a multi-declarator,
+preprocessor ineligibility).

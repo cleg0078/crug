@@ -365,6 +365,41 @@ def test_valid_guard():
         check("drop (p)" in transformed, "free not rewritten")
 
 
+@case("a NULL guard survives preprocessing and stays eligible")
+def test_expanded_null_guard():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            #include <stdlib.h>
+
+            int f (void)
+            {
+              int *p = malloc (4);
+              if (p == NULL)
+                return 1;
+              p[0] = 1;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 1, "expected one entry, got %r" % entries)
+        entry = entries[0]
+        check(entry["kind"] == "own" and entry["applied"],
+              "the expanded NULL guard must stay eligible: %r" % entry)
+        check(entry["confidence"] == 0.80,
+              "the expanded NULL guard must give confidence 0.80")
+        check(entry["preprocessed"] is True,
+              "the entry must record a successful preprocessing run")
+        check(entry["eligibility"] == "eligible",
+              "a macro that only spells NULL must not make the body "
+              "ineligible")
+        check("null guard" in entry["reason"],
+              "reason must name the null guard: %r" % entry["reason"])
+        check("own int *p" in transformed, "own not inserted")
+        check("drop (p)" in transformed, "free not rewritten")
+
+
 @case("a guard with an else branch does not authorize the release")
 def test_guard_with_else():
     with tempfile.TemporaryDirectory() as tmp:
@@ -521,6 +556,294 @@ def test_validator():
         lie = json.loads(json.dumps(data))
         lie["entries"][0]["confidence"] = 0
         check(validator.check(lie), "the validator accepted a zero-confidence own entry")
+
+@case("macro expansion inside a body makes the function ineligible")
+def test_macro_expansion():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            #include <stdlib.h>
+
+            #define BAIL() return 0
+
+            int f (void)
+            {
+              int *p = malloc (4);
+              p[0] = 1;
+              free (p);
+              BAIL ();
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 1, "expected one entry, got %r" % entries)
+        entry = entries[0]
+        check(entry["kind"] == "raw", "a macro-using body must stay raw")
+        check(entry["confidence"] == 0,
+              "an ineligible entry needs confidence 0")
+        check(entry["preprocessed"] is True,
+              "the preprocessing verdict must be recorded")
+        check(entry["eligibility"] == "ineligible",
+              "a macro-using body must be ineligible")
+        check("macro expansion inside the function body" in entry["reason"],
+              "reason must name the macro expansion: %s" % entry["reason"])
+        check(transformed is None,
+              "an ineligible body must not be rewritten")
+
+
+@case("a macro used only outside the body keeps the function eligible")
+def test_macro_outside_body():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            #include <stdlib.h>
+
+            #define UNUSED_MARKER 1
+
+            int f (void)
+            {
+              int *p = malloc (4);
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 1, "expected one entry, got %r" % entries)
+        entry = entries[0]
+        check(entry["kind"] == "own" and entry["applied"],
+              "a macro-free body must stay migratable")
+        check(entry["confidence"] == 1.0,
+              "an unconditional proof must keep confidence 1.00")
+        check(entry["preprocessed"] is True and
+              entry["eligibility"] == "eligible",
+              "the function must be eligible")
+        check(transformed is not None, "the eligible body must be rewritten")
+
+
+@case("the three audit witnesses are ineligible")
+def test_audit_witnesses():
+    for name in ("hidden-alias.c", "nested-return.c", "free-redefinition.c"):
+        path = os.path.join(ROOT, "migration", "witnesses", name)
+        entries, transformed = c2crug.analyse_source(path, name, {}, {})
+        own = [e for e in entries if e["kind"] == "own"]
+        check(not own, "%s must not produce an own entry: %r" % (name, own))
+        check(transformed is None, "%s must not be rewritten" % name)
+        raw = [e for e in entries if e["kind"] == "raw"]
+        check(raw, "%s must report its pointer declarations: %r"
+              % (name, entries))
+        for entry in raw:
+            check(entry["confidence"] == 0,
+                  "%s: raw entry with confidence %r"
+                  % (name, entry["confidence"]))
+            check(entry["eligibility"] == "ineligible",
+                  "%s: raw entry not ineligible" % name)
+            check("macro expansion inside the function body"
+                  in entry["reason"],
+                  "%s: reason does not name the macro expansion: %s"
+                  % (name, entry["reason"]))
+
+
+@case("sidecar header major version is enforced")
+def test_sidecar_header():
+    with tempfile.TemporaryDirectory() as tmp:
+        sidecar = os.path.join(tmp, "api.crugffi")
+        write(sidecar, """
+            crugffi 99.0;
+            fn make returns owned Widget drop destroy_widget;
+            fn destroy_widget consumes arg0;
+        """)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            owned, consumes = c2crug.load_sidecars(tmp)
+        check(owned == {} and consumes == {},
+              "a 99.0 sidecar must not be used")
+        check("ignoring sidecar" in err.getvalue(),
+              "an ignored sidecar must be reported on stderr: %r"
+              % err.getvalue())
+        write(sidecar, """
+            crugffi one;
+            fn make returns owned Widget drop destroy_widget;
+        """)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            owned, consumes = c2crug.load_sidecars(tmp)
+        check(owned == {} and consumes == {},
+              "a malformed sidecar must not be used")
+        check("ignoring sidecar" in err.getvalue(),
+              "a malformed sidecar must be reported on stderr")
+        write(sidecar, """
+            crugffi 1.2;
+            fn make returns owned Widget drop destroy_widget;
+            fn destroy_widget consumes arg0;
+        """)
+        with contextlib.redirect_stderr(io.StringIO()):
+            owned, consumes = c2crug.load_sidecars(tmp)
+        check(owned.get("make") == "destroy_widget",
+              "a 1.x sidecar must stay usable")
+        check(consumes.get("destroy_widget") == {0},
+              "a 1.x sidecar must keep its consumes clauses")
+
+
+@case("a rejected sidecar never credits an own proof")
+def test_sidecar_evidence():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "api.crugffi"), """
+            crugffi 99.0;
+            fn make returns owned Widget drop destroy_widget;
+            fn destroy_widget consumes arg0;
+        """)
+        write(os.path.join(tmp, "a.c"), """
+            char *make (void);
+
+            int f (void)
+            {
+              char *p = make ();
+              free (p);
+              return 0;
+            }
+        """)
+        with contextlib.redirect_stderr(io.StringIO()):
+            owned, consumes = c2crug.load_sidecars(tmp)
+        entries, _ = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", owned, consumes)
+        check(len(entries) == 1 and entries[0]["kind"] == "raw",
+              "a rejected sidecar must leave the origin unknown: %r"
+              % entries)
+        check("unknown ownership origin" in entries[0]["reason"],
+              "reason must say the origin is unknown")
+
+
+@case("an unusable preprocessor keeps every function ineligible")
+def test_preprocess_failure():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "a.c")
+        write(path, """
+            int f (void)
+            {
+              int *p = malloc (4);
+              free (p);
+              return 0;
+            }
+        """)
+        preproc = c2crug.preprocess_source(path, "/nonexistent/c2cpp")
+        entries, transformed = c2crug.analyse_source(
+            path, "a.c", {}, {}, preproc)
+        check(len(entries) == 1 and entries[0]["kind"] == "raw",
+              "a failed preprocessing run must keep the entry raw")
+        check(entries[0]["preprocessed"] is False,
+              "the failed preprocessing run must be recorded")
+        check(entries[0]["eligibility"] == "ineligible",
+              "a failed preprocessing run must make the body ineligible")
+        check("could not be preprocessed" in entries[0]["reason"],
+              "reason must say the body could not be preprocessed")
+        check(transformed is None, "nothing may be rewritten")
+
+
+@case("two exits on one physical line stay raw (R4-TOOL-003)")
+def test_same_line_exits():
+    with tempfile.TemporaryDirectory() as tmp:
+        write(os.path.join(tmp, "a.c"), """
+            #include <stdlib.h>
+
+            int f (int bail)
+            {
+              int *p = malloc (4);
+              if (p == 0) return 1; if (bail) return 2;
+              free (p);
+              return 0;
+            }
+        """)
+        entries, transformed = c2crug.analyse_source(
+            os.path.join(tmp, "a.c"), "a.c", {}, {})
+        check(len(entries) == 1, "expected one entry, got %r" % entries)
+        check(entries[0]["kind"] == "raw",
+              "the second exit on the line must not borrow the guard")
+        check("early exit" in entries[0]["reason"],
+              "reason must name the uncovered early exit: %s"
+              % entries[0]["reason"])
+        check(transformed is None, "the release must not be rewritten")
+
+
+@case("report entries carry the preprocessing verdict")
+def test_report_preprocessing_keys():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "src")
+        write(os.path.join(root, "a.c"), """
+            #include <stdlib.h>
+
+            int f (void)
+            {
+              int *p = malloc (4);
+              free (p);
+              return 0;
+            }
+        """)
+        report = os.path.join(tmp, "report.json")
+        rc, output = run("safe", root, out=os.path.join(tmp, "out"),
+                         report=report)
+        check(rc == 0, "safe failed: %s" % output)
+        data = json.load(open(report))
+        for entry in data["entries"]:
+            check(isinstance(entry.get("preprocessed"), bool),
+                  "entry lacks a boolean preprocessed: %r" % entry)
+            check(entry.get("eligibility") in ("eligible", "ineligible"),
+                  "entry lacks a valid eligibility: %r" % entry)
+        own = [e for e in data["entries"] if e["kind"] == "own"]
+        check(own and own[0]["preprocessed"] is True and
+              own[0]["eligibility"] == "eligible",
+              "an own entry must be eligible and preprocessed")
+
+
+
+@case("--cpp and --cpp-arg reach the preprocessor")
+def test_cpp_options():
+    import shutil
+    cc = shutil.which("cc")
+    check(cc is not None, "no cc on PATH")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "src")
+        path = os.path.join(root, "a.c")
+        write(path, """
+            #include <stdlib.h>
+
+            int
+            f (void)
+            {
+              int *p = malloc (4);
+              EXTRA ();
+              free (p);
+              return 0;
+            }
+        """)
+        report = os.path.join(tmp, "r.json")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), \
+                contextlib.redirect_stderr(buffer):
+            rc = c2crug.main(["--analyze", root, "--cpp", cc,
+                              "--report", report])
+        check(rc == 0, "--analyze with --cpp failed: %s" % buffer.getvalue())
+        with open(report, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        own = [e for e in data["entries"] if e["kind"] == "own"]
+        check(own and own[0]["confidence"] == 1.0,
+              "--cpp must select a working preprocessor: %r"
+              % data["entries"])
+        preproc = c2crug.preprocess_source(
+            path, cc, ("-DEXTRA()=return 7;",))
+        check(preproc["ok"], "the defining preprocessing run failed")
+        entries, transformed = c2crug.analyse_source(
+            path, "a.c", {}, {}, preproc)
+        check(entries and entries[0]["eligibility"] == "ineligible",
+              "--cpp-arg must forward the define: %r" % entries)
+        check(entries[0]["kind"] == "raw" and
+              entries[0]["confidence"] == 0.0,
+              "a macro that adds an exit must stay raw at confidence 0")
+        check(entries[0]["reason"] ==
+              "macro expansion inside the function body",
+              "reason must name the macro expansion: %s"
+              % entries[0]["reason"])
+        check(transformed is None, "nothing may be rewritten")
+
 
 @case("command line")
 def test_command_line():

@@ -80,13 +80,15 @@ reads the runtime counters. Thresholds:
 - **Dispatch:** Crug dispatch time <= **1.5 x** pthread-per-task.
 - **Memory:** Crug reserved bytes per live task <= **0.5 x** pthread-per-task
   (VmSize delta / number of live tasks).
-- **Against the allocation-free pool:** recorded, not gated. The pool reuses a
-  preallocated queue and needs no per-task resource; Crug reserves and commits
-  a 64 KiB guarded stack per task. The measured ratio therefore stays far
-  above 1.5, and the gap is the documented cost of per-task stack ownership.
-  A bounded allocation cache (ADR 0008 A-2) now removes the per-spawn stack
-  reserve/commit and task malloc from the hot path; the thresholds above are
-  unchanged.
+- **Against the allocation-free pool:** recorded, not gated. A pool is not the
+  baseline a project starts from, and a 64 KiB owned stack per task is a design
+  decision of the runtime (ADR 0008), not an overhead of the language. Crug
+  dispatch is about 1.5x the allocation-free pool on this host; the recorded
+  `pool-ratio` is 1.466 in `PERFORMANCE.md` section 4, and the comparison is
+  reviewed rather than adjudicated. The bounded stack and task allocation
+  caches (ADR 0008 A-2) and the queue-only spawn (ADR 0008 A-3) keep the hot
+  path off per-spawn reservation, commit and malloc; the caches are flushed
+  when the runtime shuts down. The thresholds above are unchanged.
 
 ### 2.5 Channels
 

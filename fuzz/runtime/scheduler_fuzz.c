@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_TASKS 512
 #define MAX_CHANNELS 512
@@ -404,6 +405,32 @@ check_sequence (const struct crug_task_stats *before,
       }
 }
 
+/* K-013/K-014 make a spawn that arrives after the stop claim fatal
+   (crug-CONC-029, TASKS.md section 9), while a nested-scope task admits its
+   children from inside the runtime.  An unadmitted spawn after the stop
+   claim is therefore a harness bug, not a runtime bug: wait until every frame
+   of this sequence has been admitted before asking for the stop, so the
+   shutdown drain only runs tasks that cannot spawn any more.  */
+static void
+wait_for_admission (uint64_t want)
+{
+  struct crug_task_stats stats;
+  unsigned polls;
+
+  for (polls = 0; polls < 5000u; polls++)
+    {
+      struct timespec pause = { 0, 1000000L };
+      int rc;
+
+      crug_task_stats_get (&stats);
+      if (stats.spawned >= want)
+	return;
+      rc = nanosleep (&pause, NULL);
+      (void) rc;
+    }
+  CHECK (0, "not every task was admitted before the shutdown");
+}
+
 static void
 run_sequence (uint64_t sequence, uint64_t base_seed,
 	      uint64_t *total_tasks, uint64_t *total_yields,
@@ -467,6 +494,7 @@ run_sequence (uint64_t sequence, uint64_t base_seed,
 	}
     }
 
+  wait_for_admission (before.spawned + expected_spawned);
   crug_task_runtime_shutdown ();
   crug_task_stats_get (&first);
   crug_task_runtime_shutdown ();

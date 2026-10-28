@@ -71,8 +71,10 @@ void crug_task_runtime_shutdown (void);
      3  a worker could not be joined (nothing else changed; a later call
 	 reports 3 as well).
    Idempotent and safe from several threads at once: one caller owns the
-   shutdown and an overlapping caller waits for it.  A task may not call the
-   void form: status 2 there is fatal.  */
+   shutdown and an overlapping caller waits for it.  A call that overlaps the
+   lazy runtime start waits until the worker threads have been published,
+   instead of joining a handle that does not exist yet.  A task may not call
+   the void form: status 2 there is fatal.  */
 int crug_task_runtime_try_shutdown (void);
 
 struct crug_task_stats
@@ -91,6 +93,15 @@ void crug_task_stats_get (struct crug_task_stats *out);
 
 /* The calling task's identifier (0 on the main thread).  */
 uint32_t crug_task_current_id (void);
+
+/* A receive buffer owned by the calling task, at least SIZE bytes and aligned
+   to ALIGN (a power of two, checked; the process dies with a diagnostic when
+   the request is invalid or cannot be allocated).  The buffer is reused
+   between calls, must not be freed by the caller, and lives as long as the
+   task; C-01 uses it so an over-aligned element is never read through a
+   merely malloc-aligned pointer.  Returns NULL on the main thread (or any
+   non-task PAL thread), whose caller keeps its own buffer.  */
+void *crug_task_recv_scratch_aligned (size_t size, size_t align);
 
 
 /* ---- task groups (the runtime half of 'scope') ------------------------- */
@@ -113,7 +124,9 @@ void *crug_scope_enter (void);
 
 /* Wait for every child of the group, then release it.  A NULL handle is a
    no-op, so a scope whose entry was skipped by a goto still leaves cleanly;
-   the compiler rejects such a goto instead.  */
+   the compiler rejects such a goto instead.  The wait covers the children,
+   and also the completion wake that the last child issues: the handle is
+   never released while a wake still refers to it.  */
 void crug_scope_leave (void *scope);
 
 /* Queue one task as a child of the group: the group's pending count rises

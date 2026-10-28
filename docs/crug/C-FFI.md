@@ -179,7 +179,7 @@ position is `crug-FFI-006`. Both flags imply `-fcrug-ownership` and define
 
 ## 5. Diagnostics
 
-All eleven contract codes are errors in hybrid and strict modes; they are
+All twelve contract codes are errors in hybrid and strict modes; they are
 registered in [DIAGNOSTICS.md](DIAGNOSTICS.md). A text diagnostic ends with
 the bracketed code `[crug-FFI-NNN]`.
 
@@ -196,10 +196,11 @@ the bracketed code `[crug-FFI-NNN]`.
 | `crug-FFI-009` | a `callback` argument is not a function or null |
 | `crug-FFI-010` | the file exceeds 1 MiB or 10,000 entries |
 | `crug-FFI-011` | the destructor cannot be resolved |
+| `crug-FFI-012` | a NUL byte appears inside a metadata line; it is an error at its own line and column, never an end-of-line |
 
 Conflict reporting is deterministic: one command line produces byte-identical
 stderr. `scripts/check-ffi-conflict.sh` asserts that for `crug-FFI-004`, and
-`scripts/check-ffi-policy.sh` makes each of the eleven codes fire from a
+`scripts/check-ffi-policy.sh` makes each of the twelve codes fire from a
 fixture. There is no warning class for a contract.
 
 ## 6. Limits
@@ -229,7 +230,7 @@ obligations, not the library's behaviour.
 
 The contract fixtures live in `gcc/testsuite/crug.dg/ffi/phase9/`: a
 plain C library (`contracts_impl.c`) declared by `contracts.h` and
-annotated by `contracts.crugffi`, plus 19 cases. The suite is script-driven
+annotated by `contracts.crugffi`, plus 28 cases. The suite is script-driven
 because every case links a shared fixture and passes `-fcrug-ffi=`.
 `make check-FFI` runs it.
 
@@ -243,11 +244,11 @@ discovery (an adjacent `contract.h` and `contract.crugffi`) and codegen
 
 | Check | Expected result |
 | --- | --- |
-| `make check-FFI` | exit 0; the suite reports `ffi-suite: 19 cases, 0 failures` |
+| `make check-FFI` | exit 0; the suite reports `ffi-suite: 28 cases, 0 failures` |
 | `scripts/check-ffi-integration.sh` | `ffi-integration: 4 libraries unchanged, 4 programs OK` |
 | `scripts/check-ffi-conflict.sh` | `ffi-conflict: crug-FFI-004 stable across 2 runs` |
 | `scripts/check-ffi-codegen.sh` | `ffi-codegen: 2 files, 0 differences` |
-| `scripts/check-ffi-policy.sh` | all `FFI-001` to `FFI-011` fire |
+| `scripts/check-ffi-policy.sh` | all `FFI-001` to `FFI-012` fire |
 | `scripts/check-diagnostics.sh` | all FFI codes are registered and referenced |
 
 The integration programs use four real libraries: libc (`fopen`/

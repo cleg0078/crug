@@ -73,7 +73,7 @@ semicolons. Rows are parsed by `scripts/check-docs.sh`; keep the format.
 | docs/crug/MIGRATION.md | ## 1. The c2crug tool ; ## 2. Modes ; ## 3. What it proves ; ## 4. The report ; ## 5. The corpus ; ## 6. Worked examples ; ## 7. Limits |
 | docs/crug/OPTIMIZATION.md | ## 1. Turning it on ; ## 7. Limits |
 | docs/crug/OWNERSHIP.md | ## 1. What is accepted ; ## 3. Diagnostics ; ## 5. What is deliberately absent |
-| docs/crug/PAL.md | ## 1. The boundary ; ## 2. PAL surface (v1.1) ; ## 7. Versioning |
+| docs/crug/PAL.md | ## 1. The boundary ; ## 2. PAL surface (v1.2) ; ## 7. Versioning |
 | docs/crug/PERFORMANCE.md | ## 1. Method and hardware ; ## 7. What this does not claim |
 | docs/crug/PORTABILITY.md | ## 1. Two axes, one core ; ## 2. The v1 matrix ; ## 8. Where platform code may live |
 | docs/crug/progress.md | ## Where the project stands ; ## Still open ; ## Next actions, in dependency order |

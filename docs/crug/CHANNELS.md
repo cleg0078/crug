@@ -70,9 +70,16 @@ so a Crug translation unit needs no header:
 ```c
 chan int ch = channel (4);   /* struct crug_chan *ch = crug_chan_make (4, sizeof (int)); */
 send (ch, 7);                /* crug_chan_send (ch, &(int){ 7 });                        */
-int v = recv (ch);           /* int v = *(int *) crug_chan_recv_ptr (ch);                */
+int v = recv (ch);        /* int v; crug_chan_recv_into (ch, &v, sizeof v); v; */
 close (ch);                  /* crug_chan_close (ch);                                    */
 ```
+
+A non-VLA receive lowers to `int crug_chan_recv_into (void *chan, void *dst,
+size_t size)` (the owned form is `crug_chan_recv_into_owned`) writing into a
+compiler temporary of the element type, so the storage carries the element's
+own alignment; it returns 1 when a value was received and 0 when the channel
+was closed and drained, zeroing `dst`. A VLA element or an error-recovery path
+keeps `crug_chan_recv_ptr` / `crug_chan_recv_owned`.
 
 A `select` lowers to a loop, not to a runtime call:
 
@@ -81,27 +88,37 @@ chan int __ch0 = a;          /* each channel expression is evaluated once */
 chan int __ch1 = b;
 for (;;)
   {
-    int __sel = -1;
+    int __sel = -1, __rc0 = 0, __rs1 = 0;
     int __start = (int) crug_chan_select_turn () % 2;
     int __i = 0;
     while (__i < 2 && __sel < 0)
       {
         int __j = (__start + __i) % 2;
-        if (__j == 0) { if (crug_chan_recv_ready (__ch0)) __sel = 0; }
-        else          { if (crug_chan_recv_ready (__ch1)) __sel = 1; }
+        if (__j == 0) { __rc0 = crug_chan_recv_claim (__ch0, &__v0, sizeof __v0);
+                        if (__rc0) __sel = 0; }
+        else          { __rs1 = crug_chan_send_claim (__ch1, &(int){ 7 }, sizeof (int));
+                        if (__rs1) __sel = 1; }
         __i = __i + 1;
       }
-    if (__sel == 0) { /* arm 0 */ break; }
-    else if (__sel == 1) { /* arm 1 */ break; }
+    if (__sel == 0) { /* arm 0: __rc0 == 1 received; -1 closed and zeroed */ break; }
+    else if (__sel == 1) { if (__rs1 == -1) /* fatal send on closed */ ;
+                           /* arm 1 */ break; }
     else { /* default body, or */ crug_chan_poll_wait (); }
   }
 ```
 
-The rotation counter advances once per pass, so the arm probed first changes
-from one pass to the next. A send value is evaluated inside its arm only. The
-lowered nodes are `WHILE_STMT`, `COND_EXPR`, `BREAK_STMT` and raw
-`build2` expressions, which the ownership pass already walks, so leaving an
-arm by `break`, `return` or `goto` collects that arm's destructions.
+The rotation counter advances once per pass, so the arm claimed first changes
+from one pass to the next. A claim performs the operation; it does not probe
+first and act later: 1 completes it, 0 leaves the arm untouched, and -1 means
+the channel is closed (a receive leaves a zeroed element; a send arm emits the
+plain send behind `crug_channel_send_closed_abort`, which is the runtime's
+fatal send-on-closed path, before its body). A receive claim fills the arm's
+temporary only when it returns nonzero, so a losing arm never exposes a value;
+a send value is evaluated on every claim pass and in the closed-send abort
+path, so it must be side-effect free apart from the move. The lowered nodes are
+`WHILE_STMT`, `COND_EXPR`, `BREAK_STMT` and raw `build2` expressions, which the
+ownership pass already walks, so leaving an arm by `break`, `return` or `goto`
+collects that arm's destructions.
 
 ## 3. Ownership
 
@@ -135,6 +152,10 @@ void  crug_chan_send (void *chan, const void *element);
 void  crug_chan_send_owned (void *chan, const void *element);
 void *crug_chan_recv_ptr (void *chan);
 void *crug_chan_recv_owned (void *chan);
+int   crug_chan_recv_into (void *chan, void *dst, size_t size);
+int   crug_chan_recv_into_owned (void *chan, void *dst, size_t size);
+int   crug_chan_recv_claim (void *handle, void *out, size_t size);
+int   crug_chan_send_claim (void *handle, const void *value, size_t size);
 int   crug_chan_recv_ready (void *chan);
 int   crug_chan_send_ready (void *chan);
 void  crug_chan_poll_wait (void);
@@ -147,8 +168,14 @@ struct crug_chan_stats { uint64_t created, live, sent, received, wait; };
 void crug_chan_stats_get (struct crug_chan_stats *out);
 ```
 
-- A receive returns a pointer to a per-thread buffer that is valid until the
-  next receive on that thread; the compiler copies the element out immediately.
+- A `recv` in a task writes into caller-provided storage
+  (`crug_chan_recv_into`, `size` equal to the channel element size, suitably
+  aligned, never the shared buffer): it allocates nothing and cannot alias
+  another task's storage. The pointer forms remain for ABI compatibility. Their
+  scratch is one `_Thread_local` buffer per thread, 16-byte aligned and grown on
+  demand; a task that exits frees it through the per-task allocator (trimmed to
+  64 KiB), but a detached external thread can retain up to the largest element
+  it ever received (C-02, follow-up).
 - This surface is part of runtime ABI version 1 and is OS- and
   architecture-independent (Phase 18, ADR 0012): the same `chan.c` builds on
   Linux x86-64, Linux AArch64, Windows x86-64 and macOS ARM64, and only the PAL
@@ -184,8 +211,8 @@ signatures and `chan.h` is additive.
 
 | Command | What it proves |
 |---------|----------------|
-| `make check-CHANNELS` | all of the below; prints `channels: 40 compiler test(s), 7 channel program(s), 0 failure(s)` |
-| `make check-CHANNELS_DG` | `gcc/testsuite/crug.dg/channels/` runs under DejaGnu (24 fixtures) |
+| `make check-CHANNELS` | all of the below; prints `channels: 49 compiler test(s), 8 channel program(s), 0 failure(s)` (49 is DejaGnu PASS assertions over 30 sources) |
+| `make check-CHANNELS_DG` | `gcc/testsuite/crug.dg/channels/` runs under DejaGnu (30 fixtures) |
 | `scripts/check-channels.sh` | builds and runs `libcrug/tests/channels/*.c` against the Linux runtime |
 | `scripts/check-diagnostics.sh` | `CONC-001` to `CONC-009` and `CONC-017` to `CONC-023` are registered and cited |
 
@@ -200,6 +227,13 @@ The run cases under `libcrug/tests/channels/` and the line each prints:
 | `owned.c` | `channels-owned: text=hi releases=1` |
 | `close.c` | `channels-close: a=5 b=6 tail=0` |
 | `fanin.c` | `channels-fanin: producers=5 total=20` |
+| `recv-align.c` | `channels-recv-align: value=4660 align=64 size=8` |
+
+`scripts/check-channels.sh` also rebuilds `recv-align.c` on its own with
+`-fsanitize=undefined -fno-sanitize-recover=alignment` and links it with the
+host C compiler: the element is 64-byte aligned, so the C-01 fix is exercised
+only if UBSan accepts the load, and a regression to the pointer form fails the
+check with a misaligned load.
 
 The compile-only fixtures cover the type surface (typedef, array, an object
 returning a channel), the four select arm forms, the ownership rules and every
@@ -229,6 +263,20 @@ rejected (`crug-CONC-017`). Limitation, stated not discovered: a claim send
 and a claim receive cannot rendezvous on capacity 0; pair a claim send with a
 blocking receive, and a claim receive with a blocking or buffered send.
 These entry points are additive; the runtime ABI stays 1.
+
+### Receive into caller storage (2026-10-28)
+
+A plain `recv` now lowers to `crug_chan_recv_into{,_owned}` into a temporary
+of the element type instead of reading through the shared receive buffer. The
+temporary carries the element's own alignment, so an over-aligned element is no
+longer read through a `void *`-aligned buffer (C-01); the size passed is
+`sizeof` the element. A variably modified or erroneous element keeps the
+pointer form. The change is ABI-additive: no public symbol was removed or
+changed and the runtime ABI stays 1. The old pointer forms are retained, and a
+receive in a task no longer touches the shared scratch. One limitation remains:
+the pointer forms keep a `_Thread_local` scratch per thread, and a detached
+external thread can retain up to the largest element it ever received (C-02);
+`recv_into` writes caller storage and allocates nothing.
 
 Staleness note (ADR 0025 D5 amendment): because a send arm is claimed, not
 probed, its value expression is evaluated on every claim pass and again in the

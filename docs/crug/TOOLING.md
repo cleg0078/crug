@@ -300,6 +300,7 @@ contract failures use the registered codes:
 | `crug-FFI-006` | the declaration does not fit the C prototype, or the name is not declared |
 | `crug-FFI-010` | the sidecar exceeds the size or entry limit |
 | `crug-FFI-011` | the destructor cannot be resolved |
+| `crug-FFI-012` | a NUL byte appears inside a metadata line |
 
 The call-site checks use `crug-FFI-007` (`consumes` argument not moved),
 `crug-FFI-008` (`out_owned` not the address of an empty owned variable) and
@@ -309,23 +310,32 @@ are errors in hybrid and strict mode, and all are registered in
 parsed or declares a function that is not in the translation unit is an error,
 never silently ignored.
 
-`c2crug` is the migration helper. It has three modes and never writes a
-sidecar:
+`c2crug` is the migration helper. It takes a directory, has three modes and
+never writes a sidecar:
 
 ```sh
-./c2crug --analyze src/file.c --report build/file.json
-./c2crug --safe src/file.c -o build/file.c
-./c2crug --diff src/file.c
+./c2crug --analyze src/ --report build/file.json
+./c2crug --safe src/ -o build/src-crug
+./c2crug --diff src/
 ```
 
 `--analyze` writes nothing but its report, `--safe` writes a copy with the
 proven edits applied and refuses an output that already exists, and `--diff`
-prints a unified diff. The proof, the confidence values, the report schema
+prints a unified diff. `--cpp PATH` selects the host C preprocessor used to
+judge eligibility (default `cc`), and `--cpp-arg ARG` passes it one extra
+argument and may be repeated. A function is rewritten only when its declaration
+prefix and release call are token-identical between the source and the
+preprocessed text, and preprocessing adds or removes no control-flow exit
+token; every entry records `preprocessed` and `eligibility`, and an
+ineligible entry is raw with confidence 0. A `.crugffi` sidecar is used only
+when its first non-empty line is `crugffi <major>.<minor>;` with major
+exactly 1; otherwise it is ignored with `c2crug: ignoring sidecar ...` on
+stderr. The proof, the confidence values, the report schema
 `docs/crug/c2crug-report.schema.json` and the corpus are in
 `docs/crug/C2CRUG.md`. The tool never invents ownership: an unproven pointer
 stays raw and the report says why. Two checks cover it:
-`python3 scripts/test-c2crug.py` and `scripts/check-c2crug.sh`; the Makefile
-target is `make check-C2CRUG`.
+`python3 scripts/test-c2crug.py` (140 checks) and `scripts/check-c2crug.sh`;
+the Makefile target is `make check-C2CRUG`.
 
 ## 8. Kernel tooling
 

@@ -97,10 +97,18 @@ LOG := build/check-pal-$(PAL).log
 # use); the fake backend adds the deterministic join-failure and
 # spawn-during-shutdown cases, and the Linux-only case needs two real threads.
 RUNTIME_TESTS := $(BUILD)/chan-ticket $(BUILD)/chan-claim $(BUILD)/recv-scratch \
-	$(BUILD)/shutdown-status $(BUILD)/frame-alignment $(BUILD)/cache-restart
+	$(BUILD)/recv-into $(BUILD)/shutdown-status $(BUILD)/frame-alignment \
+	$(BUILD)/cache-restart
 RUNTIME_ABORT_TESTS := $(BUILD)/frame-overflow
 ifeq ($(PAL),linux)
-RUNTIME_TESTS += $(BUILD)/shutdown-concurrent $(BUILD)/burst-stacks
+# The start/shutdown and task-group interleaving witnesses need real threads and
+# a PAL-level seam (see tests/runtime/scope_wake_race.c and
+# startup_shutdown_race.c), so they run on the Linux backend only.
+RUNTIME_TESTS += $(BUILD)/shutdown-concurrent $(BUILD)/burst-stacks \
+	$(BUILD)/scope-wake-race $(BUILD)/startup-shutdown-race \
+	$(BUILD)/startup-shutdown-handshake $(BUILD)/stats-race \
+	$(BUILD)/start-then-shutdown $(BUILD)/recv-scratch-big
+RUNTIME_ABORT_TESTS += $(BUILD)/linux-spawn-shutdown
 endif
 ifeq ($(PAL),fake)
 RUNTIME_TESTS += $(BUILD)/join-failure
@@ -132,6 +140,24 @@ $(CORE_OBJ): $(BUILD)/%.o: core/%.c core/task.h core/task-internal.h core/chan.h
 
 $(PAL_OBJ): $(PAL_SRC) pal/include/crug_pal.h | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+ifeq ($(PAL),linux)
+# A private view of the Linux backend for the deterministic interleaving tests:
+# renaming one entry point at compile time lets the test interpose it and hold
+# a thread inside the exact window (the completion wake of a task group, the
+# thread creation of a runtime start).  $(PAL_OBJ) itself stays unrenamed.
+$(BUILD)/pal-wake-race.o: pal/linux/pal_linux.c pal/include/crug_pal.h | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) \
+	  -Dcrug_pal_wake_all=crug_pal_wake_all_real \
+	  -Dcrug_pal_wait_u32=crug_pal_wait_u32_real \
+	  -c -o $@ pal/linux/pal_linux.c
+
+$(BUILD)/pal-start-race.o: pal/linux/pal_linux.c pal/include/crug_pal.h | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) \
+	  -Dcrug_pal_thread_create=crug_pal_thread_create_real \
+	  -Dcrug_pal_thread_join=crug_pal_thread_join_real \
+	  -c -o $@ pal/linux/pal_linux.c
+endif
 
 $(BUILD)/switch.o: arch/$(ARCH)/switch.S | $(BUILD)
 	$(CC) $(CPPFLAGS) -c -o $@ $<
@@ -178,6 +204,12 @@ $(BUILD)/chan-claim: tests/runtime/chan_claim.c core/chan.h core/task.h $(CORE_O
 $(BUILD)/recv-scratch: tests/runtime/recv_scratch.c core/chan.h core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_scratch.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
+$(BUILD)/recv-into: tests/runtime/recv_into.c core/chan.h core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_into.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/recv-scratch-big: tests/runtime/recv_scratch_big.c core/task.h core/task-internal.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_scratch_big.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
 $(BUILD)/shutdown-status: tests/runtime/shutdown_status.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/shutdown_status.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
@@ -192,6 +224,24 @@ $(BUILD)/burst-stacks: tests/runtime/burst_stacks.c core/chan.h core/task.h $(CO
 
 $(BUILD)/shutdown-concurrent: tests/runtime/shutdown_concurrent.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/shutdown_concurrent.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/scope-wake-race: tests/runtime/scope_wake_race.c core/task.h core/task-internal.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-wake-race.o | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/scope_wake_race.c $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-wake-race.o $(PAL_LDLIBS)
+
+$(BUILD)/startup-shutdown-race: tests/runtime/startup_shutdown_race.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-start-race.o | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/startup_shutdown_race.c $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-start-race.o $(PAL_LDLIBS)
+
+$(BUILD)/startup-shutdown-handshake: tests/runtime/startup_shutdown_handshake.c core/task.h core/task-internal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/startup_shutdown_handshake.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/stats-race: tests/runtime/stats_race.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/stats_race.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/start-then-shutdown: tests/runtime/start_then_shutdown.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/start_then_shutdown.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/linux-spawn-shutdown: tests/runtime/linux_spawn_shutdown.c core/task.h core/task-internal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/linux_spawn_shutdown.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
 $(BUILD)/join-failure: tests/runtime/join_failure.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/join_failure.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)

@@ -47,13 +47,13 @@ the name of an external function that takes one pointer argument.
 | Clause | Written after | Meaning |
 | --- | --- | --- |
 | `returns owned T` | `fn` | the return value is an owned pointer to `T`; the caller must destroy it |
-| `returns int` / `returns void` | `fn` | an unmanaged return; recorded for documentation only |
-| `drop D` | `fn` or `returns owned` | the destructor for the owned return; the type declaration or `drop` must provide one |
+| `returns int` / `returns void` | `fn` | an unmanaged return; recorded for documentation only (ADR 0007 A-3) |
+| `drop D` | `fn` or `returns` | the destructor for an owned return; after an unowned return it is accepted and ignored (ADR 0007 A-3) |
 | `consumes argN` | `fn` | the callee takes ownership of argument N; the caller must move a value in |
 | `borrows argN` | `fn` | the callee only reads through argument N for the duration of the call |
 | `mut_borrows argN` | `fn` | the callee may write through argument N for the duration of the call |
 | `out_owned argN` | `fn` | the callee writes an owned pointer through argument N, a pointer-to-pointer, on every normal return |
-| `nullable` | `fn` or `returns owned` | a pointer may be null; null owns nothing and is never destroyed |
+| `nullable` | `fn` or `returns` | a pointer may be null; null owns nothing and is never destroyed; on an unowned return it is recorded only |
 | `callback argN` | `fn` | argument N is a function pointer the callee may call during the call |
 | `retained argN until X` | `fn` | recorded only; no check is performed in v1 |
 | `blocking`, `thread_affinity X` | `fn` | `blocking` is recorded only; `thread_affinity` is enforced since Phase 17 - the value belongs to that thread and cannot cross a task or channel boundary (`crug-CONC-025`, ADR 0026 D5) |
@@ -158,8 +158,9 @@ contract, the clause is the record that makes the call legal.
 | crug-FFI-009 | a `callback` argument is not a function or null |
 | crug-FFI-010 | the file exceeds 1 MiB or 10,000 entries |
 | crug-FFI-011 | the destructor cannot be resolved |
+| crug-FFI-012 | a NUL byte appears inside a metadata line; it is an error, never an end-of-line |
 
-All eleven are errors in hybrid and in strict mode, and all eleven are
+All twelve are errors in hybrid and in strict mode, and all twelve are
 registered in DIAGNOSTICS.md. Conflict reporting is deterministic: the same
 command line produces byte-identical stderr, which is what
 `scripts/check-ffi-conflict.sh` asserts.
@@ -187,7 +188,9 @@ command line produces byte-identical stderr, which is what
 
 The contract fixtures live in `gcc/testsuite/crug.dg/ffi/phase9/`: a plain C
 library (`contracts_impl.c`) declared by `contracts.h` and annotated by
-`contracts.crugffi`, plus 19 cases. The suite is script-driven rather than
+`contracts.crugffi`, plus 28 cases. Four were added in 0.2.4: the cases in
+`ffi/metadata/` and two sidecars the script generates (a NUL byte and 10,001
+declarations). The suite is script-driven rather than
 DejaGnu-driven because each case links a shared fixture library and passes
 `-fcrug-ffi=`; `make check-FFI` runs it.
 
@@ -196,6 +199,7 @@ DejaGnu-driven because each case links a shared fixture library and passes
 | accepted contracts | run-returns-owned, run-consume-move, run-out-owned, run-borrows, run-mut-borrows, run-callback, run-nullable |
 | rejected contracts | reject-consume, reject-out-owned-busy, reject-shared-to-mut, reject-callback |
 | metadata | conflict-a/b, bad/no-version, bad/version-2, bad/unknown-clause, bad/bad-arg, bad/bad-dtor, bad/unmatched, bad/type-void |
+| metadata format (0.2.4) | metadata/argref-space, metadata/returns-unowned, metadata/empty with generated `nul-byte` and `declcap` sidecars |
 | discovery | adjacent/ (contract.h, contract.crugffi, use.c) |
 | codegen | clean/malloc-free.c, clean/fopen-close.c |
 
@@ -210,23 +214,23 @@ changed nothing on disk.
 
 | Script | Asserts |
 | --- | --- |
-| `scripts/check-ffi-suite.sh` | 19 cases, 0 failures |
+| `scripts/check-ffi-suite.sh` | 28 cases, 0 failures |
 | `scripts/check-ffi-integration.sh` | 4 libraries unchanged, 4 programs OK, each handle closed exactly once |
 | `scripts/check-ffi-conflict.sh` | crug-FFI-004 stable across 2 runs, byte-identical stderr |
 | `scripts/check-ffi-codegen.sh` | 2 files, 0 differences with and without the sidecar |
-| `scripts/check-ffi-policy.sh` | FFI-001 to FFI-011 each fire from a fixture |
+| `scripts/check-ffi-policy.sh` | FFI-001 to FFI-012 each fire from a fixture |
 
 ## 7. Exit gate
 
 Phase 9 closes when `scripts/gate.sh --run phase-9` records:
 
-1. `make check-FFI` exits 0 with `ffi-suite: 19 cases, 0 failures`.
+1. `make check-FFI` exits 0 with `ffi-suite: 28 cases, 0 failures`.
 2. `scripts/check-ffi-integration.sh` prints
    `ffi-integration: 4 libraries unchanged, 4 programs OK`.
 3. `scripts/check-ffi-conflict.sh` prints
    `ffi-conflict: crug-FFI-004 stable across 2 runs`.
 4. `scripts/check-ffi-codegen.sh` prints `ffi-codegen: 2 files, 0 differences`.
-5. `scripts/check-ffi-policy.sh` prints `ffi-policy:` and all eleven codes.
+5. `scripts/check-ffi-policy.sh` prints `ffi-policy:` and all twelve codes.
 6. `scripts/check-diagnostics.sh` exits 0.
 
 Amendment A-10 of EXIT-GATES.md records why the original checks 2 and 3 were
@@ -250,9 +254,31 @@ named by `drop` must be an external function declared with a prototype,
 non-variadic, with exactly one pointer parameter whose pointee matches the
 owned value's type; a K&R definition, a variadic tail or a second parameter is
 refused. The return type is not checked: a value-returning destructor such as
-`fclose` is called as a statement and its result is discarded. The `argN`
-clauses are independent: a clause is `arg` or `ret` followed by decimal digits,
-with no sign and no trailing characters, and its index must fit `int`;
-malformed text is `crug-FFI-003` and an out-of-range index stays `crug-FFI-005`.
+`fclose` is called as a statement and its result is discarded. Argument references have two
+spellings: the joined `arg0` and the spaced `arg 0` denote the same parameter
+(decimal digits, no sign, no trailing characters, and the index must fit
+`int`; malformed text is `crug-FFI-003` and an out-of-range index stays
+`crug-FFI-005`). `ret` is a bare token naming the return value and never
+takes an index. `nullable` on an unowned return is recorded only, and
+`drop` on an unowned return names no destructor (ADR 0007 A-3).
 New negative fixtures are `ffi/phase9/bad/dtor-{arity,knr,variadic}.c` and
 `ffi/phase9/bad/argref-{malformed,range}.c`.
+
+## 10. Post-rc1: metadata robustness (0.2.4)
+
+Three defects in the sidecar reader are fixed in 0.2.4; none changes the
+grammar.
+
+- The spaced argument reference `arg 0` is decoded from storage that lives
+  until the index is converted, so joined and spaced spellings agree for every
+  digit count and at every optimisation level (`ffi/metadata/argref-space.c`).
+- A NUL byte inside a line is `crug-FFI-012`, reported at its own line and
+  column. It used to end the line silently and hide whatever followed it, an
+  invalid character included.
+- The 10,000-declaration bound counts parsed declarations, duplicates
+  included, instead of distinct merged names, so D7 cannot be side-stepped by
+  repeating one line; the 1 MiB file limit is unchanged.
+
+`returns int` and `returns void`, and the `nullable`/`drop` modifiers on
+an unowned return, keep working; ADR 0007 A-3 records that the grammar, not
+the parser, was wrong (`ffi/metadata/returns-unowned.c`).

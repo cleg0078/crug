@@ -84,6 +84,46 @@ if [ "$progs" -eq 0 ]; then
 	fail_msg "no channel programs ran"
 fi
 
+# 4. The over-aligned receive arm (C-01).  The element type below is 64-byte
+# aligned, while the compatibility receive scratch is only 16-byte aligned.
+# The compiler must receive into a temporary of the element type; if it falls
+# back to the pointer form, UBSan reports a misaligned load.  The in-tree
+# driver has no libubsan beside it, so the sanitized object is linked by the
+# host C compiler (the runtime objects are plain C).
+HOSTCC=${HOSTCC:-cc}
+align_src="$LIB/tests/channels/recv-align.c"
+align_obj="$BUILD/recv-align-ubsan.o"
+align_bin="$BUILD/recv-align-ubsan"
+align_log="$BUILD/recv-align-ubsan.log"
+rm -f "$align_obj" "$align_bin" "$align_log"
+if ! "$CC" -O2 -fcrug-channels -fsanitize=undefined \
+	-fno-sanitize-recover=alignment -I"$LIB/core" \
+	-c "$align_src" -o "$align_obj" >"$align_log" 2>&1; then
+	fail_msg "cannot build recv-align for UBSan; see $align_log"
+	sed -n '1,10p' "$align_log" >&2
+elif ! command -v "$HOSTCC" >/dev/null 2>&1; then
+	fail_msg "cannot run the UBSan arm: no host C compiler (HOSTCC=$HOSTCC)"
+elif ! "$HOSTCC" -no-pie -fsanitize=undefined \
+	-fno-sanitize-recover=alignment -o "$align_bin" "$align_obj" \
+	$RUNTIME -pthread >>"$align_log" 2>&1; then
+	fail_msg "cannot link recv-align for UBSan; see $align_log"
+	sed -n '1,10p' "$align_log" >&2
+elif ! timeout 120 env UBSAN_OPTIONS=halt_on_error=1 \
+	"$align_bin" >>"$align_log" 2>&1; then
+	fail_msg "recv-align UBSan run failed (misaligned receive?)"
+	cat "$align_log" >&2
+elif grep -q 'runtime error' "$align_log"; then
+	fail_msg "recv-align UBSan reported a runtime error"
+	grep 'runtime error' "$align_log" >&2
+else
+	align_line=$(grep '^channels-' "$align_log" | tail -n 1)
+	if [ -z "$align_line" ]; then
+		fail_msg "recv-align printed no channels- result line"
+	else
+		echo "channels-ubsan-${align_line#channels-}"
+	fi
+fi
+
 echo "channels: $dg_pass compiler test(s), $progs channel program(s), $fail failure(s)"
 
 if [ "$fail" -ne 0 ]; then

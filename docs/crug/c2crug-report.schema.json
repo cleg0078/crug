@@ -121,7 +121,9 @@
         "applied",
         "confidence",
         "reason",
-        "evidence"
+        "evidence",
+        "preprocessed",
+        "eligibility"
       ],
       "properties": {
         "file": {
@@ -157,6 +159,15 @@
         },
         "evidence": {
           "$ref": "#/$defs/evidence"
+        },
+        "preprocessed": {
+          "type": "boolean"
+        },
+        "eligibility": {
+          "enum": [
+            "eligible",
+            "ineligible"
+          ]
         },
         "suggestion": {
           "enum": [
@@ -229,6 +240,28 @@
             },
             "required": [
               "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "applied": {
+                "const": false
+              },
+              "confidence": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eligibility": {
+                "const": "ineligible"
+              }
+            },
+            "required": [
+              "eligibility"
             ]
           },
           "then": {
