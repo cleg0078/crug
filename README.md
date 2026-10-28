@@ -6,7 +6,7 @@ types, Go-style tasks and channels, and C FFI contracts to ordinary C. With no
 `-fcrug-*` flag it is the GCC it was built from: the same C programs, the same
 object code and the same C ABI.
 
-**Status:** Crug **0.2.3** (2026-10-27). The Linux x86-64 release tarball,
+**Status:** Crug **0.2.4** (2026-10-28). The Linux x86-64 release tarball,
 Debian package, SPDX SBOM and container recipe are in place; the runtime ports
 are qualified on Linux x86-64/AArch64, Windows x86-64 and macOS arm64. The
 0.2.x line carries the post-`v0.1.0-rc1` audit fixes K-003 to K-023. See
@@ -139,7 +139,7 @@ directly from the repository root:
 It prints the compiler version and the separately versioned language, Crug ABI,
 runtime ABI, FFI metadata and PAL versions:
 
-    crugc 0.2.3
+    crugc 0.2.4
     compiler: GCC 16.2.0
     language version: 0.1.0
     Crug ABI version: 1

@@ -1,6 +1,6 @@
-# Crug 0.2.3
+# Crug 0.2.4
 
-Status: release 0.2.3, 2026-10-27, carrying the post-`v0.1.0-rc1` defect batch
+Status: release 0.2.4, 2026-10-28, carrying the post-`v0.1.0-rc1` defect batch
 in section 8. The qualification numbers in sections 3 and 5 are the ones the
 Phase 25 gate (`docs/crug/EXIT-GATES.md`) recorded for the candidate, and every
 threshold is owned by `docs/crug/RELEASE-POLICY.md`; section 8 says what the
@@ -14,7 +14,7 @@ contract to C, carried by a pinned GCC 16.2.0 baseline. Every feature is opt-in:
 with no `-fcrug-*` flag the compiler produces the same objects as GCC 16.2, and
 the upstream testsuite remains the compatibility floor.
 
-`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.3`,
+`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.4`,
 `compiler: GCC 16.2.0`, `language version: 0.1.0`, `Crug ABI version: 1`,
 `runtime ABI version: 1`, `FFI metadata version: 1.0`, `PAL version: 1.2`.
 
@@ -53,15 +53,15 @@ the upstream testsuite remains the compatibility floor.
 | Runtime | dispatch ratio 0.083 of pthread-per-task, 67.7 KiB per task against 8,032 KiB | `docs/crug/PERFORMANCE.md` |
 | Channels | 197 ns per round trip, 42.5M elements/s, 4,224 bytes per channel | `docs/crug/PERFORMANCE.md` |
 | Kernel | 2,980 translation units, 0 errors, 436 of 438 objects byte-identical (the two explained objects record the build timestamp and the compiler identification), boot to a freestanding `/init` | `docs/crug/KERNEL-BASELINE.md` |
-| Ports | 12-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
+| Ports | 13-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
 | Fuzzing and sanitizers | six harnesses, 0 crashes, ASan/UBSan/LSan clean, TSan on the OS-thread channel arm | `docs/crug/FUZZING.md` |
 | Defects | 0 open P0, 0 open P1 at this tag | `docs/crug/KNOWN-ISSUES.md` |
 
 ## 4. Install and verify
 
 ```sh
-tar xzf crug-0.2.3-linux-x86_64.tar.gz
-export PATH=$PWD/crug-0.2.3/bin:$PATH
+tar xzf crug-0.2.4-linux-x86_64.tar.gz
+export PATH=$PWD/crug-0.2.4/bin:$PATH
 crugc --version
 crugc hello.c -o hello && ./hello
 crugc -fcrug-ownership hello-own.c -o hello-own && ./hello-own
@@ -72,7 +72,7 @@ crugc -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug \
 The `-L`/`-lcrug` pair follows the source file: a static archive is scanned when
 it is seen, so a library named first leaves the `crug_*` runtime symbols
 undefined. `docs/crug/BUILD-INSTRUCTIONS.md` covers the source build and the
-container image (`crug/pkg:0.2.3`), and `packaging/smoke/` holds the three
+container image (`crug/pkg:0.2.4`), and `packaging/smoke/` holds the three
 programs above.
 
 ## 5. Known limitations
@@ -84,6 +84,10 @@ programs above.
   allocation cache reuses slots instead of reserving one per task, and a
   spawned task materializes its stack only when a worker dispatches it
   (ADR 0008 A-2 and A-3). Stack growth remains unavailable.
+- `recv` writes into storage the caller owns; the pre-0.2.4 pointer forms
+  (`crug_chan_recv_ptr` / `_owned`) stay for compatibility and keep a
+  thread-local scratch buffer of at most 64 KiB that a detached external thread
+  can retain (K-031).
 - Fuzzing is bounded by a budget and a nightly window; it is evidence, not a
   proof of absence.
 - Kernel code is plain GNU C: no ownership, drop, borrow or race analysis
@@ -108,7 +112,7 @@ post-1.0 feature list in `docs/crug/COMPATIBILITY-POLICY.md`.
 ## 8. Post-rc1 fixes
 
 This section records the bug-fix batch after `v0.1.0-rc1` on top of
-`f86b7df`, first released as 0.2.0 and reissued as 0.2.1, 0.2.2 and 0.2.3; no `rc2` tag is
+`f86b7df`, first released as 0.2.0 and reissued as 0.2.1, 0.2.2, 0.2.3 and 0.2.4; no `rc2` tag is
 cut and the candidate claims in sections 1-7 are otherwise unchanged. The change implements the external audit of
 2026-10-23 (twenty-one defects, `docs/crug/KNOWN-ISSUES.md` K-003 to K-023):
 
@@ -163,6 +167,23 @@ spawns before it drains falls from 7.4-11.4 s and 32 GB of `VmPeak` to
 0.53-0.65 s and 1.5-1.8 GB at eight workers, and from 3.8 s and 31.5 GB to
 0.149 s and 689 MB at one worker; the public task API, the runtime ABI and the
 compiler are unchanged.
+
+0.2.4 is the defect batch of `spec/fix-p2` (K-024 to K-042), landed on top of
+0.2.3. Ownership joins over conditional and `switch` statements and `drop` of a
+value received from an owning channel are now accepted, while an unproven
+disjoint root still reports `crug-BORROW-024`; `recv` lowers to the new
+`crug_chan_recv_into` / `_owned` entry points, so it no longer writes through a
+shared scratch and a 64-byte-aligned element is no longer loaded misaligned; the
+FFI metadata parser rejects a NUL byte (`crug-FFI-012`), caps a file at 10,000
+entries (`crug-FFI-010`) and reports truncated metadata as `crug-FFI-003`
+instead of reading past the token buffer, and `owned` is optional on a
+`returns` clause (ADR 0007 A-3); the runtime closes two races and one
+start/shutdown handshake (K-033 to K-035); `c2crug --safe` decides eligibility
+on preprocessed source, which stops it from rewriting a macro-hidden aliasing
+free; and the coverage, gate and CI scripts gained a commit field, a marker
+escape fix and run selection. The language version, the Crug and runtime ABIs,
+the FFI metadata version and the PAL contract are unchanged. K-042 stays open:
+the diagnostic scripts resolve `crugc` from `PATH` before the in-tree launcher.
 
 Known limitations of these fixes, stated rather than hidden:
 

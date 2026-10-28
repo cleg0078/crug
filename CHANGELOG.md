@@ -8,6 +8,8 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-28
+
 ### Added
 
 - **Raytracer demo.** `bench/raytracer/` is a single-file Crug port of the
@@ -15,6 +17,52 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
   struct-element result channel of capacity 8192, X11 confined to the main
   thread, and the original stat section (spawn cost, throughput and
   `/proc/self/status` memory) translated to the Crug runtime counters.
+- **Receive into caller storage.** `crug_chan_recv_into` and
+  `crug_chan_recv_into_owned` copy a received element into storage the caller
+  owns (size checked against the element size, aligned, 1 on a value and 0 on a
+  closed, drained channel) and never touch the shared scratch. `recv` lowers to
+  them for every non-VLA element, which removed a misaligned load on a
+  64-byte-aligned element. The pointer forms stay for compatibility (K-030,
+  K-032).
+- **Regression tests.** The scope wake race (R-01), the `queue_peak` data race
+  (R-02), the startup/shutdown handshake (S-01), the reusable receive scratch
+  (A-01), the aligned channel receive (`channels-recv-align`), the owned-receive
+  ownership cases, the FFI truncation cases and the `c2crug` preprocessing
+  witnesses each have a program or fixture.
+
+### Changed
+
+- **Ownership joins.** A `drop` on one arm of a conditional or `&&`/`||`
+  expression, a `switch` whose arms all release, and `drop` of a value received
+  from an owning channel are accepted (K-024, K-025, K-041); the alias and
+  borrow leads are closed too: an indirect store invalidates an escaped pointer
+  (`crug-BORROW-024`), an unrelated borrow at a join is no longer rejected, and
+  a `move` into an `own` parameter is proven disjoint.
+- **FFI metadata.** A NUL byte inside the file is `crug-FFI-012`, the entry cap
+  is `crug-FFI-010`, truncated metadata reports `crug-FFI-003` at the right
+  column instead of reading past the token buffer, and `owned` is optional on a
+  `returns` clause (ADR 0007 A-3). Two truncation cases join the suite, now
+  thirty cases (K-026 to K-029).
+- **Runtime.** A scope tracks its children with an `in_flight` handshake, so a
+  group that finishes while the parent waits no longer loses a wake; `queue_peak`
+  is atomic; runtime start and shutdown run one handshake, so a concurrent start
+  and shutdown cannot leave a half-built worker set (K-033 to K-035). The public
+  task API and the Crug runtime ABI stay 1.
+- **`c2crug --safe` reads preprocessed source.** Eligibility is decided on
+  `cc -E` output and mapped back through the `#line` markers, so a macro that
+  hides an aliasing free or a second exit can no longer look eligible; the
+  sidecar must start with a `crugffi 1.<minor>;` header, and per-function facts
+  are cached (K-037 to K-040).
+- **Coverage, gate and CI tooling.** `run-coverage.sh` records the commit it
+  measures and has a self-test, `gate.sh` escapes regular-expression
+  metacharacters in a marker, and `check-ci-gate.sh` selects the latest run of
+  the required workflows only (K-036).
+- **Docs, ledger and gate.** K-024 to K-042 join the ledger (K-042 is open: the
+  diagnostic scripts resolve `crugc` from `PATH` before the in-tree launcher),
+  and amendment A-33 re-baselines the counts the batch moved.
+- **Release version.** `VERSION` and `crugc --version` now report `0.2.4`.
+  The language version stays `0.1.0`, the Crug and runtime ABIs stay `1`,
+  `.crugffi` stays `1.0` and the PAL contract stays `1.2`.
 
 ## [0.2.3] - 2026-10-27
 
