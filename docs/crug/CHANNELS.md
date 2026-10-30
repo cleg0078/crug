@@ -81,7 +81,9 @@ own alignment; it returns 1 when a value was received and 0 when the channel
 was closed and drained, zeroing `dst`. A VLA element or an error-recovery path
 keeps `crug_chan_recv_ptr` / `crug_chan_recv_owned`.
 
-A `select` lowers to a loop, not to a runtime call:
+A `select` lowers to a loop, not to a runtime call. The `break` that ends each
+arm below is emitted by the lowering to leave its own `for (;;)`; it is not a
+statement the source writes (see the note after the sketch):
 
 ```c
 chan int __ch0 = a;          /* each channel expression is evaluated once */
@@ -115,10 +117,14 @@ plain send behind `crug_channel_send_closed_abort`, which is the runtime's
 fatal send-on-closed path, before its body). A receive claim fills the arm's
 temporary only when it returns nonzero, so a losing arm never exposes a value;
 a send value is evaluated on every claim pass and in the closed-send abort
-path, so it must be side-effect free apart from the move. The lowered nodes are
-`WHILE_STMT`, `COND_EXPR`, `BREAK_STMT` and raw `build2` expressions, which the
-ownership pass already walks, so leaving an arm by `break`, `return` or `goto`
-collects that arm's destructions.
+path, so it must be side-effect free apart from the move. The lowered nodes are `WHILE_STMT`, `COND_EXPR`, `BREAK_STMT` and raw `build2`
+expressions, which the ownership pass already walks. A `break` written inside
+an arm is parsed like any other statement: a `select` is not a loop or a
+switch, so at top level it is rejected (`error: break statement not within
+loop or switch`), and inside an enclosing loop it is accepted but leaves the
+whole `select` after lowering, not just the arm. Leave an arm with `return`,
+`goto`, or by falling through; every one of those paths, and the lowering's
+own exit, collects the arm's destructions.
 
 ## 3. Ownership
 
@@ -211,8 +217,8 @@ signatures and `chan.h` is additive.
 
 | Command | What it proves |
 |---------|----------------|
-| `make check-CHANNELS` | all of the below; prints `channels: 49 compiler test(s), 8 channel program(s), 0 failure(s)` (49 is DejaGnu PASS assertions over 30 sources) |
-| `make check-CHANNELS_DG` | `gcc/testsuite/crug.dg/channels/` runs under DejaGnu (30 fixtures) |
+| `make check-CHANNELS` | all of the below; prints `channels: 53 compiler test(s), 8 channel program(s), 0 failure(s)` (53 is DejaGnu PASS assertions over 32 sources) |
+| `make check-CHANNELS_DG` | `gcc/testsuite/crug.dg/channels/` runs under DejaGnu (32 fixtures) |
 | `scripts/check-channels.sh` | builds and runs `libcrug/tests/channels/*.c` against the Linux runtime |
 | `scripts/check-diagnostics.sh` | `CONC-001` to `CONC-009` and `CONC-017` to `CONC-023` are registered and cited |
 
@@ -236,8 +242,10 @@ only if UBSan accepts the load, and a regression to the pointer form fails the
 check with a misaligned load.
 
 The compile-only fixtures cover the type surface (typedef, array, an object
-returning a channel), the four select arm forms, the ownership rules and every
-one of the seven new diagnostics.
+returning a channel), the four select arm forms (including that a `break` in a
+top-level arm is a parse error and that `return` leaves an arm: `select-break.c`
+and `select-return.c`), the ownership rules and every one of the seven new
+diagnostics.
 
 ## 7. Post-rc1 changes: tickets and claims (2026-10-26)
 
