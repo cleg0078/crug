@@ -109,6 +109,17 @@ borrow (crug-BORROW-022) at a `mut` parameter, two borrows of one lender in
 one call when at least one is mutable (crug-BORROW-002 and crug-BORROW-003), and
 a call that passes a lender beside its own mutable borrow (crug-BORROW-023).
 
+The analysis only tracks pointer values it can name. When a value that may be
+the lender, or a copy of it, is stored where the pass cannot follow -- a
+file-scope or static object, a structure member, an array element, or memory
+reached through a pointer -- the pass can no longer prove the lender is the
+only view, so a later call that passes it at a `mut` parameter is rejected
+with crug-BORROW-024. A fresh allocation stored the same way is not a view of
+any existing object and does not reject the call, and an escape is never
+killed: once the value has been stored into untracked storage, every later
+exclusive call that uses it is rejected. The rule is deliberately conservative:
+it trades a diagnostic for a fact that would otherwise be unsound.
+
 ### 2.5 Where a borrow may appear
 
 | position | `ref` / `mut` |

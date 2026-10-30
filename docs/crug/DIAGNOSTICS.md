@@ -140,7 +140,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-BORROW-021` | - | error | error | passing a plain pointer to a 'mut' parameter proves no exclusive access; pass borrow_mut (...) or a mutable borrow | ADR 0010 D4, Phase 11 |
 | `crug-BORROW-022` | - | error | error | a shared borrow cannot be passed to a 'mut' parameter | ADR 0010 D4, Phase 11 |
 | `crug-BORROW-023` | - | error | error | the lender '%s' is also passed to this call; a 'mut' parameter must be the only view of its object | ADR 0010 D4, Phase 11 |
-| `crug-BORROW-024` | - | error | error | cannot prove that '%s' is disjoint from the other views passed to this call; a 'mut' parameter and an alias fact require a proven disjoint root | ADR 0010 D4, post-rc1 |
+| `crug-BORROW-024` | - | error | error | cannot prove that '%s' is the only view of its object passed to this call; a 'mut' parameter and an alias fact require a proven disjoint root, and a stored copy the pass cannot track breaks that proof | ADR 0010 D4, fix-p3 |
 
 ### 4.4 Destruction (`DROP`)
 

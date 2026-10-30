@@ -74,7 +74,7 @@ or `own`.
 ### D4 - The caller must prove exclusivity when the flag is on
 
 With `-fcrug-alias-facts`, a call to a function with a `mut` parameter is
-rejected unless the argument is a mutable borrow. Five diagnostics enforce the
+rejected unless the argument is a mutable borrow. Six diagnostics enforce the
 contract, all errors, all independent of `-fcrug-strict`:
 
 | Code | Condition |
@@ -84,6 +84,11 @@ contract, all errors, all independent of `-fcrug-strict`:
 | `crug-BORROW-002` | one call passes two borrows of one lender, one shared and one mutable |
 | `crug-BORROW-003` | one call passes two mutable borrows of one lender |
 | `crug-BORROW-023` | the lender itself (a pointer derived from it) is passed beside its mutable borrow |
+| `crug-BORROW-024` | a value that may be the lender was stored where the pass cannot track it, so exclusivity can no longer be proven |
+
+The sixth diagnostic covers escapes the pass cannot follow (a file-scope
+object, a structure member, an array element, memory reached through a
+pointer): the stored value may be another view, so the fact is withdrawn.
 
 Without the flag the historical leniency of `BORROW.md` section 2.4 stays: a
 plain pointer at a `mut` parameter is accepted and no fact is emitted. The

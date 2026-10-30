@@ -333,6 +333,12 @@ struct crug_fn_ctx
      memory may then write them, so the provenance recorded for their values
      does not survive such a store (ADR 0010).  */
   std::set<tree> escaped_ptrs;
+  /* Roots of pointer values that were stored into storage this pass does not
+     track as a pointer variable: a file-scope or static object, a member, an
+     array element, or memory reached through a pointer.  Such a store creates
+     a second view of the value, so a later alias fact for it cannot be
+     justified (ADR 0010).  */
+  std::set<tree> escaped_values;
   /* Bindings declared with ref or mut, initialized or not, and the frame
      depth of every owning or borrowing declaration that has a lifetime.  */
   std::set<tree> borrow_declared;
@@ -2136,6 +2142,10 @@ alias_roots (crug_fn_ctx &ctx, tree e)
 	  {
 	    info = it->second;
 	    info.roots.insert (e);
+	    /* A copy of the value may exist in storage this pass cannot see;
+	       the recorded provenance then proves no exclusivity.  */
+	    if (ctx.escaped_values.count (e))
+	      info.known = false;
 	    return info;
 	  }
 	/* An owning or borrowing declaration names an exclusive value, so the
@@ -2147,6 +2157,8 @@ alias_roots (crug_fn_ctx &ctx, tree e)
 	    info.known = true;
 	    info.roots.insert (e);
 	  }
+	if (ctx.escaped_values.count (e))
+	  info.known = false;
 	return info;
       }
 
@@ -2229,6 +2241,30 @@ alias_roots (crug_fn_ctx &ctx, tree e)
     }
 }
 
+/* Note that VALUE was written into storage the analysis does not track as a
+   pointer variable.  Every object root of VALUE then has a second view the
+   pass cannot follow, which no alias fact may ignore (ADR 0010, OWN-03).
+   A fresh allocation is skipped: nothing else can view that object, so the
+   store adds no alias.  */
+
+static void
+record_escaped_value (crug_fn_ctx &ctx, tree value)
+{
+  if (!crug_alias_facts_enabled ()
+      || value == NULL_TREE || value == error_mark_node)
+    return;
+  if (is_fresh_allocation_call (STRIP_NOPS (value)))
+    return;
+
+  crug_root_info info = alias_roots (ctx, value);
+  if (!info.known)
+    return;
+  for (std::set<tree>::const_iterator i = info.roots.begin ();
+       i != info.roots.end (); ++i)
+    if (TREE_CODE (*i) == VAR_DECL || TREE_CODE (*i) == PARM_DECL)
+      ctx.escaped_values.insert (*i);
+}
+
 /* Record what a local pointer declaration or assignment may point into.
    Every pointer keeps itself as a root, so passing the variable itself is
    never confused with a pointer derived from another object.  */
@@ -2252,6 +2288,12 @@ record_ptr_roots (crug_fn_ctx &ctx, tree decl, tree value)
     }
   info.roots.insert (decl);
   ctx.ptr_roots[decl] = info;
+
+  /* A store into a file-scope or static object creates a view that outlives
+     the analysis; a later alias fact for the value cannot be justified.  */
+  if (crug_alias_facts_enabled ()
+      && (DECL_FILE_SCOPE_P (decl) || TREE_STATIC (decl)))
+    record_escaped_value (ctx, value);
 
   /* Taking the address of a pointer variable exposes its storage: a later
      store through memory may write it, and that store invalidates the value
@@ -4061,6 +4103,28 @@ check_borrow_call_args (crug_fn_ctx &ctx, tree call, location_t loc)
 	      if (lender_i != NULL_TREE)
 		roots_i.roots.insert (lender_i);
 
+	      /* OWN-03: a copy of the value in storage this pass does not
+		 track (a global, a static, a member, an array element, or
+		 memory reached through a pointer) is a second view.  No
+		 restrict fact is justified, whatever the other arguments
+		 look like, so the call is rejected even when it passes only
+		 the borrow.  */
+	      tree escaped_root = NULL_TREE;
+	      for (std::set<tree>::const_iterator r = roots_i.roots.begin ();
+		   r != roots_i.roots.end (); ++r)
+		if (ctx.escaped_values.count (*r))
+		  {
+		    escaped_root = *r;
+		    break;
+		  }
+	      if (escaped_root != NULL_TREE)
+		{
+		  crug_error_at (loc, "crug-BORROW-024", "cannot prove that %qD is the only view of its "
+			    "object; its value may have been copied into storage this "
+			    "pass does not track", escaped_root);
+		  continue;
+		}
+
 	      bool announced = false;
 	      for (int j = 0; j < nargs && !announced; j++)
 		{
@@ -4449,6 +4513,7 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	    walk_expr (ctx, env, lhs, loc);
 	    walk_expr (ctx, env, rhs, loc);
 	    invalidate_escaped_ptrs (ctx, lhs, rhs);
+	    record_escaped_value (ctx, rhs);
 	    return;
 	  }
 	if ((TREE_CODE (lhs) == VAR_DECL || TREE_CODE (lhs) == PARM_DECL)
@@ -4500,6 +4565,12 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		&& POINTER_TYPE_P (TREE_TYPE (lhs)))
 	      record_ptr_roots (ctx, lhs, rhs);
 	    invalidate_escaped_ptrs (ctx, lhs, rhs);
+	    /* A member, an array element or memory reached through a pointer is
+	       not a pointer variable this pass tracks: the stored value gains a
+	       view the analysis cannot follow.  */
+	    if (TREE_CODE (lhs) == INDIRECT_REF || TREE_CODE (lhs) == MEM_REF
+		|| TREE_CODE (lhs) == COMPONENT_REF || TREE_CODE (lhs) == ARRAY_REF)
+	      record_escaped_value (ctx, rhs);
 	  }
 	return;
       }
