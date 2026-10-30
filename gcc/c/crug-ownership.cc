@@ -4469,6 +4469,11 @@ walk_expr (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	tree lhs = TREE_OPERAND (t, 0);
 	tree rhs = TREE_OPERAND (t, 1);
 	bool lhs_mut = false;
+
+	/* A member that receives an affine value makes its whole object
+	   affine: the field is not tracked separately, so the object must not
+	   cross a worker boundary either (CONC-02).  */
+	crug_note_affine_store (lhs, rhs);
 	if (TREE_CODE (lhs) == VAR_DECL && crug_is_borrow_decl (lhs, &lhs_mut))
 	  {
 	    /* Re-initializing a borrow ends the previous one here.  */

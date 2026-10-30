@@ -95,6 +95,13 @@ error: a thread-affine value cannot cross to another task;
        it belongs to the 'render' thread [crug-CONC-025]
 ~~~
 
+A member that receives an affine value makes the whole object affine, because
+the compiler does not track fields separately: both `s.slot = render_slot ()`
+and `struct S s = { render_slot () };` taint `s`, so sending or capturing
+`s` is rejected as well (fix-p3, CONC-02).  The property is conservative and
+one-way: overwriting the member with a portable value does not clear it, and a
+plain copy or re-assignment of the object is still not tracked.
+
 The escape is to keep the value on its thread. A transfer or exclusion API is
 future work; the compiler does not accept a pointer annotation as a substitute.
 
@@ -150,16 +157,18 @@ without transfer), `crug-CONC-012` (a capture of a borrow outside a scope),
 
 | check | result |
 | --- | --- |
-| `make check-SEND_SYNC` | `send-sync: 20 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` |
-| `make check-SEND_SYNC_DG` | the DejaGnu suite alone; 20 expected passes |
+| `make check-SEND_SYNC` | `send-sync: 26 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` |
+| `make check-SEND_SYNC_DG` | the DejaGnu suite alone; 26 expected passes |
 | `scripts/check-send-sync.sh` | the suite, the unchanged `spawn` runtime program, the raw-pointer rejection, both affinity cases and both FFI annotation cases |
 
 The compiler cases live in `gcc/testsuite/crug.dg/send-sync/`: `send-int.c`,
 `send-struct.c`, `send-own.c`, `send-chan.c`, `send-fnptr.c`, `sync-borrow.c`,
-`chain-send-32.c`, `chain-deep-40.c` (accepted forms) and `raw-ptr.c`,
-`struct-ptr.c`, `chan-ptr.c`, `sync-ptr.c`, `chain-send-33.c`,
-`chain-sync-33.c` (rejected forms); the last two pin the depth limit of
-section 8. The runtime side is unchanged: the task suite delivers a
+`chain-send-32.c`, `chain-deep-40.c`, `affine-field-clean.c`
+(accepted forms) and `raw-ptr.c`, `struct-ptr.c`, `chan-ptr.c`,
+`sync-ptr.c`, `chain-send-33.c`, `chain-sync-33.c`, `affine-field.c`,
+`affine-field-chan.c` (rejected forms); the two chain fixtures pin the depth
+limit of section 8 and the two `affine-field` fixtures pin the aggregate-member
+rule of section 5, sharing `affine-field.crugffi`. The runtime side is unchanged: the task suite delivers a
 copied value (`libcrug/tests/goroutines/`), the channel suite transfers an owned
 value (`libcrug/tests/channels/owned.c`), and an array capture is now rejected
 rather than silently copied, so `go-capture.c` expects `crug-CONC-024`.

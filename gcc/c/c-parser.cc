@@ -10713,6 +10713,14 @@ c_parser_expr_no_commas (c_parser *parser, struct c_expr *after,
   ret.value = build_modify_expr (op_location, lhs.value, lhs.original_type,
 				 code, exp_location, rhs.value,
 				 rhs.original_type);
+  /* A member that receives an affine value makes its owner affine.  The
+     property must be recorded here, while the assignment is being parsed,
+     because a later 'go' statement in the same function is checked before
+     the ownership pass runs (CONC-02).  */
+  if (ret.value != NULL_TREE && ret.value != error_mark_node
+      && TREE_CODE (ret.value) == MODIFY_EXPR)
+    crug_note_affine_store (TREE_OPERAND (ret.value, 0),
+			    TREE_OPERAND (ret.value, 1));
   ret.m_decimal = 0;
   set_c_expr_source_range (&ret, lhs.get_start (), rhs.get_finish ());
   if (code == NOP_EXPR)

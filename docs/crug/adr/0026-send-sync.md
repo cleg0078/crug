@@ -87,7 +87,9 @@ the value, and an `adopt ()` destructor cannot cross (`crug-CONC-023`). A
 An FFI function may declare `thread_affinity NAME`. A value initialized
 directly from such a call belongs to that thread, and the property travels
 through `move`, `borrow` and `borrow_mut` and through `&`; capturing it into a
-task or sending it on a channel is `crug-CONC-025`. The escape is to use the
+task or sending it on a channel is `crug-CONC-025`.  An aggregate member that
+receives an affine value taints the object that owns it (fix-p3, CONC-02), so
+the property cannot be laundered through a plain struct field. The escape is to use the
 value on its own thread; a future exclusion or transfer API (post-1.0) is the
 only way to lift the property, and it must be an explicit call, never an
 annotation on a random pointer.
@@ -109,7 +111,8 @@ The inference and its state live in `gcc/c/crug-send-sync.cc`: the recursive
 predicates, the per-function map of affine declarations, and the FFI annotation
 lookup. The crossings call into it: `crug_check_go_capture` for `go` (including
 the scoped-borrow rules), `crug_channel_type` and `crug_channel_send` for
-channels. The ownership pass is not modified: the property is checked before a
+channels. The ownership pass only records member stores into the affinity
+map (`crug_note_affine_store`); the property itself is checked before a
 capture is walked, so `move ()` still does the ownership work it did in
 Phase 5. Affine declarations are forgotten at the end of the function that
 declared them.

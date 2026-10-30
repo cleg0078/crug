@@ -43,6 +43,16 @@ extern void crug_note_affine_initializer (tree decl, tree init);
 extern bool crug_decl_thread_affine_p (tree decl, const char **affinity);
 extern bool crug_expr_thread_affine_p (tree expr, const char **affinity);
 
+/* Mark DECL as thread-affine because one of its aggregate members received
+   an affine value.  Fields are not tracked separately: the whole object
+   inherits the property, so it cannot cross a worker boundary either
+   (fix-p3, CONC-02).  */
+extern void crug_note_affine_field (tree decl, const char *affinity);
+
+/* Record the affinity an assignment LHS = RHS puts on the object behind
+   LHS, when RHS is affine or a CONSTRUCTOR with an affine member.  */
+extern void crug_note_affine_store (tree lhs, tree rhs);
+
 /* Drop the affinity records of the declarations of FNDECL once its body
    has been parsed.  */
 extern void crug_forget_affine_decls (tree fndecl);

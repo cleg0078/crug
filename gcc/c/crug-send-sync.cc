@@ -47,9 +47,10 @@
    Thread affinity is not a property of a type: an FFI call marked
    'thread_affinity NAME' returns a value that belongs to one thread, so the
    declaration it initializes is tainted with that name and may not cross
-   (MASTER_SPEC section 28, ADR 0007).  Only a direct initializer is
-   tracked; a copy, a re-assignment or an aggregate field is not (ADR 0026
-   D7).  */
+   (MASTER_SPEC section 28, ADR 0007).  An aggregate member that receives an
+   affine value taints the object that owns it, because fields are not
+   tracked separately (fix-p3, CONC-02).  A plain copy or a re-assignment of
+   the object is not tracked (ADR 0026 D7).  */
 
 #include "config.h"
 #include "system.h"
@@ -208,6 +209,67 @@ crug_type_sync_p (tree type, tree *blocker)
 
 static std::map<tree, std::string> crug_affine_decls;
 
+/* True when E carries an affinity: an FFI call, a declaration already
+   known to be affine, or a CONSTRUCTOR with such an element.  A member
+   initializer is enough for the object to inherit the property, because
+   the compiler does not track fields separately (fix-p3, CONC-02).  */
+
+static bool
+affine_value_p (tree e, const char **affinity)
+{
+  if (e == NULL_TREE || e == error_mark_node)
+    return false;
+
+  if (TREE_CODE (e) == CONSTRUCTOR)
+    {
+      unsigned HOST_WIDE_INT idx;
+      tree value;
+
+      FOR_EACH_CONSTRUCTOR_VALUE (CONSTRUCTOR_ELTS (e), idx, value)
+	if (affine_value_p (value, affinity))
+	  return true;
+      return false;
+    }
+
+  return crug_expr_thread_affine_p (e, affinity);
+}
+
+void
+crug_note_affine_field (tree decl, const char *affinity)
+{
+  if (decl == NULL_TREE || !DECL_P (decl))
+    return;
+  if (!crug_ffi_enabled_p ())
+    return;
+  if (crug_affine_decls.find (decl) != crug_affine_decls.end ())
+    return;
+  crug_affine_decls[decl] = std::string (affinity == NULL ? "unknown" : affinity);
+}
+
+void
+crug_note_affine_store (tree lhs, tree rhs)
+{
+  const char *affinity = NULL;
+  tree base;
+
+  if (!crug_ffi_enabled_p () || lhs == NULL_TREE || rhs == NULL_TREE)
+    return;
+  if (!affine_value_p (rhs, &affinity))
+    return;
+
+  /* S.f = ... and a[i] = ... taint the object that owns the member; the
+     assignment itself does not make the value portable.  */
+  base = lhs;
+  STRIP_NOPS (base);
+  while (base != NULL_TREE
+	 && (TREE_CODE (base) == COMPONENT_REF
+	     || TREE_CODE (base) == ARRAY_REF))
+    base = TREE_OPERAND (base, 0);
+  STRIP_NOPS (base);
+  if (base != NULL_TREE && DECL_P (base))
+    crug_note_affine_field (base, affinity);
+}
+
 void
 crug_note_affine_initializer (tree decl, tree init)
 {
@@ -222,13 +284,21 @@ crug_note_affine_initializer (tree decl, tree init)
   if (!crug_ffi_enabled_p ())
     return;
 
+  /* struct S s = { render_slot () }; taints s through the member.  */
+  if (TREE_CODE (init) == CONSTRUCTOR)
+    {
+      if (affine_value_p (init, &name))
+	crug_note_affine_field (decl, name);
+      return;
+    }
+
   STRIP_NOPS (e);
   if (e == NULL_TREE || TREE_CODE (e) != CALL_EXPR)
     return;
   fn = get_callee_fndecl (e);
   if (fn == NULL_TREE || !crug_ffi_thread_affine (fn, &name))
     return;
-  crug_affine_decls[decl] = std::string (name == NULL ? "unknown" : name);
+  crug_note_affine_field (decl, name);
 }
 
 bool
