@@ -69,7 +69,7 @@ The documentation corpus is six marked examples in `docs/crug/MIGRATION-EXAMPLES
 
 The kernel corpus is the pinned object list plus `kernel/object-diff-allow.txt`. Every allowed difference is one row with its explanation; the gate accepts 436 identical objects and exactly two explained differences (the build timestamp object and the compiler identification object), so a new difference is either a bug or a reviewed allowlist row, never a count edit.
 
-The fuzz corpus is 45 committed seeds under `fuzz/compiler/corpus`: parser 12, ownership 10, borrow 11, ffi 12, adapted from the DejaGnu fixtures. Findings and reproducers go under `build/fuzz/findings` and are never committed until triaged; a real finding becomes a ledger entry with a severity before the fix lands, per `docs/crug/RELEASE-POLICY.md` section 3.1.
+The fuzz corpus is 47 committed seeds under `fuzz/compiler/corpus`: parser 14, ownership 10, borrow 11, ffi 12, adapted from the DejaGnu fixtures; the parser seeds also carry the concurrency spellings, which the ownership-only target must reject cleanly. Findings and reproducers go under `build/fuzz/findings` and are never committed until triaged; a real finding becomes a ledger entry with a severity before the fix lands, per `docs/crug/RELEASE-POLICY.md` section 3.1.
 
 Never hand-edit a golden, review the diff `--update` produced, give every allowlist row a reason, and keep the compiler version next to the record.
 

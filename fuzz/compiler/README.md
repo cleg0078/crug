@@ -9,7 +9,7 @@ crashes or hangs the compiler.
 
 | `--target` | Compiler flags | What it stresses |
 | --- | --- | --- |
-| `parser` | `-fcrug-ownership` | The contextual Crug parser: `own`/`ref`/`mut`/`move` tokens, declarators, error recovery. Seeds include words that are Crug keywords only in certain positions. |
+| `parser` | `-fcrug-ownership` | The contextual Crug parser: `own`/`ref`/`mut`/`move` and the `go`/`scope`/`chan`/`channel`/`send`/`recv`/`select` spellings, declarators, error recovery. Seeds include words that are Crug keywords only in certain positions, and concurrency syntax that the ownership-only target must reject cleanly. |
 | `ownership` | `-fcrug-ownership` | Move, use-after-move, implicit copy, adopt/release/drop and branch-join ownership checking. |
 | `borrow` | `-fcrug-borrow` | Shared/mutable borrow rules, reborrows, last-use and borrow-of-rvalue diagnostics. |
 | `ffi` | `-fcrug-ffi=<sidecar>` | The `.crugffi` contract parser/checker. The mutated input is the sidecar; a fixed driver `ffi_driver.c` includes a fixed `ffi_api.h` and calls the declared functions through the contract. |
@@ -107,7 +107,7 @@ the target's suffix (`.c`, or `.crugffi` for `ffi`) in sorted order and
 picks them round-robin, drawing the splice partner at random. Seeds are
 adapted byte-for-byte from `gcc/testsuite/crug.dg/` and deliberately mix
 valid programs with programs that Crug legitimately rejects. Current
-counts: parser 12, ownership 10, borrow 11, ffi 12.
+counts: parser 14, ownership 10, borrow 11, ffi 12.
 
 Each mutant is the seed plus 1-4 of:
 

@@ -59,10 +59,15 @@ TARGET_FLAGS = {
 }
 
 # Token dictionary for C/Crug inputs.  Entries may be more than one token;
-# token-level replacement is allowed to change the token count.
+# token-level replacement is allowed to change the token count.  The
+# concurrency spellings are included because Crug adds no reserved word:
+# go/scope/chan/channel/send/recv/select must stay ordinary C identifiers
+# with the flags off and become productions only in the contexts the
+# enabled flags define (RFC-0001 section 13, ADR 0018 D1).
 C_DICT = [
     b"own", b"ref", b"mut", b"move", b"borrow", b"borrow_mut", b"adopt",
-    b"release", b"drop", b"struct", b"union", b"enum", b"typedef", b"static",
+    b"release", b"drop", b"go", b"scope", b"chan", b"channel", b"send",
+    b"recv", b"select", b"struct", b"union", b"enum", b"typedef", b"static",
     b"extern", b"const", b"volatile", b"void", b"int", b"char", b"unsigned",
     b"long", b"return", b"if", b"else", b"while", b"for", b"do", b"switch",
     b"case", b"sizeof", b"_Static_assert", b"__attribute__", b"NULL", b"0",
