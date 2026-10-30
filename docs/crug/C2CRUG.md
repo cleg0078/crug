@@ -1,7 +1,8 @@
 # c2crug - migration from C to Crug
 
 **Status:** implemented (Phase 12, 2026-10-19); preprocessor-aware `--safe` added
-2026-10-28. Decision record: ADR 0023. Gate: `EXIT-GATES.md` phase 12,
+2026-10-28; atomic publication and honest `#line` degradation added in fix-p3
+(2026-10-30). Decision record: ADR 0023. Gate: `EXIT-GATES.md` phase 12,
 amendment A-15. Corpus: `migration/`.
 
 `c2crug` is a Python 3 (standard library only) tool at the repository root. It
@@ -19,6 +20,9 @@ cannot prove is preserved byte for byte and reported as `raw`.
 
 `--report FILE` writes the JSON report in any mode. `--safe` refuses an
 `OUT` that already exists (exit 2) so a migration can never be applied twice.
+It builds the copy under a hidden temporary sibling of `OUT` and renames it
+into place together with the report, so a failed or interrupted run leaves
+neither a partial tree nor a report.
 `--analyze` resets `applied` on every entry: it is a plan, and the validator
 rejects an analyze report that claims an edit.
 
@@ -28,8 +32,10 @@ can probe the tool before it has a corpus.
 
 `--cpp PATH` selects the preprocessor (`cc` by default) and `--cpp-arg ARG`
 adds an argument, repeatable. The tool preprocesses function bodies with
-`-E -x c` and maps the `#line` markers back; this affects eligibility only and
-never writes the preprocessed text to the output tree.
+`-E -x c` and maps the preprocessor's `#line` markers back to source lines; a
+source that itself contains `#line` directives is refused as unmappable. This
+affects eligibility only and never writes the preprocessed text to the output
+tree.
 
 ## 2. What `--safe` inserts and rewrites
 
@@ -52,10 +58,14 @@ handled the same way (`fclose` becomes `drop`, and the sidecar is passed with
 
 A body is rewrite-eligible only when its declaration prefix and release span
 are token-identical to the preprocessed body and preprocessing adds or removes
-no exit token. Otherwise the declaration stays `raw` at confidence 0, with one
-of these reasons in the report: the function body could not be preprocessed, a
-preprocessor directive inside the function body, or macro expansion inside the
-function body.
+no exit token. An exit token is a call to a known terminating function
+(`exit`, `_exit`, `_Exit`, `abort`, `quick_exit`, `longjmp`, `siglongjmp`,
+`pthread_exit`, `pthread_cancel`, `thrd_exit`) or to a function declared
+`noreturn` in the same file. Otherwise the declaration stays `raw` at
+confidence 0, with one of these reasons in the report: the function body could
+not be preprocessed, the source uses `#line` directives so the preprocessed
+body cannot be mapped back, a preprocessor directive inside the function body,
+or macro expansion inside the function body.
 
 ## 3. The proof
 

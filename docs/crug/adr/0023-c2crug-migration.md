@@ -66,6 +66,14 @@ unified diff and writes nothing. All modes preserve line count: the only edits
 are an inserted `own ` prefix and the replacement of the release function name
 with `drop`.
 
+Since fix-p3 (2026-10-30) the `--safe` copy is published atomically: the tree is
+built under a hidden temporary sibling of `OUT` and renamed into place together
+with the report, so a failed run leaves neither a partial tree nor a report.
+The same change refuses a source that contains `#line` directives as
+unmappable, widens the exit-call set to `_Exit`, `siglongjmp`, `pthread_exit`,
+`pthread_cancel` and `thrd_exit`, and treats a file-local `noreturn` function as
+an exit.
+
 ### D3 - Confidence measures the proof, not the program
 
 An applied `own` has confidence 1.00 because the proof is complete for the

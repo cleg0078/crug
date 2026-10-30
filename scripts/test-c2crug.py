@@ -845,6 +845,90 @@ def test_cpp_options():
         check(transformed is None, "nothing may be rewritten")
 
 
+@case("_Exit, siglongjmp and pthread_exit are control-flow exits")
+def test_exit_calls():
+    for call in ("_Exit (0)", "siglongjmp (jb, 1)", "pthread_exit (0)",
+                 "pthread_cancel (t)", "thrd_exit (0)"):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.c"), """
+                int f (int c)
+                {
+                  int *p = malloc (4);
+                  if (c) CALL;
+                  free (p);
+                  return 0;
+                }
+            """.replace("CALL", call))
+            entries, transformed = c2crug.analyse_source(
+                os.path.join(tmp, "a.c"), "a.c", {}, {})
+            check(len(entries) == 1 and entries[0]["kind"] == "raw",
+                  "calling %s must leave the release conditional: %r"
+                  % (call, entries))
+            check("early exit" in entries[0]["reason"],
+                  "%s: reason must name the uncovered early exit: %s"
+                  % (call, entries[0]["reason"]))
+            check(transformed is None,
+                  "%s: the release must not be rewritten" % call)
+
+
+@case("a declared noreturn wrapper is a control-flow exit")
+def test_noreturn_exit():
+    for decl in ("void bail (void) __attribute__ ((noreturn));",
+                 "__attribute__ ((noreturn)) void bail (void);",
+                 "_Noreturn void bail (void);"):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.c"), """
+                DECL
+                int COND;
+                int f (void)
+                {
+                  int *p = malloc (4);
+                  if (COND) bail ();
+                  free (p);
+                  return 0;
+                }
+            """.replace("DECL", decl))
+            entries, transformed = c2crug.analyse_source(
+                os.path.join(tmp, "a.c"), "a.c", {}, {})
+            check(len(entries) == 1 and entries[0]["kind"] == "raw",
+                  "a call to a noreturn function must leave the release "
+                  "conditional: %r" % entries)
+            check("early exit" in entries[0]["reason"],
+                  "%r: reason must name the early exit: %s"
+                  % (decl, entries[0]["reason"]))
+            check(transformed is None, "nothing may be rewritten")
+
+
+@case("#line directives make the body ineligible with an honest reason")
+def test_line_directives():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "a.c")
+        write(path, """
+            int f (void)
+            {
+              int *p = malloc (4);
+            #line 99 "a.c"
+              free (p);
+              return 0;
+            }
+        """)
+        preproc = c2crug.preprocess_source(path)
+        check(not preproc["ok"],
+              "a source #line directive must not be mapped silently")
+        check("line directives" in preproc["error"],
+              "the preprocessing error must name the directives: %r"
+              % preproc["error"])
+        entries, transformed = c2crug.analyse_source(
+            path, "a.c", {}, {}, preproc)
+        check(len(entries) == 1 and entries[0]["kind"] == "raw",
+              "a #line body must stay raw: %r" % entries)
+        check(entries[0]["eligibility"] == "ineligible",
+              "a #line body must be ineligible")
+        check("line directives" in entries[0]["reason"],
+              "reason must name the directives: %s" % entries[0]["reason"])
+        check(transformed is None, "nothing may be rewritten")
+
+
 @case("command line")
 def test_command_line():
     buffer = io.StringIO()

@@ -352,10 +352,42 @@ def enclosing_call(line, pos):
 _CONTROL_TOKEN_RE = re.compile(
     r"[A-Za-z_]\w*|\d[\w.]*|==|!=|<=|>=|->|\+\+|--|&&|\|\||<<|>>|\S")
 _IDENT_RE = re.compile(r"^" + IDENT + r"$")
-_EXIT_CALLS = frozenset(("exit", "_exit", "abort", "quick_exit", "longjmp"))
+_EXIT_CALLS = frozenset((
+    "exit", "_exit", "abort", "quick_exit", "longjmp",
+    "_Exit", "siglongjmp", "pthread_exit", "pthread_cancel", "thrd_exit"))
 _EXIT_RE = re.compile(
     r"\b(return|goto|break|continue)\b"
-    r"|\b(exit|_exit|abort|quick_exit|longjmp)[ \t]*\(")
+    r"|\b(exit|_exit|abort|quick_exit|longjmp|_Exit|siglongjmp"
+    r"|pthread_exit|pthread_cancel|thrd_exit)[ \t]*\(")
+
+# A function declared _Noreturn (or with __attribute__ ((noreturn))) never
+# returns, so calling it is a control-flow exit exactly like exit().  Both the
+# C11 prefix spelling and the GNU attribute, before or after the declarator,
+# occur in real code; the patterns are narrow so that an unrelated call in a
+# nearby statement cannot be mistaken for an exit.
+_NORETURN_PREFIX_RE = re.compile(
+    r"_Noreturn\b[^;{}]*?\b([A-Za-z_]\w*)[ \t]*\(")
+_NORETURN_ATTR_PREFIX_RE = re.compile(
+    r"__attribute__[ \t]*\(\([ \t]*(?:__)?noreturn(?:__)?[ \t]*\)\)"
+    r"[^;{}]*?\b([A-Za-z_]\w*)[ \t]*\(")
+_NORETURN_ATTR_SUFFIX_RE = re.compile(
+    r"\b([A-Za-z_]\w*)[ \t]*\([^;{}]*\)[ \t]*(?:\n[ \t]*)?"
+    r"__attribute__[ \t]*\(\([ \t]*(?:__)?noreturn(?:__)?[ \t]*\)\)")
+
+
+def noreturn_call_names(clines):
+    """Names of the functions this file declares noreturn."""
+    text = "\n".join(clines)
+    names = set()
+    for pattern in (_NORETURN_PREFIX_RE, _NORETURN_ATTR_PREFIX_RE,
+                    _NORETURN_ATTR_SUFFIX_RE):
+        for match in pattern.finditer(text):
+            name = match.group(1)
+            if name in SKIP_WORDS or name in ("__attribute__", "attribute",
+                                              "noreturn", "__noreturn__"):
+                continue
+            names.add(name)
+    return names
 
 
 def tokenize_lines(clines, first, last):
@@ -393,6 +425,13 @@ def normalise_tokens(tokens):
 
 _MARKER_RE = re.compile(
     r'^#[ \t]*(?:line[ \t]+)?(\d+)[ \t]+"((?:[^"\\]|\\.)*)"')
+# A line-marker directive written in the source itself renumbers the lines that
+# follow it, so the preprocessed token stream can no longer be attributed to
+# the original lines.  Such a file is reported ineligible instead of being
+# analysed against a remapped body.
+_SOURCE_MARKER_RE = re.compile(
+    r'^[ \t]*#[ \t]*(?:line[ \t]+)?\d+[ \t]*(?:"(?:[^"\\]|\\.)*")?[ \t]*$',
+    re.M)
 
 
 def preprocess_source(path, cpp="cc", cpp_args=()):
@@ -405,6 +444,11 @@ def preprocess_source(path, cpp="cc", cpp_args=()):
     the original source.
     """
     real = os.path.realpath(path)
+    source_text = read_text(real)
+    if _SOURCE_MARKER_RE.search(source_text):
+        return {"ok": False, "clines": None,
+                "error": "the source uses #line directives; the preprocessed "
+                         "body cannot be mapped back to its original lines"}
     command = [cpp, "-E", "-x", "c"] + list(cpp_args) + [real]
     try:
         proc = subprocess.run(
@@ -436,7 +480,7 @@ def preprocess_source(path, cpp="cc", cpp_args=()):
         return {"ok": False, "clines": None,
                 "error": "the preprocessor produced no lines for this file"}
     last = max(per_line)
-    source_lines = len(read_text(real).split("\n"))
+    source_lines = len(source_text.split("\n"))
     if last > source_lines:
         return {"ok": False, "clines": None,
                 "error": "a macro expanded across source lines; the "
@@ -547,6 +591,14 @@ def _is_null_test(tokens, name):
                 return True
             return _is_null_operand(left) and _is_name_operand(right, name)
     return False
+
+
+class _ControlScanError(Exception):
+    """The scanner stopped on a construct it does not model."""
+
+
+class _ControlScanStop(Exception):
+    """The scanner reached the release token and finished early."""
 
 
 class _ControlScanner:
@@ -833,9 +885,10 @@ def guard_covers_exit(ifs, labels, exit_line, name, release_line,
 class _FunctionFacts:
     """Per-function caches shared by every candidate of that function."""
 
-    def __init__(self, clines, start, end):
+    def __init__(self, clines, start, end, exit_names=frozenset()):
         self.start = start
         self.end = end
+        self.exit_names = _EXIT_CALLS | frozenset(exit_names)
         self.tokens = tokenize_lines(clines, start, end)
         scanner = _ControlScanner(self.tokens, None)
         self.scan_ok = True
@@ -860,7 +913,7 @@ class _FunctionFacts:
         for pos, (token, line) in enumerate(self.tokens):
             if token in ("return", "goto", "break", "continue"):
                 self.exits.append((pos, line))
-            elif token in _EXIT_CALLS and pos + 1 < len(self.tokens) \
+            elif token in self.exit_names and pos + 1 < len(self.tokens) \
                     and self.tokens[pos + 1][0] == "(":
                 self.exits.append((pos, line))
             if _IDENT_RE.match(token):
@@ -1055,6 +1108,7 @@ def analyse_source(path, rel, owned_return, consumes, preproc=None):
     non_retaining = set(NON_RETAINING)
     funcs = find_functions(clines)
 
+    file_exit_names = noreturn_call_names(clines)
     for (hdr, start, end, fname, params) in funcs:
         source_directive = any(
             clines[k].lstrip().startswith("#") for k in range(start, end + 1))
@@ -1073,7 +1127,7 @@ def analyse_source(path, rel, owned_return, consumes, preproc=None):
             body_eligible = True
             inelig_reason = None
         state["eligibility"] = "eligible" if body_eligible else "ineligible"
-        facts = _FunctionFacts(pp_view, start, end)
+        facts = _FunctionFacts(pp_view, start, end, file_exit_names)
         func_depth = facts.func_depth
         body_depth = facts.body_depth
         for i in range(start + 1, end):
@@ -1463,50 +1517,86 @@ def cmd_analyze(root, report_path, cpp="cc", cpp_args=None):
 
 
 def cmd_safe(root, out, report_path, diff_only, cpp="cc", cpp_args=None):
-    if not diff_only:
-        if os.path.exists(out):
-            print("c2crug: output directory already exists: %s" % out,
-                  file=sys.stderr)
-            return 2
-        shutil.copytree(root, out)
     owned_return, consumes = load_sidecars(root)
-    entries = []
-    sources = []
-    diffs = []
-    for path, rel in walk_sources(root):
-        sources.append({"file": rel, "sha256": sha256_file(path)})
-        preproc = preprocess_source(path, cpp, cpp_args or ())
-        found, transformed = analyse_source(path, rel, owned_return, consumes,
-                                            preproc)
-        entries.extend(found)
-        if transformed is not None:
-            if diff_only:
+    if diff_only:
+        diffs = []
+        for path, rel in walk_sources(root):
+            preproc = preprocess_source(path, cpp, cpp_args or ())
+            found, transformed = analyse_source(path, rel, owned_return,
+                                                consumes, preproc)
+            if transformed is not None:
                 import difflib
                 old = read_text(path).split("\n")
                 new = transformed.split("\n")
                 diffs.extend(difflib.unified_diff(
                     old, new, fromfile=os.path.join(root, rel),
-                    tofile=os.path.join(out, rel), lineterm=""))
-            else:
-                with open(os.path.join(out, rel), "w", encoding="utf-8",
-                          errors="surrogateescape") as f:
-                    f.write(transformed)
-    entries.sort(key=lambda e: (e["file"], e["line"], e["column"]))
-    if diff_only:
+                    tofile=os.path.join(out or "", rel), lineterm=""))
         print("\n".join(diffs))
         if not diffs:
             print("c2crug: no proven transformation; nothing to do")
         return 0
+    if os.path.exists(out):
+        print("c2crug: output directory already exists: %s" % out,
+              file=sys.stderr)
+        return 2
+    # --safe is atomic: the migrated tree and the report are built beside the
+    # destination and renamed into place only when both are complete, so a
+    # crash can never leave a half-migrated tree behind.
+    # The scratch names are hidden so that a source walk meeting the tree
+    # again (out inside root) neither analyses nor copies the scratch tree.
+    abs_out = os.path.abspath(out)
+    tmp_out = os.path.join(os.path.dirname(abs_out),
+                           ".%s.c2crug-tmp.%d" % (os.path.basename(abs_out),
+                                                  os.getpid()))
+    if report_path:
+        abs_report = os.path.abspath(report_path)
+        report_dir = os.path.dirname(abs_report)
+        if abs_report == abs_out or abs_report.startswith(abs_out + os.sep):
+            # The report lives inside the migrated tree, so it is staged
+            # beside the tree instead of creating the destination early.
+            report_dir = os.path.dirname(abs_out)
+        tmp_report = os.path.join(
+            report_dir,
+            ".%s.c2crug-tmp.%d" % (os.path.basename(abs_report),
+                                   os.getpid()))
+    else:
+        tmp_report = None
+    entries = []
+    sources = []
+    try:
+        shutil.copytree(root, tmp_out)
+        for path, rel in walk_sources(root):
+            sources.append({"file": rel, "sha256": sha256_file(path)})
+            preproc = preprocess_source(path, cpp, cpp_args or ())
+            found, transformed = analyse_source(path, rel, owned_return,
+                                                consumes, preproc)
+            entries.extend(found)
+            if transformed is not None:
+                with open(os.path.join(tmp_out, rel), "w", encoding="utf-8",
+                          errors="surrogateescape") as f:
+                    f.write(transformed)
+        entries.sort(key=lambda e: (e["file"], e["line"], e["column"]))
+        report = build_report("safe", entries, sources)
+        errors = validate_report(report)
+        if errors:
+            for err in errors:
+                print("c2crug: report error: %s" % err, file=sys.stderr)
+            shutil.rmtree(tmp_out, ignore_errors=True)
+            return 1
+        if tmp_report:
+            write_json(tmp_report, report)
+        os.replace(tmp_out, out)
+        if tmp_report:
+            os.replace(tmp_report, report_path)
+    except Exception as exc:  # noqa: BLE001 - leave no partial output behind
+        shutil.rmtree(tmp_out, ignore_errors=True)
+        if tmp_report and os.path.exists(tmp_report):
+            os.remove(tmp_report)
+        print("c2crug: --safe failed: %s; %s was not created" % (exc, out),
+              file=sys.stderr)
+        return 1
     for e in entries:
         print_entry(e)
-    report = build_report("safe", entries, sources)
-    errors = validate_report(report)
-    if errors:
-        for err in errors:
-            print("c2crug: report error: %s" % err, file=sys.stderr)
-        return 1
-    if report_path:
-        write_json(report_path, report)
     print("c2crug: %d file(s), %d own, %d raw, %d borrow suggestion(s)"
           % (len(sources), report["counts"]["own"], report["counts"]["raw"],
              report["counts"]["borrow_suggestion"]))

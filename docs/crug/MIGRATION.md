@@ -1,6 +1,6 @@
 # Migrating C to Crug with c2crug
 
-Status: **Phase 12 implemented and measured; preprocessor eligibility added 2026-10-28.** The tool is `./c2crug`, a Python 3 standard-library script; the report schema, corpus and validator are committed with it. ADR 0023 records the admission rules.
+Status: **Phase 12 implemented and measured; preprocessor eligibility added 2026-10-28; atomic publication and `#line` degradation added in fix-p3 (2026-10-30).** The tool is `./c2crug`, a Python 3 standard-library script; the report schema, corpus and validator are committed with it. ADR 0023 records the admission rules.
 
 ## 1. The c2crug tool
 
@@ -19,9 +19,9 @@ The tool is not a compiler and needs no build: it parses a deliberately small su
 
 `--analyze` is the default recommendation for review: it classifies every candidate and applies nothing. Every line ends with `[not applied]`, including the `own` ones, because nothing was written.
 
-`--safe -o DIR` writes a transformed copy of the tree into `DIR`, which must not exist. An entry that was applied prints without the `[not applied]` suffix; rejected entries keep it. The transformation is conservative and textual: insert `own ` before the declaration and replace the release call with `drop (`. The tool does not re-print the source, so formatting, comments and line count are preserved exactly.
+`--safe -o DIR` writes a transformed copy of the tree into `DIR`, which must not exist. An entry that was applied prints without the `[not applied]` suffix; rejected entries keep it. The transformation is conservative and textual: insert `own ` before the declaration and replace the release call with `drop (`. The tool does not re-print the source, so formatting, comments and line count are preserved exactly. The copy is published atomically: it is built under a hidden temporary sibling of `DIR` and renamed into place together with the report, so a failed run leaves neither a partial tree nor a report.
 
-Since 2026-10-28, `--safe` preprocesses each function body before proving anything, using the host `cc -E` by default; `--cpp PATH` selects another preprocessor and `--cpp-arg ARG` passes it one extra argument (repeatable). A function is rewrite-eligible only when its declaration prefix and release call are token-identical between the source and the preprocessed text, and preprocessing adds or removes no control-flow exit token; expression-level expansions such as `NULL` stay eligible. Every report entry records `preprocessed` and `eligibility`; an ineligible function's declarations stay `raw` with confidence 0 and a reason naming why. `--safe` therefore requires a working host C preprocessor.
+Since 2026-10-28, `--safe` preprocesses each function body before proving anything, using the host `cc -E` by default; `--cpp PATH` selects another preprocessor and `--cpp-arg ARG` passes it one extra argument (repeatable). A function is rewrite-eligible only when its declaration prefix and release call are token-identical between the source and the preprocessed text, and preprocessing adds or removes no control-flow exit token; expression-level expansions such as `NULL` stay eligible. Every report entry records `preprocessed` and `eligibility`; an ineligible function's declarations stay `raw` with confidence 0 and a reason naming why. `--safe` therefore requires a working host C preprocessor. A source file that itself contains `#line` directives is not mapped at all: its bodies are ineligible with that reason rather than rewritten against guesses.
 
 `--diff` prints a unified diff against the input and writes nothing. On `migration/` it exits 0 with five changed files (`01-heap.c`, `02-string.c`, `03-file.c`, `07-mixed.c`, `proofs/guard-valid.c`) and twelve changed lines out of 491, which is 2.4% against the 20% ceiling; the transformation never removes a comment.
 
@@ -137,7 +137,7 @@ The tool is a definition-use analysis over one directory, not a compiler and not
 - Aliasing `&name`, copies, pointer arithmetic, pass-through to unknown callees and returns all reject the entry. The analysis does not do points-to analysis outside the directory.
 - The input must compile as C that the Crug front end accepts once migrated: `own` and `drop` need `-fcrug-ownership`, and a sidecar needs `-fcrug-ffi=`. Without those flags the migrated program does not build; the tool does not add flags to your build system.
 - `--safe` never reformats and rewrites only token-identical declaration and release spans, so an unusual release form (extra parentheses, a macro around `free`, a cast) stays raw rather than being applied. The diff is meant to be reviewed line by line and kept small.
-- `--safe` depends on a working host C preprocessor. If the preprocessing run fails, the function body cannot be checked and every entry in it is raw and ineligible with that reason; `--cpp` and `--cpp-arg` exist for hosts whose preprocessor is not `cc`.
+- `--safe` depends on a working host C preprocessor. If the preprocessing run fails, the function body cannot be checked and every entry in it is raw and ineligible with that reason; `--cpp` and `--cpp-arg` exist for hosts whose preprocessor is not `cc`. A source file that itself contains `#line` directives is likewise ineligible, because the tool will not guess a remapping.
 - The corpus proves eight programs' stdout and the report proves each entry's stated reason. Neither proves the migrated program is equivalent to the original under concurrency, signals or undefined behavior; those remain the job of the test suite described in `docs/crug/TESTING.md`.
 - Exit status 2 means the input or invocation was wrong (missing mode, file instead of directory, existing output directory), not that the code was rejected; a corpus of entirely `raw` entries still exits 0.
 
@@ -154,4 +154,7 @@ declarator and the tool does not split the declaration.
 Since the 2026-10-28 fix, eligibility is decided on the preprocessed body: a
 macro that hides an alias or an exit makes the function ineligible instead of
 producing a rewrite, and two early exits on one source line are no longer
-credited to one another.
+credited to one another. fix-p3 widened the exit set to `_Exit`, `siglongjmp`,
+`pthread_exit`, `pthread_cancel` and `thrd_exit`, and a function declared
+`noreturn` in the same file now counts as an early exit: a call to one of them
+between the declaration and the release makes the entry raw.

@@ -321,8 +321,9 @@ never writes a sidecar:
 ```
 
 `--analyze` writes nothing but its report, `--safe` writes a copy with the
-proven edits applied and refuses an output that already exists, and `--diff`
-prints a unified diff. `--cpp PATH` selects the host C preprocessor used to
+proven edits applied and refuses an output that already exists (it publishes
+the copy atomically and rejects a source with `#line` directives as
+unmappable), and `--diff` prints a unified diff. `--cpp PATH` selects the host C preprocessor used to
 judge eligibility (default `cc`), and `--cpp-arg ARG` passes it one extra
 argument and may be repeated. A function is rewritten only when its declaration
 prefix and release call are token-identical between the source and the
@@ -335,7 +336,7 @@ stderr. The proof, the confidence values, the report schema
 `docs/crug/c2crug-report.schema.json` and the corpus are in
 `docs/crug/C2CRUG.md`. The tool never invents ownership: an unproven pointer
 stays raw and the report says why. Two checks cover it:
-`python3 scripts/test-c2crug.py` (140 checks) and `scripts/check-c2crug.sh`;
+`python3 scripts/test-c2crug.py` (170 checks) and `scripts/check-c2crug.sh`;
 the Makefile target is `make check-C2CRUG`.
 
 ## 8. Kernel tooling
