@@ -112,6 +112,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-OWN-011` | - | error | error | an owned value passed to an 'own' parameter must be moved explicitly: write move (x) | ADR 0021 D6 |
 | `crug-OWN-012` | - | error | error | an owned value passed to a callee without an ownership contract; release (x) first, or use an unsafe block | ADR 0021 D6 |
 | `crug-OWN-013` | - | error | error | the result of adopt() is discarded; initialize an owned declaration with it | ADR 0004 D10 |
+| `crug-OWN-014` | - | error | error | an owning declaration at file scope would never be destroyed; declare the owner inside a function | fix-p3, ADR 0004 |
 
 ### 4.3 Borrowing (`BORROW`)
 
@@ -227,6 +228,7 @@ message**, with `%s` standing for a name or type; **Origin** decision.
 | `crug-TYPE-012` | - | error | error | '%s' needs a pointer as its first argument | ADR 0018 D7, Phase 10 |
 | `crug-TYPE-013` | `-Wcrug-generic-form` | error | error | '%s' needs exactly %d type argument(s) | ADR 0018 D7, Phase 10 |
 | `crug-TYPE-014` | `-Wcrug-generic-form` | error | error | expected '>' to close the type argument list | ADR 0018 D7, Phase 10 |
+| `crug-TYPE-015` | - | error | error | qualifier is not allowed on an array; ownership is tracked per object, not per element | fix-p3, ADR 0018 D2 |
 
 ### 4.8 Parsing and shadowing (`GRAMMAR`)
 

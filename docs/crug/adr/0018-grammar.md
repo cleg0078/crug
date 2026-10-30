@@ -105,7 +105,7 @@ qualifier is an error.
 |-------------|---------|
 | `own Foo *a;` | `a` owns one `Foo`; destructor `void (*)(Foo *)`, called with `a` |
 | `own Foo **a;` | `a` owns one `Foo *` object; destructor `void (*)(Foo **)`; the inner `Foo` is not owned |
-| `own Foo a[4];` | array of four owned `Foo` (ADR 0004 D7), dropped from index 3 down to 0 |
+| `own Foo a[4];` | error `crug-TYPE-015`: element-wise destruction was never implemented (amended in fix-p3) |
 | `own Foo (*fp)(void);` | error: the outermost pointer is a function pointer, not a pointer to an object |
 | `struct S { own char *name; };` | owning field; layout and `offsetof` identical to `char *name` (RFC-0001 section 22) |
 | `typedef Foo *P; own P a;` | owning pointer to `Foo`; the qualifier is at the use site |
@@ -114,6 +114,10 @@ qualifier is an error.
 | `void consume(own Foo *p);` | consuming parameter: the caller must `move`, the callee drops |
 | `int f(own Foo a[4]);` | adjusted to `own Foo *a` as in C array decay; the pointer does not own elements |
 | `own int i;` | error: `int` has no pointer, no array and no owned member |
+
+The array form and a file-scope owning variable were accepted by the MVP parser,
+but the analysis never destroyed either: fix-p3 rejects them with
+`crug-TYPE-015` and `crug-OWN-014`.
 
 R3 - **Type-names are erased, except in generic arguments.** In a type-name (`sizeof`, `alignof`,
 `_Atomic(...)`, `va_arg`) a qualifier parses and is erased: `sizeof(own Foo*) == sizeof(Foo*)`

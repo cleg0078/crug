@@ -16,7 +16,7 @@ grammar and diagnostics) and RFC-0001 sections 13-19; the gates are
 | --- | --- | --- |
 | `own T *p;` | `p` owns one `T` object | declaration specifier, erased from the type |
 | `own T **p;` | `p` owns one pointer-sized object | the outermost pointer level owns |
-| `own T a[4];` | four owned `T` objects, dropped 3..0 later | array declarator: the element type owns |
+| `own T a[4];` | rejected by `crug-TYPE-015` | element-wise destruction was never implemented |
 | `own` struct member | the containing object owns the member | dropped with the aggregate (Phase 5) |
 | `own` parameter | erased at the call boundary | ADR 0003 D3; not tracked inside the caller |
 | `own` return type | erased at the boundary | same |
@@ -24,8 +24,12 @@ grammar and diagnostics) and RFC-0001 sections 13-19; the gates are
 | `move (e);` | transfers the owning value | `e` is an owning lvalue or owned prvalue |
 
 The qualifier is a declaration specifier, so `own int i;`, `own T (*fp)(void);`,
-a bit-field, a flexible array member and an unnamed member are rejected
-(`crug-TYPE-001`, `crug-TYPE-006`). An owning member in a union is rejected when
+an array declarator, a bit-field, a flexible array member and an unnamed member
+are rejected (`crug-TYPE-001`, `crug-TYPE-005`, `crug-TYPE-006`,
+`crug-TYPE-015`). An owning declaration with static storage duration at file
+scope is rejected (`crug-OWN-014`): the pass tracks a function body, so such an
+object would never be destroyed; a function-local `static own` remains a
+documented limitation. An owning member in a union is rejected when
 the union is completed (`crug-OWN-009`, ADR 0004 D6): the MVP has no
 active-variant contract, so a union of owning values has no defined destruction.
 
@@ -91,6 +95,7 @@ from `docs/crug/DIAGNOSTICS.md`.
 | `crug-OWN-007` | owned value never adopted or released (warning) |
 | `crug-OWN-009` | owning member in a union |
 | `crug-OWN-010` | conflicting destructors for one object on different paths |
+| `crug-OWN-014` | owning declaration with static storage duration at file scope |
 | `crug-DROP-001` | `drop` operand is not an owned object |
 | `crug-DROP-002` | `goto` jumps into the scope of an owned object |
 | `crug-DROP-003` | destructors may be skipped by `longjmp` (warning) |
@@ -102,6 +107,7 @@ from `docs/crug/DIAGNOSTICS.md`.
 | `crug-TYPE-004` | `_Atomic` combined with a Crug qualifier |
 | `crug-TYPE-005` | owning function pointer type |
 | `crug-TYPE-006` | qualifier on a bit-field, flexible array member or unnamed member |
+| `crug-TYPE-015` | qualifier on an array declarator |
 
 The message format is the one the gate greps:
 `file:line:col: error: <message> [crug-AREA-NNN]`. The area-code registry and

@@ -80,7 +80,8 @@ return type; an array declarator attaches to the element type.
 | --- | --- |
 | `own T *p` | `p` owns one `T` object; the destructor has type `void (*)(T *)` |
 | `own T **p` | `p` owns one pointer-sized object of type `T *`; the inner `T` is not owned |
-| `own T a[4]` | four owned `T` objects in an array, destroyed 3, 2, 1, 0 |
+| `own T a[4]` | error `crug-TYPE-015`: element-wise destruction is not implemented |
+| `own T *g` at file scope | error `crug-OWN-014`: the owner would never be destroyed |
 | `own` struct member | the containing object owns the member and destroys it |
 | `typedef T *P; own P p` | `p` owns one `T`; a typedef cannot carry the qualifier |
 | `own T *f (void)` | the caller owns the returned `T` |

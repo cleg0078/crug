@@ -712,12 +712,29 @@ crug_mark_owning_decl (tree decl, location_t loc)
       return;
     }
 
+  /* The ownership pass tracks declarations inside one function body.  A
+     file-scope owner is never frame-tracked, so it would never be destroyed
+     and the qualifier would silently do nothing (fix-p3 OWN-04).  Locals,
+     parameters and members are all parsed with a function context or a
+     non-VAR_DECL code, so only a file-scope variable matches here.  */
+  if (TREE_CODE (decl) == VAR_DECL && current_function_decl == NULL_TREE)
+    {
+      crug_error_at (loc, "crug-OWN-014", "an owning declaration at file scope would never be "
+		"destroyed; declare the owner inside a function and pass it as an own "
+		"parameter");
+      return;
+    }
+
   if (TREE_CODE (type) == ARRAY_TYPE)
     {
-      /* An array of owned pointers owns its elements.  The Phase 5 MVP
-	 tracks the object as one place; the element-wise destruction of an
-	 array is a Phase 7 refinement.  */
-      type = TREE_TYPE (type);
+      /* Element-wise destruction was never implemented: an 'own' array
+	 would own its elements on paper only, and every use was diagnosed as
+	 an empty owned value.  Reject the form instead of accepting a dead
+	 surface (fix-p3 OWN-05).  */
+      crug_error_at (loc, "crug-TYPE-015", "qualifier is not allowed on an array; ownership is "
+		"tracked per object, not per element -- own a pointer to a heap "
+		"array instead");
+      return;
     }
 
   if (TREE_CODE (type) != POINTER_TYPE)
