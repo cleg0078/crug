@@ -20,10 +20,36 @@ static const char crug_diagnostics_url[]
 /* Emit KIND at LOC.  When CODE is non-null it becomes the diagnostic's
    rule, which is what the text and SARIF sinks render as the stable code.  */
 
+static int crug_suppress_depth;
+
+void
+crug_diagnostics_suppress_push ()
+{
+  crug_suppress_depth++;
+}
+
+void
+crug_diagnostics_suppress_pop ()
+{
+  if (crug_suppress_depth > 0)
+    crug_suppress_depth--;
+}
+
+bool
+crug_diagnostics_suppressed ()
+{
+  return crug_suppress_depth > 0;
+}
+
 static bool
 crug_diagnostic_valist (location_t loc, diagnostics::kind kind, int option,
 			const char *code, const char *gmsgid, va_list *ap)
 {
+  /* A probe pass must not report anything, and it must not change whether a
+     warning would be printed.  */
+  if (crug_suppress_depth > 0)
+    return false;
+
   rich_location richloc (line_table, loc);
 
   if (!code)

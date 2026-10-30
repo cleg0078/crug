@@ -35,4 +35,14 @@ extern bool crug_warning_at (location_t loc, int option, const char *code,
 extern void crug_note_at (location_t loc, const char *gmsgid, ...)
   ATTRIBUTE_GCC_DIAG (2, 3);
 
+/* A probe pass re-analyses statements to learn the state they leave behind
+   without reporting anything twice.  While a suppression scope is active the
+   three entry points above emit nothing and return false, and the analysis
+   also suppresses its dump output and its cross-pass registrations, because
+   the real pass owns them.  Scopes nest.  */
+
+extern void crug_diagnostics_suppress_push ();
+extern void crug_diagnostics_suppress_pop ();
+extern bool crug_diagnostics_suppressed ();
+
 #endif /* GCC_CRUG_DIAGNOSTICS_H */

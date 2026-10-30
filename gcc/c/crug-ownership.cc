@@ -355,6 +355,10 @@ struct crug_fn_ctx
   /* How many 'unsafe { }' blocks enclose the statement being analysed.
      Strict-mode checks stand down while this is non-zero (ADR 0021 D3).  */
   int unsafe_depth = 0;
+  /* A probe pass analyses statements a second time to learn the state they
+     leave behind.  It emits no diagnostics, records no destructions and leaves
+     no registration behind; the real pass owns all of that.  */
+  bool probe = false;
 };
 
 /* Declarations recorded as owning during parsing, keyed by DECL_UID rather
@@ -1160,6 +1164,11 @@ dump_kind_enabled (const char *kind)
 static FILE *
 get_dump_file (const char *kind)
 {
+  /* A probe pass analyses the same statements a second time; its dump lines
+     would duplicate the real pass's.  */
+  if (crug_diagnostics_suppressed ())
+    return NULL;
+
   for (size_t i = 0;
        i < sizeof (crug_dump_slots) / sizeof (crug_dump_slots[0]); i++)
     {
@@ -1877,8 +1886,10 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
 	}
       ctx.decl_depth.erase (f.borrows[i]);
     }
-  /* The block is done; a later block never reuses this handle.  */
-  if (f.scope_handle != NULL_TREE)
+  /* The block is done; a later block never reuses this handle.  A probe pass
+     walks its own copy of the frames and must not consume the registration
+     the real pass still needs.  */
+  if (f.scope_handle != NULL_TREE && !ctx.probe)
     {
       crug_scope_blocks.erase (f.bind);
       crug_scope_owners.erase (f.bind);
@@ -1894,6 +1905,10 @@ pop_frame (crug_fn_ctx &ctx, state_map &env)
 static void
 check_scoped_lenders (crug_fn_ctx &ctx, tree bind, size_t depth)
 {
+  /* The captures are reported once, by the real pass; a probe pass must not
+     consume them.  */
+  if (ctx.probe || crug_diagnostics_suppressed ())
+    return;
   std::map<tree, tree>::const_iterator s = crug_scope_blocks.find (bind);
   if (s == crug_scope_blocks.end ())
     return;
@@ -2529,7 +2544,8 @@ ambiguous_state (crug_fn_ctx &ctx, tree decl, crug_state state,
     crug_error_at (DECL_SOURCE_LOCATION (decl), "crug-DROP-006",
 	      "cannot prove that %qD is destroyed exactly once on this path"
 	      , decl);
-  inform (loc, "the ownership state here depends on which branch was taken");
+  if (!crug_diagnostics_suppressed ())
+    inform (loc, "the ownership state here depends on which branch was taken");
 }
 
 /* Collect the destructions for every frame deeper than KEEP_DEPTH, in
@@ -2716,6 +2732,8 @@ static void
 warn_adopt_signature (crug_fn_ctx &ctx, tree dtor, tree optype, location_t loc)
 {
   (void) ctx;
+  if (crug_diagnostics_suppressed ())
+    return;
   const char *msg = "adopt() destructor must have type void (*)(T *) for the "
     "operand type T [crug-OWN-002]";
   if (crug_feature_enabled (CRUG_FEAT_STRICT))
@@ -4909,7 +4927,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 		location_t origin = borrow_value_origin (ctx, rv);
 		crug_error_at (loc, "crug-BORROW-019", "a borrow cannot be returned from the function "
 			  "that created it");
-		if (origin != UNKNOWN_LOCATION)
+		if (origin != UNKNOWN_LOCATION
+		    && !crug_diagnostics_suppressed ())
 		  inform (origin, "borrow created here");
 	      }
 	    walk_expr (ctx, env, TREE_OPERAND (t, 0), loc);
@@ -5203,7 +5222,29 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 
 	std::map<tree, crug_borrow> borrow_base = ctx.borrows;
 	std::map<tree, crug_root_info> roots_base = ctx.ptr_roots;
-	state_map body = env;
+
+	/* The body runs at least once and may run again from the state its first
+	   iteration leaves, so the second iteration has to be checked too.  Probe
+	   the body once without diagnostics, destructions or registrations to
+	   learn which state a back edge can carry, join that into the entry, and
+	   then analyse the body for real from the joined entry: the real pass owns
+	   the drops, the exits and the codegen side effects.  */
+	state_map entry = env;
+	state_map probe_exit = entry;
+	bool probe_reach;
+	crug_fn_ctx probe = ctx;
+	probe.probe = true;
+	crug_diagnostics_suppress_push ();
+	probe_reach = walk_stmt (probe, probe_exit, DO_BODY (t), loc);
+	if (DO_COND (t) != NULL_TREE)
+	  walk_expr (probe, probe_exit, DO_COND (t), loc);
+	for (size_t i = 0; i < probe.targets.back ().edges.size (); i++)
+	  merge_into (ctx, entry, probe.targets.back ().edges[i], loc, false);
+	if (probe_reach)
+	  merge_into (ctx, entry, probe_exit, loc, false);
+	crug_diagnostics_suppress_pop ();
+
+	state_map body = entry;
 	bool body_reach = walk_stmt (ctx, body, DO_BODY (t), loc);
 	if (DO_COND (t) != NULL_TREE)
 	  walk_expr (ctx, body, DO_COND (t), loc);
@@ -5213,7 +5254,13 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	crug_target done = ctx.targets.back ();
 	ctx.targets.pop_back ();
 
-	state_map merged = body;
+	/* Leaving the loop is possible before any further iteration, so the
+	   pre-loop state and every edge state are alternatives at the exit, as in
+	   a while loop.  A value an iteration consumed may still be owned when the
+	   loop is left before consuming it again (fix-p3 OWN-01).  */
+	state_map merged = entry;
+	if (body_reach)
+	  merge_into (ctx, merged, body, loc);
 	for (size_t i = 0; i < done.edges.size (); i++)
 	  merge_into (ctx, merged, done.edges[i], loc);
 	env = merged;
@@ -5222,6 +5269,8 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	ctx.ptr_roots = roots_base;
 	std::vector<const std::map<tree, crug_borrow> *> bpaths;
 	std::vector<const std::map<tree, crug_root_info> *> rpaths;
+	bpaths.push_back (&borrow_base);
+	rpaths.push_back (&roots_base);
 	if (body_reach)
 	  {
 	    bpaths.push_back (&body_borrows);
@@ -5233,7 +5282,7 @@ walk_stmt (crug_fn_ctx &ctx, state_map &env, tree t, location_t locus)
 	join_ptr_root_alternatives (ctx, ctx.ptr_roots, rpaths);
 	if (!done.borrow_edges.empty ())
 	  ctx.ptr_roots_unknown = true;
-	return body_reach;
+	return probe_reach || body_reach;
       }
 
     case SWITCH_STMT:
