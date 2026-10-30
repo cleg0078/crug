@@ -31,7 +31,10 @@
 # measured from the payload (the NEEDED libraries of every ELF file and the
 # highest GLIBC_ symbol version) plus the compiler's own needs, binutils and
 # libc6-dev.  md5sums and changelog.Debian are generated here; dpkg-deb does
-# not write md5sums for a package built without debhelper.
+# not write md5sums for a package built without debhelper.  The Maintainer
+# field comes from DEBFULLNAME and DEBEMAIL when both are set (setting one is
+# an error) and otherwise from a fixed release identity -- never from the
+# build host's git author.
 #
 # The deb is not claimed to be byte-reproducible: dpkg-deb ignores
 # SOURCE_DATE_EPOCH, so only the payload mtimes are normalised.
@@ -194,8 +197,16 @@ ln -s /opt/crug/include/crug "$pkgroot/usr/include/crug" || fail "cannot link /u
 ln -s /opt/crug/lib/libcrug.a "$pkgroot/usr/lib/x86_64-linux-gnu/libcrug.a" \
   || fail "cannot link /usr/lib/x86_64-linux-gnu/libcrug.a"
 
-maintainer=$(git -C "$ROOT" log -1 --format='%an <%ae>' 2>/dev/null || true)
-[ -n "$maintainer" ] || maintainer='cleg <chri.legendre06@gmail.com>'
+# The maintainer comes from the caller's Debian environment, never from the
+# build host's git identity: a package must not change because of who checked
+# the tree out.  Set both DEBFULLNAME and DEBEMAIL, or neither.
+if [ -n "${DEBFULLNAME:-}" ] && [ -n "${DEBEMAIL:-}" ]; then
+	maintainer="${DEBFULLNAME} <${DEBEMAIL}>"
+elif [ -n "${DEBFULLNAME:-}${DEBEMAIL:-}" ]; then
+	fail "set both DEBFULLNAME and DEBEMAIL, or neither"
+else
+	maintainer='cleg <chri.legendre06@gmail.com>'
+fi
 
 install -m 0644 "$ROOT/packaging/debian/copyright.in" "$pkgroot/usr/share/doc/crug/copyright" \
   || fail "cannot install the copyright file"

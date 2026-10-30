@@ -929,6 +929,15 @@ def test_line_directives():
         check(transformed is None, "nothing may be rewritten")
 
 
+@case("the tool version is the release version")
+def test_version_matches_release():
+    with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as handle:
+        release = handle.read().strip()
+    check(c2crug.VERSION == release,
+          "c2crug reports %r but VERSION says %r"
+          % (c2crug.VERSION, release))
+
+
 @case("command line")
 def test_command_line():
     buffer = io.StringIO()

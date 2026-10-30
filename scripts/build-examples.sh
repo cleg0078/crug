@@ -25,7 +25,6 @@ OUT=${OUT:-$ROOT/build/examples}
 EXAMPLES_DIR=${EXAMPLES_DIR:-${1:-examples}}
 LIB=$ROOT/libcrug
 FFI=$ROOT/gcc/testsuite/crug.dg/ffi/libc.crugffi
-RUNTIME="$LIB/build/linux/task.o $LIB/build/linux/pal_linux.o $LIB/build/linux/switch.o $LIB/build/linux/stack.o $LIB/build/linux/chan.o"
 built=0
 rejected=0
 runtime_built=0
@@ -116,7 +115,15 @@ runtime_ready () {
 		cat "$OUT/runtime.log" >&2
 		exit 1
 	fi
-	for obj in $RUNTIME; do
+	# The five runtime objects are spelled out at every use, quoted, so no
+	# path can be split by the shell.
+	for obj in \
+		"$LIB/build/linux/task.o" \
+		"$LIB/build/linux/pal_linux.o" \
+		"$LIB/build/linux/switch.o" \
+		"$LIB/build/linux/stack.o" \
+		"$LIB/build/linux/chan.o"
+	do
 		if [ ! -f "$obj" ]; then
 			echo "examples: missing runtime object $obj" >&2
 			exit 1
@@ -134,7 +141,9 @@ build () {
 	if [ "$kind" = runtime ]; then
 		runtime_ready
 		if ! "$CRUGC" -O2 "$@" -I"$LIB/core" "$file" \
-			$RUNTIME -pthread -o "$OUT/$name"; then
+			"$LIB/build/linux/task.o" "$LIB/build/linux/pal_linux.o" \
+			"$LIB/build/linux/switch.o" "$LIB/build/linux/stack.o" \
+			"$LIB/build/linux/chan.o" -pthread -o "$OUT/$name"; then
 			echo "examples: FAILED to build $DISP" >&2
 			exit 1
 		fi
@@ -177,10 +186,14 @@ for file in "$@"; do
 		"$ROOT"/*) DISP=${file#"$ROOT"/} ;;
 	esac
 	lookup "${file##*/}"
+	# MFLAGS is this script's own static list of flags, so splitting it into
+	# separate arguments is intended; quote "$@" at both callees.
+	# shellcheck disable=SC2086
+	set -- $MFLAGS
 	if [ -n "$MCODE" ]; then
-		reject "$MNAME" "$file" "$MCODE" $MFLAGS
+		reject "$MNAME" "$file" "$MCODE" "$@"
 	else
-		build "$MNAME" "$file" "$MKIND" $MFLAGS
+		build "$MNAME" "$file" "$MKIND" "$@"
 	fi
 done
 

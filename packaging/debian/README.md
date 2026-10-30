@@ -12,7 +12,13 @@ package payload is the same install tree `scripts/package.sh` tars
 | `README.md` | not installed | this file |
 
 `DEBIAN/md5sums` and `/usr/share/doc/crug/changelog.Debian.gz` are generated
-by the script.  There is no maintainer script: the package only drops files
+by the script.  The `Maintainer` field in both the control file and the
+changelog comes from `DEBFULLNAME` and `DEBEMAIL` when both are set, and
+otherwise from the fixed release identity `cleg <chri.legendre06@gmail.com>`;
+the build host's git author is never used, so the package does not change with
+the checkout, and setting only one of the two variables is an error.
+
+There is no maintainer script: the package only drops files
 under `/opt/crug` and five links under `/usr`, so it needs no `postinst`,
 `prerm` or `postrm`.
 

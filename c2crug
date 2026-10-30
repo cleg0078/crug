@@ -27,7 +27,25 @@ import shutil
 import subprocess
 import sys
 
-VERSION = "0.1.0"
+def _release_version ():
+    """Return the release version next to this script.
+
+    The tracked VERSION file is authoritative; the literal is only a fallback
+    for a copy of the script taken outside the checkout.  A report schema
+    requires a three-part version, so the fallback is the last release that
+    shipped the file rather than a placeholder.
+    """
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "VERSION")
+        with open(path, encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except OSError:
+        value = ""
+    return value or "0.2.4"
+
+
+VERSION = _release_version()
 SCHEMA_ID = "crug-c2crug-report-v1"
 
 HEAP_FNS = {"malloc", "calloc", "realloc", "reallocarray", "strdup",

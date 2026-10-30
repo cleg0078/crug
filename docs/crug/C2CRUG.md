@@ -7,7 +7,9 @@ amendment A-15. Corpus: `migration/`.
 
 `c2crug` is a Python 3 (standard library only) tool at the repository root. It
 reads C, and writes a Crug migration that is *provably* equivalent for the
-annotations it inserts. It never invents safety: a pointer whose ownership it
+annotations it inserts. `--version` prints the repository `VERSION` file and
+the report records the same string, so the tool cannot drift from the release.
+It never invents safety: a pointer whose ownership it
 cannot prove is preserved byte for byte and reported as `raw`.
 
 ## 1. Modes
@@ -179,7 +181,7 @@ migrated program still compiles as plain C and still frees manually.
 
 | Check | Result |
 |-------|--------|
-| `python3 scripts/test-c2crug.py` | 140 checks over 30 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected, command line (`--version` without a tree, a run without a mode exits 2), preprocessing eligibility, sidecar headers, report fields |
+| `python3 scripts/test-c2crug.py` | 171 checks over 34 cases: transform, confidence, raw preservation, analyze writes nothing, safe copies, validator lies rejected, command line (`--version` without a tree, a run without a mode exits 2), preprocessing eligibility, sidecar headers, report fields |
 | `scripts/check-c2crug.sh` | the whole flow on `migration/`: analyze, safe, validate, compile with `crugc`, differential run, churn/comment band, report-to-tree agreement |
 | `scripts/c2crug-diff.sh SRC OUT [MAX]` | changed lines <= MAX% and comment lines equal |
 | `make check-C2CRUG` | both of the first two |
@@ -200,6 +202,6 @@ suggestions over 20 sources; the safe run applies six entries in five files and
 `--diff` changes 12 of 491 lines (2.4%). The proof fixtures live in
 `migration/proofs/` and `scripts/check-c2crug-proofs.sh` runs them; the four
 `migration/witnesses/` regressions stay raw as described in section 4, and
-`scripts/test-c2crug.py` covers 140 checks over 30 cases, including the
+`scripts/test-c2crug.py` covers 171 checks over 34 cases, including the
 negative cases (a conditional free, an unrelated guard, a multi-declarator,
 preprocessor ineligibility).

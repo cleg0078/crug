@@ -320,7 +320,9 @@ never writes a sidecar:
 ./c2crug --diff src/
 ```
 
-`--analyze` writes nothing but its report, `--safe` writes a copy with the
+`--version` prints `c2crug <version>` from the repository `VERSION` file,
+which is also the report's `version` field. `--analyze` writes nothing but its
+report, `--safe` writes a copy with the
 proven edits applied and refuses an output that already exists (it publishes
 the copy atomically and rejects a source with `#line` directives as
 unmappable), and `--diff` prints a unified diff. `--cpp PATH` selects the host C preprocessor used to
@@ -336,7 +338,7 @@ stderr. The proof, the confidence values, the report schema
 `docs/crug/c2crug-report.schema.json` and the corpus are in
 `docs/crug/C2CRUG.md`. The tool never invents ownership: an unproven pointer
 stays raw and the report says why. Two checks cover it:
-`python3 scripts/test-c2crug.py` (170 checks) and `scripts/check-c2crug.sh`;
+`python3 scripts/test-c2crug.py` (171 checks) and `scripts/check-c2crug.sh`;
 the Makefile target is `make check-C2CRUG`.
 
 ## 8. Kernel tooling

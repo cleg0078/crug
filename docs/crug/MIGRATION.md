@@ -11,7 +11,7 @@ usage: c2crug [-h] [--analyze | --safe | --diff] [-o OUTPUT] [--report REPORT]
               [--cpp PATH] [--cpp-arg ARG] [--version] [root]
 ```
 
-Measured behavior: `./c2crug --version` prints `c2crug 0.1.0` and exits 0; no mode exits 2; a file argument prints `c2crug: not a directory: migration/01-heap.c` and exits 2; `--safe` with an existing `-o` directory prints `c2crug: output directory already exists: <dir>` and exits 2. It walks the directory for `*.c` files, sorts them, and writes nothing except in `--safe` mode.
+Measured behavior: `./c2crug --version` prints `c2crug <version>` and exits 0, where `<version>` is the repository `VERSION` file (0.2.4 as measured here; the report's `version` field is the same string); no mode exits 2; a file argument prints `c2crug: not a directory: migration/01-heap.c` and exits 2; `--safe` with an existing `-o` directory prints `c2crug: output directory already exists: <dir>` and exits 2. It walks the directory for `*.c` files, sorts them, and writes nothing except in `--safe` mode.
 
 The tool is not a compiler and needs no build: it parses a deliberately small subset of C shapes with its own tokenizer. That is the design, not a limitation of the corpus: the admission rules in section 3 are exactly the shapes the tokenizer can prove something about. The output is either a report, a transformed copy, or a diff, all deterministic.
 
