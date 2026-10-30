@@ -114,8 +114,15 @@ type_property_1 (tree type, bool want_sync, tree *blocker, int depth)
 
   if (type == NULL_TREE || type == error_mark_node)
     return true;
+  /* A type nested deeper than this is not handed over as one object, so the
+     excess depth says nothing about the value's safety; treat it as not
+     sendable instead of silently accepting it (CONC-01).  */
   if (depth > 32)
-    return true;
+    {
+      if (blocker != NULL)
+	*blocker = type;
+      return false;
+    }
 
   override = ffi_override (type, want_sync);
   if (override >= 0)

@@ -134,6 +134,9 @@ without transfer), `crug-CONC-012` (a capture of a borrow outside a scope),
 - The inference is structural. A pointer hidden in a `uintptr_t`, behind an
   opaque `void *`, or in an aggregate the ownership pass does not track is not
   seen; the FFI annotation is the documented escape for opaque types.
+- The inference recurses at most 32 levels into an aggregate or array.  A type
+  nested deeper than that is rejected rather than assumed sendable, so an
+  accidental 33-level structure cannot slip past the check (fix-p3, CONC-01).
 - An aggregate owning field is a known residual risk: the ownership pass does
   not track `struct { own char *p; }` (the Phase 5 MVP limit), so a struct with
   an `own` field can still be copied to another worker. Do not release the
@@ -147,14 +150,16 @@ without transfer), `crug-CONC-012` (a capture of a borrow outside a scope),
 
 | check | result |
 | --- | --- |
-| `make check-SEND_SYNC` | `send-sync: 14 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` |
-| `make check-SEND_SYNC_DG` | the DejaGnu suite alone; 14 expected passes |
+| `make check-SEND_SYNC` | `send-sync: 20 compiler test(s), 0 failure(s); raw pointer rejected, thread affinity enforced, FFI annotations enforced` |
+| `make check-SEND_SYNC_DG` | the DejaGnu suite alone; 20 expected passes |
 | `scripts/check-send-sync.sh` | the suite, the unchanged `spawn` runtime program, the raw-pointer rejection, both affinity cases and both FFI annotation cases |
 
 The compiler cases live in `gcc/testsuite/crug.dg/send-sync/`: `send-int.c`,
-`send-struct.c`, `send-own.c`, `send-chan.c`, `send-fnptr.c`, `sync-borrow.c`
-(accepted forms) and `raw-ptr.c`, `struct-ptr.c`, `chan-ptr.c`, `sync-ptr.c`
-(rejected forms). The runtime side is unchanged: the task suite delivers a
+`send-struct.c`, `send-own.c`, `send-chan.c`, `send-fnptr.c`, `sync-borrow.c`,
+`chain-send-32.c`, `chain-deep-40.c` (accepted forms) and `raw-ptr.c`,
+`struct-ptr.c`, `chan-ptr.c`, `sync-ptr.c`, `chain-send-33.c`,
+`chain-sync-33.c` (rejected forms); the last two pin the depth limit of
+section 8. The runtime side is unchanged: the task suite delivers a
 copied value (`libcrug/tests/goroutines/`), the channel suite transfers an owned
 value (`libcrug/tests/channels/owned.c`), and an array capture is now rejected
 rather than silently copied, so `go-capture.c` expects `crug-CONC-024`.
