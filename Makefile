@@ -353,6 +353,9 @@ crugc: ## print the in-tree driver and its version
 
 ##@ Packaging
 
+dist-prune: ## delete release artefacts of other versions from dist/ and rewrite SHA256SUMS
+	@scripts/clean-dist.sh
+
 package: ## build the release tarball, the Debian package, the checksums and the SPDX SBOM into dist/
 	@scripts/package.sh
 
@@ -437,7 +440,7 @@ distclean: ## remove build/ and sources/ entirely
 	check-SCOPE check-SCOPE_DG check-CHANNELS check-CHANNELS_DG \
 	check-SEND_SYNC check-SEND_SYNC_DG check-MULTI_OS check-KERNEL examples \
 	check-DIAGNOSTICS check-docs-examples check-DOCS pristine-xgcc check-PERFORMANCE \
-	check-FUZZ check-SANITIZER package package-deb package-image check-DEB check-launcher \
+	check-FUZZ check-SANITIZER dist-prune package package-deb package-image check-DEB check-launcher \
 	check-PACKAGING check-RC \
 	fork-delta check-gcc-drift verify-upgrade \
 	status print-config reconfigure clean distclean

@@ -140,6 +140,21 @@ fields and the tarball entries, and prints:
 
     check-release: 25 check(s), 0 problem(s)
 
+`dist/` keeps one tarball, one SBOM and one Debian package per version, so a
+tree that has shipped a few releases holds several of each.  Keep only the
+current release:
+
+    $ make dist-prune
+
+`scripts/clean-dist.sh` keeps the tarball, SBOM and Debian package of the
+version in [VERSION](../../VERSION) together with `LICENSE` and `NOTICE`,
+deletes the release files and `archive-*` directories of every other version,
+rewrites `SHA256SUMS` over the five kept artefacts and verifies it with
+`sha256sum -c`.  It refuses to run when one of the current artefacts is
+missing (the rewritten checksums would describe an incomplete release) and
+leaves entries it does not recognise alone; pass `--dry-run` to review the
+removals first.
+
 ## 4. Build and use the container image
 
     $ ./packaging/build-image.sh
