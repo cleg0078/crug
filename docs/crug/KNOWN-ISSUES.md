@@ -85,6 +85,9 @@ K-039   P2       compiler fixed  migration/bench-c2crug.py  --analyze rescanned 
 K-040   P2       compiler fixed  migration/witnesses/same-line-exits.c  two returns on one line made the guard of the first cover the second, so a release could be migrated although an exit skipped it; the proof now matches the terminal statement position (R4-TOOL-003)
 K-041   P2       compiler fixed  gcc/testsuite/crug.dg/channels/recv-owned-drop.c  'own T *v = recv (ch); drop (v);' was rejected as crug-OWN-007 because the ownership pass only recognised a CALL_EXPR initialiser; a received owned value is now modelled as adopted with no destructor and only the unreleased and double-drop forms are diagnosed (C-01 follow-up)
 K-042   P2       ci       open   -                                      the diagnostic scripts resolve crugc from PATH before the in-tree launcher, so 'make check-FFI' validated an installed 0.2.3 compiler instead of this tree; scripts/gate.sh prepends gcc/ so archived gates are unaffected
+K-043   P0       compiler fixed  gcc/testsuite/crug.dg/ownership/do-while-double-move.c  a do-while body was walked once, so a move was invisible to the back edge and iteration two double-freed (OWN-01)
+K-044   P1       compiler fixed  gcc/testsuite/crug.dg/ownership/do-while-leak.c  the missing back-edge join also leaked an adopt overwrite and made release-then-read a use-after-release (OWN-02/OWN-02b; use-after-drop covered by the sibling fixture)
+K-045   P1       compiler fixed  gcc/testsuite/crug.dg/alias/global-escape.c  an alias fact injected restrict although the lender had been copied to a global before the call, a deterministic -O2 miscompile (OWN-03)
 <!-- ledger:end -->
 ```
 
@@ -109,6 +112,21 @@ K-042   P2       ci       open   -                                      the diag
   per-function fact cache and the same-line exit proof). The Crug runtime ABI
   stays 1; `crug_chan_recv_into`/`_owned` are additive and the PAL contract is
   unchanged at 1.2.
+
+- **fix-p3 batch** (K-043 to K-045, fixed 2026-10-30 on top of `c43060459`):
+  the fix-p3 audit carries 25 identifiers (22 confirmed findings and three
+  observations it marks SUSPECTED or OBSERVÉ). The ledger records the three P0/P1
+  entries; the full adjudication is in `spec/fix-p3/LEDGER.md`. The compiler group is
+  the do-while ownership back edge (K-043, K-044), the escaped-lender alias fact
+  (K-045), file-scope `own` and `own` arrays (`crug-OWN-014`, `crug-TYPE-015`), the
+  FFI sidecar that ends inside a declaration (`crug-FFI-013`), depth-32 Send/Sync
+  inference and affinity through an aggregate member; the runtime group is the scope
+  completion handshake, the runtime start order and the PAL port edges; and the
+  process group is the c2crug scanner/atomic `--safe` publication, the version and
+  maintainer provenance, the SPDX symbolic links and `clean-dist`, plus the parser
+  fuzzing seeds. `TYP-01` (a negative `slice` length is stored wrapped) is accepted
+  by design. The Crug and runtime ABI, `.crugffi` and the PAL contract are unchanged;
+  the batch is unreleased under `[Unreleased]`.
 
 - **Post-rc1 batch** (K-003 to K-023, fixed 2026-10-26 on top of f86b7df):
   twenty-one defects from the external audit (four R4 and seventeen prior

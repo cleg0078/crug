@@ -8,6 +8,93 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+### Added
+
+- **`crug-FFI-013`.** A `.crugffi` sidecar that ends inside a declaration
+  (a tag name after `type struct`/`type opaque`, a function name after
+  `fn`) reports the new code at the last token instead of dropping the file
+  without a diagnostic; the more specific truncation codes are used only when
+  EOF was not the cause.
+- **Compiler regressions.** The do-while ownership back edge, escaped-lender
+  alias fact, file-scope `own`, `own` arrays, FFI EOF, depth-32 Send/Sync
+  and member affinity each have a fixture under `gcc/testsuite/crug.dg/`.
+- **Runtime regressions.** `scope_free_race.c` (3000 group lifetimes through
+  the main and waiter paths) joins `check-RUNTIME` and the sanitizer suite;
+  `scope_wake_race.c` now arms after runtime start and pins the scope
+  completion handshake.
+- **Tooling regressions.** `scripts/test-c2crug.py` covers the control
+  scanner, `#line` eligibility, the widened exit-call list, atomic
+  `--safe` publication and the `VERSION` match; `check-packaging.sh`
+  compares the SPDX symbolic-link and regular-file sets.
+- **`scripts/clean-dist.sh`** and `make dist-prune` remove artefacts of other
+  versions and rewrite `SHA256SUMS`, refusing to run when the current files
+  do not verify.
+- **Fuzzing.** The parser dictionary carries the concurrency spellings and two
+  new seeds exercise them as identifiers and as contextual productions.
+
+### Changed
+
+- **Do-while ownership.** A do-while body is walked once as a probe, every
+  back and exit edge is joined, and the body is then walked for real from the
+  joined state. A `move` in the body now reaches iteration two, an `adopt`
+  overwrite is visible, and a release-then-read is rejected. The
+  `do { } while (0)` form can still report the conservative `crug-DROP-006`.
+- **Escaped lenders.** A lender stored where the pass cannot follow (a
+  file-scope object, a static, a member, an element or indirect memory) is
+  tracked as escaped and can no longer support an exclusive `mut` argument;
+  the call reports `crug-BORROW-024`. A fresh allocation is exempt.
+- **File-scope declarations.** A file-scope `own` is `crug-OWN-014`; an
+  `own` array is `crug-TYPE-015`. A function-local static `own` remains a
+  documented limitation.
+- **FFI sidecars.** Explicit sidecars parse lazily at the first contract
+  query or at the end of the translation unit, and parse-time errors reach the
+  SARIF sink with their `ruleId` and `helpUri`.
+- **Send/Sync.** Type inference past depth 32 now fails closed and names the
+  unexamined type; a thread-affine value stored into an aggregate member makes
+  the whole object affine.
+- **Scoped completion and start order.** `crug_task_finish` raises
+  `in_flight` before dropping the group count and lowers it after the wake,
+  and `runtime_start` publishes `start_state` before `started`.
+- **c2crug.** `--safe` stages the whole run and publishes it only after the
+  report is complete; the version comes from `VERSION`; a `#line` that names
+  another file degrades eligibility to raw with a named reason.
+- **Release provenance.** The Debian Maintainer comes from
+  `DEBFULLNAME`/`DEBEMAIL` or a fixed release identity, and `build-examples`
+  passes flags through one documented split instead of an unquoted expansion.
+- **SPDX and dist hygiene.** Symbolic links get their own `OTHER` entries with
+  their targets and the package verification code stays over regular files;
+  `clean-dist` removes stale artefacts.
+- **Documentation.** `CHANNELS.md` no longer claims a source-level `break`
+  ends a select arm, `BORROW.md` and ADR 0010 record the escaped-lender rule,
+  `SEND-SYNC.md` records the depth bound and member affinity, and
+  `OWNERSHIP.md`, `GRAMMAR.md`, ADR 0018 and `DIAGNOSTICS.md` record the
+  declaration rules.
+
+### Fixed
+
+- **Do-while miscompiles.** A `move` in a do-while body was invisible to the
+  back edge (`free(): double free detected`), an `adopt` overwrite leaked,
+  and a release followed by a read was a use-after-release (K-043, K-044).
+- **Escaped-lender miscompile.** A lender copied to a global still injected
+  `restrict`, so a -O2 build returned `a+b=0` instead of 2 (K-045).
+- **FFI parser.** EOF inside a declaration no longer drops the whole sidecar,
+  `eof_reported` is initialised, and explicit sidecar errors now carry their
+  `[crug-FFI-NNN]` text suffix and SARIF rule metadata.
+- **Scope race.** A delayed PAL wake could target a freed group whose address
+  was reused; scope leave now waits for the completion handshake before
+  releasing the group.
+- **Start/shutdown race.** A shutdown could join worker handles the starter had
+  not created yet; publishing `start_state` first orders both writes.
+- **PAL port edges.** The Windows clock converts whole seconds before scaling
+  and saturates instead of overflowing; the fake clock counter is atomic; the
+  fake backend excludes `recv_into`.
+- **c2crug.** A `#line` directive no longer crashes with `NameError`, a
+  preprocessing failure leaves the tree untouched, and exits through
+  `pthread_exit`, `_Exit`, `siglongjmp`, `pthread_cancel`, `thrd_exit` and
+  noreturn wrappers make a function ineligible for the 1.00-confidence label.
+- **Packaging.** `dist/` no longer mixes versions, symbolic links are listed
+  in the SBOM, and the Debian maintainer is not taken from the checkout.
+
 ## [0.2.4] - 2026-10-28
 
 ### Added
