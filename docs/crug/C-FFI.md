@@ -179,7 +179,7 @@ position is `crug-FFI-006`. Both flags imply `-fcrug-ownership` and define
 
 ## 5. Diagnostics
 
-All twelve contract codes are errors in hybrid and strict modes; they are
+All thirteen contract codes are errors in hybrid and strict modes; they are
 registered in [DIAGNOSTICS.md](DIAGNOSTICS.md). A text diagnostic ends with
 the bracketed code `[crug-FFI-NNN]`.
 
@@ -197,10 +197,11 @@ the bracketed code `[crug-FFI-NNN]`.
 | `crug-FFI-010` | the file exceeds 1 MiB or 10,000 entries |
 | `crug-FFI-011` | the destructor cannot be resolved |
 | `crug-FFI-012` | a NUL byte appears inside a metadata line; it is an error at its own line and column, never an end-of-line |
+| `crug-FFI-013` | the metadata file ends in the middle of a declaration; the missing token is reported instead of failing silently |
 
 Conflict reporting is deterministic: one command line produces byte-identical
 stderr. `scripts/check-ffi-conflict.sh` asserts that for `crug-FFI-004`, and
-`scripts/check-ffi-policy.sh` makes each of the twelve codes fire from a
+`scripts/check-ffi-policy.sh` makes each of the thirteen codes fire from a
 fixture. There is no warning class for a contract.
 
 ## 6. Limits
@@ -248,7 +249,7 @@ discovery (an adjacent `contract.h` and `contract.crugffi`) and codegen
 | `scripts/check-ffi-integration.sh` | `ffi-integration: 4 libraries unchanged, 4 programs OK` |
 | `scripts/check-ffi-conflict.sh` | `ffi-conflict: crug-FFI-004 stable across 2 runs` |
 | `scripts/check-ffi-codegen.sh` | `ffi-codegen: 2 files, 0 differences` |
-| `scripts/check-ffi-policy.sh` | all `FFI-001` to `FFI-012` fire |
+| `scripts/check-ffi-policy.sh` | all `FFI-001` to `FFI-013` fire |
 | `scripts/check-diagnostics.sh` | all FFI codes are registered and referenced |
 
 The integration programs use four real libraries: libc (`fopen`/

@@ -85,8 +85,12 @@ NUL="$OUT/nul.crugffi"
 printf 'crugffi 1.0;\nfn spaced_free consumes arg0 nullable;\0@@@\n' > "$NUL"
 expect FFI-012 -O2 "-fcrug-ffi=$NUL" "$ROOT/gcc/testsuite/crug.dg/ffi/metadata/argref-space.c"
 
+# FFI-013 is a sidecar that ends inside a declaration; the suite keeps two
+# repository fixtures for it and the policy runs one of them.
+expect FFI-013 -O2 "-fcrug-ffi=$ROOT/gcc/testsuite/crug.dg/ffi/metadata/eof-type.crugffi" "$ROOT/gcc/testsuite/crug.dg/ffi/metadata/eof-type.c"
+
 if [ $MISSING -eq 0 ]; then
-  echo "ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011 FFI-012"
+  echo "ffi-policy: FFI-001 FFI-002 FFI-003 FFI-004 FFI-005 FFI-006 FFI-007 FFI-008 FFI-009 FFI-010 FFI-011 FFI-012 FFI-013"
   exit 0
 fi
 echo "ffi-policy: $MISSING codes did not fire"

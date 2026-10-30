@@ -159,8 +159,9 @@ contract, the clause is the record that makes the call legal.
 | crug-FFI-010 | the file exceeds 1 MiB or 10,000 entries |
 | crug-FFI-011 | the destructor cannot be resolved |
 | crug-FFI-012 | a NUL byte appears inside a metadata line; it is an error, never an end-of-line |
+| crug-FFI-013 | the metadata file ends in the middle of a declaration; the missing token is an error, never a silent failure |
 
-All twelve are errors in hybrid and in strict mode, and all twelve are
+All thirteen are errors in hybrid and in strict mode, and all thirteen are
 registered in DIAGNOSTICS.md. Conflict reporting is deterministic: the same
 command line produces byte-identical stderr, which is what
 `scripts/check-ffi-conflict.sh` asserts.
@@ -199,7 +200,7 @@ DejaGnu-driven because each case links a shared fixture library and passes
 | accepted contracts | run-returns-owned, run-consume-move, run-out-owned, run-borrows, run-mut-borrows, run-callback, run-nullable |
 | rejected contracts | reject-consume, reject-out-owned-busy, reject-shared-to-mut, reject-callback |
 | metadata | conflict-a/b, bad/no-version, bad/version-2, bad/unknown-clause, bad/bad-arg, bad/bad-dtor, bad/unmatched, bad/type-void |
-| metadata format (0.2.4) | metadata/argref-space, metadata/returns-unowned, metadata/empty with generated `nul-byte` and `declcap` sidecars |
+| metadata format (0.2.4, fix-p3) | metadata/argref-space, metadata/returns-unowned, metadata/empty and metadata/eof-type, metadata/eof-opaque, metadata/eof-partial with generated `nul-byte` and `declcap` sidecars |
 | discovery | adjacent/ (contract.h, contract.crugffi, use.c) |
 | codegen | clean/malloc-free.c, clean/fopen-close.c |
 
@@ -218,7 +219,7 @@ changed nothing on disk.
 | `scripts/check-ffi-integration.sh` | 4 libraries unchanged, 4 programs OK, each handle closed exactly once |
 | `scripts/check-ffi-conflict.sh` | crug-FFI-004 stable across 2 runs, byte-identical stderr |
 | `scripts/check-ffi-codegen.sh` | 2 files, 0 differences with and without the sidecar |
-| `scripts/check-ffi-policy.sh` | FFI-001 to FFI-012 each fire from a fixture |
+| `scripts/check-ffi-policy.sh` | FFI-001 to FFI-013 each fire from a fixture |
 
 ## 7. Exit gate
 

@@ -97,9 +97,11 @@ case_run callback-rejected 1 crug-FFI-009 "$SUITE/reject-callback.c" $F
 case_run nullable 0 - "$SUITE/run-nullable.c" $F
 case_run adjacent 0 - "$SUITE/adjacent/use.c" -fcrug-ffi-discover
 
-# Metadata-format cases (0.2.4).  Two sidecars would be noise in the tree and
-# are generated here: a line carrying an embedded NUL byte (F-02) and one with
-# 10,001 declarations (F-04).  The NUL case keeps a valid declaration before
+# Metadata-format cases (0.2.4, fix-p3).  Two sidecars would be noise in the
+# tree and are generated here: a line carrying an embedded NUL byte (F-02) and
+# one with 10,001 declarations (F-04).  The truncated- and EOF cases live in
+# the metadata directory; the EOF sidecars end inside a declaration, which is
+# crug-FFI-013 (fix-p3, FFI-01).  The NUL case keeps a valid declaration before
 # the NUL, so before the fix the file compiled cleanly.
 printf 'crugffi 1.0;\nfn spaced_free consumes arg0 nullable;\0@@@\n' > "$OUT/nul-byte.crugffi"
 {
@@ -114,6 +116,9 @@ printf 'crugffi 1.0;\nfn spaced_free consumes arg0 nullable;\0@@@\n' > "$OUT/nul
 case_run argref-spaced 0 - "$METADATA/argref-space.c" "-fcrug-ffi=$METADATA/argref-space.crugffi"
 case_run truncated-consumes 1 crug-FFI-003 "$METADATA/truncated-consumes.c" "-fcrug-ffi=$METADATA/truncated-consumes.crugffi"
 case_run truncated-returns 1 crug-FFI-003 "$METADATA/truncated-returns.c" "-fcrug-ffi=$METADATA/truncated-returns.crugffi"
+case_run eof-type 1 crug-FFI-013 "$METADATA/eof-type.c" "-fcrug-ffi=$METADATA/eof-type.crugffi"
+case_run eof-opaque 1 crug-FFI-013 "$METADATA/eof-opaque.c" "-fcrug-ffi=$METADATA/eof-opaque.crugffi"
+case_run eof-partial 1 crug-FFI-013 "$METADATA/eof-partial.c" "-fcrug-ffi=$METADATA/eof-partial.crugffi"
 case_run returns-unowned 0 - "$METADATA/returns-unowned.c" "-fcrug-ffi=$METADATA/returns-unowned.crugffi"
 case_run nul-byte 1 crug-FFI-012 "$METADATA/argref-space.c" "-fcrug-ffi=$OUT/nul-byte.crugffi"
 case_run decl-cap 1 crug-FFI-010 "$METADATA/empty.c" "-fcrug-ffi=$OUT/declcap.crugffi"

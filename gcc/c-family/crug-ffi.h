@@ -35,7 +35,8 @@ struct crug_ffi_info
 /* True once -fcrug-ffi=<path> was given.  */
 extern bool crug_ffi_enabled_p (void);
 
-/* Handle one -fcrug-ffi=<path> occurrence; parses immediately.  */
+/* Handle one -fcrug-ffi=<path> occurrence.  The path is recorded and parsed
+   once, before the first contract query or when parsing ends.  */
 extern void crug_ffi_handle_option (const char *path);
 
 /* -fcrug-ffi-discover: turn the layer on without naming a file, so that

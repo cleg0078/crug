@@ -301,6 +301,7 @@ contract failures use the registered codes:
 | `crug-FFI-010` | the sidecar exceeds the size or entry limit |
 | `crug-FFI-011` | the destructor cannot be resolved |
 | `crug-FFI-012` | a NUL byte appears inside a metadata line |
+| `crug-FFI-013` | the metadata file ends in the middle of a declaration |
 
 The call-site checks use `crug-FFI-007` (`consumes` argument not moved),
 `crug-FFI-008` (`out_owned` not the address of an empty owned variable) and

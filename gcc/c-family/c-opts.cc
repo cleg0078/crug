@@ -342,8 +342,11 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
       break;
 
     case OPT_fcrug_ffi_:
-      /* Repeatable; each occurrence is parsed immediately so that the order
-	 of the command line is the order in which declarations are merged
+      /* Repeatable.  The path is recorded here and parsed once, before the
+	 first contract query or at the end of the translation unit, so a
+	 sidecar error goes through the coded-diagnostic layer instead of the
+	 option-processing path (fix-p3, FFI-02).  The command-line order is
+	 kept because the deferred loader walks the recorded paths in order
 	 (ADR 0007 D5).  */
       crug_ffi_handle_option (arg);
       break;

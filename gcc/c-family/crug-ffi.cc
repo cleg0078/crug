@@ -12,6 +12,7 @@
 #include "diagnostic-core.h"
 #include "crug-common.h"
 #include "crug-ffi.h"
+#include "crug-diagnostics.h"
 #include "cpplib.h"
 #include "c-family/c-pragma.h"
 #include "line-map.h"
@@ -77,6 +78,9 @@ static std::map<std::string, ffi_fn_decl> ffi_functions;
 static std::map<std::string, ffi_type_decl> ffi_types;
 static std::map<std::string, crug_ffi_info> ffi_infos;
 static bool ffi_option_seen;
+/* The explicit `-fcrug-ffi=' paths are recorded during option processing and
+   parsed once, lazily (see ffi_ensure_loaded).  */
+static bool ffi_explicit_loaded;
 
 /* Diagnostics.  A .crugffi file is not part of the line map, so the message
    carries its own file:line prefix; the stable code is what the gates and
@@ -87,6 +91,21 @@ static bool ffi_option_seen;
 #define ATTRIBUTE_FFI_PRINTF(m, n) \
   __attribute__ ((__format__ (__gnu_printf__, m, n)))
 
+/* A sidecar is not part of the line map, so its diagnostics carry the
+   file:line prefix in the message text and are emitted at UNKNOWN_LOCATION.
+   Going through crug_error_at attaches the stable code as rule metadata: the
+   text sink appends " [crug-FFI-NNN]" and the SARIF sink gets a ruleId and
+   the documentation URL, which a plain error() dropped (fix-p3, FFI-02).  */
+
+static void
+ffi_error_emit (int code, const char *text)
+{
+  char rule[32];
+
+  snprintf (rule, sizeof rule, "crug-FFI-%03d", code);
+  crug_error_at (UNKNOWN_LOCATION, rule, "%s", text);
+}
+
 static void
 ffi_file_error (const char *path, int code, const char *fmt, ...)
   ATTRIBUTE_FFI_PRINTF (3, 4);
@@ -96,15 +115,14 @@ ffi_file_error (const char *path, int code, const char *fmt, ...)
   char msg[512];
   va_list ap;
 
-  char suffix[32];
+  std::string text = path;
 
   va_start (ap, fmt);
   vsnprintf (msg, sizeof msg, fmt, ap);
   va_end (ap);
-  /* pretty_printer understands %s and %d but not field widths, so the
-     three-digit code is formatted here (DIAGNOSTICS.md section 1).  */
-  snprintf (suffix, sizeof suffix, "crug-FFI-%03d", code);
-  error ("%s: %s [%s]", path, msg, suffix);
+  text += ": ";
+  text += msg;
+  ffi_error_emit (code, text.c_str ());
 }
 
 static void
@@ -113,16 +131,19 @@ ffi_error (const char *path, int line, int code, const char *fmt, ...)
 static void
 ffi_error (const char *path, int line, int code, const char *fmt, ...)
 {
-  char msg[512];
+  char where[32];
+  char msg2[512];
   va_list ap;
 
-  char suffix[32];
-
   va_start (ap, fmt);
-  vsnprintf (msg, sizeof msg, fmt, ap);
+  vsnprintf (msg2, sizeof msg2, fmt, ap);
   va_end (ap);
-  snprintf (suffix, sizeof suffix, "crug-FFI-%03d", code);
-  error ("%s:%d: %s [%s]", path, line, msg, suffix);
+  snprintf (where, sizeof where, "%d: ", line);
+  std::string text = path;
+  text += ":";
+  text += where;
+  text += msg2;
+  ffi_error_emit (code, text.c_str ());
 }
 
 /* Like ffi_error, but also reports a column inside the line.  A byte that is
@@ -136,16 +157,19 @@ static void
 ffi_error_column (const char *path, int line, int column, int code,
 		  const char *fmt, ...)
 {
-  char msg[512];
+  char where[64];
+  char msg2[512];
   va_list ap;
 
-  char suffix[32];
-
   va_start (ap, fmt);
-  vsnprintf (msg, sizeof msg, fmt, ap);
+  vsnprintf (msg2, sizeof msg2, fmt, ap);
   va_end (ap);
-  snprintf (suffix, sizeof suffix, "crug-FFI-%03d", code);
-  error ("%s:%d:%d: %s [%s]", path, line, column, msg, suffix);
+  snprintf (where, sizeof where, "%d:%d: ", line, column);
+  std::string text = path;
+  text += ":";
+  text += where;
+  text += msg2;
+  ffi_error_emit (code, text.c_str ());
 }
 
 /* Tokenizer and parser.  */
@@ -161,7 +185,25 @@ struct ffi_parser {
   std::vector<ffi_token> toks;
   size_t pos;
   bool failed;
+  /* One truncated sidecar earns one FFI-013 even when several parser paths
+     run into the same end of file.  */
+  bool eof_reported;
 };
+
+/* EOF reached while a declaration still needs tokens.  The guarded call
+   sites say what they wanted; the unguarded ones (a tag name after 'type
+   struct', a function name after 'fn') used to fail without a word, so the
+   parser reports the truncation here, once per file (fix-p3, FFI-01).  */
+
+static void
+parser_eof_error (ffi_parser &p)
+{
+  if (p.eof_reported)
+    return;
+  p.eof_reported = true;
+  ffi_error (p.path, p.toks.empty () ? 1 : p.toks.back ().line, 13,
+	     "unexpected end of file inside a declaration");
+}
 
 static bool
 at_end (const ffi_parser &p)
@@ -186,6 +228,7 @@ take (ffi_parser &p)
 {
   if (at_end (p))
     {
+      parser_eof_error (p);
       p.failed = true;
       return std::string ();
     }
@@ -490,8 +533,9 @@ parse_fn_ops (ffi_parser &p, ffi_fn_decl &fn)
 	  std::string aff = take (p);
 	  if (aff.empty ())
 	    {
-	      ffi_error (p.path, line, 3,
-			 "'thread_affinity' needs a thread name");
+	      if (!p.eof_reported)
+		ffi_error (p.path, line, 3,
+			   "'thread_affinity' needs a thread name");
 	      p.failed = true;
 	      return false;
 	    }
@@ -548,7 +592,9 @@ parse_fn (ffi_parser &p, bool explicit_p)
   fn.name = take (p);
   if (fn.name.empty ())
     {
-      ffi_error (p.path, fn.line, 1, "expected a function name after 'fn'");
+      /* take() already diagnosed the truncation (FFI-013).  */
+      if (!p.eof_reported)
+	ffi_error (p.path, fn.line, 1, "expected a function name after 'fn'");
       p.failed = true;
       return;
     }
@@ -746,6 +792,7 @@ parse_ffi_file (const char *path, bool explicit_p)
   p.toks = toks;
   p.pos = 0;
   p.failed = false;
+  p.eof_reported = false;
 
   if (p.toks.empty ())
     {
@@ -846,6 +893,21 @@ parse_ffi_file (const char *path, bool explicit_p)
 
   ffi_loaded_files.insert (std::string (path));
   return true;
+}
+
+/* Parse every explicit sidecar once, in command-line order, before the first
+   contract query or at the end of the translation unit.  A sidecar error then
+   surfaces through the coded-diagnostic layer rather than from option
+   processing (fix-p3, FFI-02); parse_ffi_file deduplicates repeated paths.  */
+
+static void
+ffi_ensure_loaded (void)
+{
+  if (ffi_explicit_loaded)
+    return;
+  ffi_explicit_loaded = true;
+  for (size_t i = 0; i < ffi_explicit_paths.size (); i++)
+    parse_ffi_file (ffi_explicit_paths[i].c_str (), true);
 }
 
 /* Resolution against the translation unit.  */
@@ -1207,6 +1269,7 @@ resolve_fn (ffi_fn_decl &decl)
 const crug_ffi_info *
 crug_ffi_lookup (tree fndecl)
 {
+  ffi_ensure_loaded ();
   if (fndecl == NULL_TREE || TREE_CODE (fndecl) != FUNCTION_DECL
       || DECL_NAME (fndecl) == NULL_TREE || ffi_functions.empty ())
     return NULL;
@@ -1309,6 +1372,8 @@ crug_ffi_type_flags (tree type, bool *send, bool *sync,
 {
   bool found = false;
 
+  ffi_ensure_loaded ();
+
   if (send != NULL)
     *send = false;
   if (sync != NULL)
@@ -1356,8 +1421,15 @@ crug_ffi_handle_option (const char *path)
   ffi_option_seen = true;
   if (path == NULL || path[0] == '\0')
     return;
+  /* Only record the path.  Parsing is deferred to the first contract query
+     (or the end of the translation unit), so a sidecar error goes through
+     the coded-diagnostic layer instead of the option-processing path
+     (fix-p3, FFI-02).  The command-line order is kept: the deferred loader
+     walks the recorded paths in order (ADR 0007 D5).  */
+  for (size_t i = 0; i < ffi_explicit_paths.size (); i++)
+    if (ffi_explicit_paths[i] == path)
+      return;
   ffi_explicit_paths.push_back (path);
-  parse_ffi_file (path, true);
 }
 
 void
@@ -1467,6 +1539,7 @@ crug_ffi_finish (void)
 {
   std::map<std::string, ffi_fn_decl>::iterator it;
 
+  ffi_ensure_loaded ();
   if (ffi_functions.empty ())
     return;
   for (it = ffi_functions.begin (); it != ffi_functions.end (); ++it)
