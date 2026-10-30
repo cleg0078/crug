@@ -712,19 +712,6 @@ crug_mark_owning_decl (tree decl, location_t loc)
       return;
     }
 
-  /* The ownership pass tracks declarations inside one function body.  A
-     file-scope owner is never frame-tracked, so it would never be destroyed
-     and the qualifier would silently do nothing (fix-p3 OWN-04).  Locals,
-     parameters and members are all parsed with a function context or a
-     non-VAR_DECL code, so only a file-scope variable matches here.  */
-  if (TREE_CODE (decl) == VAR_DECL && current_function_decl == NULL_TREE)
-    {
-      crug_error_at (loc, "crug-OWN-014", "an owning declaration at file scope would never be "
-		"destroyed; declare the owner inside a function and pass it as an own "
-		"parameter");
-      return;
-    }
-
   if (TREE_CODE (type) == ARRAY_TYPE)
     {
       /* Element-wise destruction was never implemented: an 'own' array
@@ -748,6 +735,19 @@ crug_mark_owning_decl (tree decl, location_t loc)
     {
       crug_error_at (loc, "crug-TYPE-005", "an owning declarator cannot have pointer-to-function "
 		"type");
+      return;
+    }
+
+  /* The ownership pass tracks declarations inside one function body.  A
+     file-scope owner is never frame-tracked, so it would never be destroyed
+     and the qualifier would silently do nothing (fix-p3 OWN-04).  Locals,
+     parameters and members are all parsed with a function context or a
+     non-VAR_DECL code, so only a file-scope variable matches here.  */
+  if (TREE_CODE (decl) == VAR_DECL && current_function_decl == NULL_TREE)
+    {
+      crug_error_at (loc, "crug-OWN-014", "an owning declaration at file scope would never be "
+		"destroyed; declare the owner inside a function and pass it as an own "
+		"parameter");
       return;
     }
 
