@@ -3,9 +3,11 @@
 # Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
 #
 # The document describes the install tree package.sh staged. The crug package
-# is analysed file by file (SHA1/SHA256 per file plus the SPDX package
-# verification code); the GCC baseline and libcrug are named as contained
-# packages, because they ship as part of the same install tree.
+# is analysed file by file (SHA1/SHA256 per regular file plus the SPDX package
+# verification code); symbolic links are listed as files without a checksum,
+# which SPDX 2.3 excludes from the verification code; the GCC baseline and
+# libcrug are named as contained packages, because they ship as part of the
+# same install tree.
 #
 # Usage: scripts/make-sbom.py --version V --stage DIR --tarball FILE --out FILE
 #                             [--gcc-version V]
@@ -75,12 +77,19 @@ def main():
     files = []
     used_ids = {}
     sha1_values = []
-    for root, dirs, names in os.walk(stage):
+    for root, dirs, names in os.walk(stage, followlinks=False):
         dirs.sort()
-        for name in sorted(names):
+        # os.walk lists a symlink to a directory in dirs and, because
+        # followlinks is false, does not descend into it.  The link is still
+        # an entry of the shipped tree, so record it and stop treating it as
+        # a directory to visit.
+        entries = list(names)
+        for name in dirs:
+            if os.path.islink(os.path.join(root, name)):
+                entries.append(name)
+        dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(root, name))]
+        for name in sorted(entries):
             full = os.path.join(root, name)
-            if os.path.islink(full):
-                continue
             rel = os.path.relpath(full, stage).replace(os.sep, "/")
             spdx_id = file_id(rel)
             if spdx_id in used_ids:
@@ -88,34 +97,56 @@ def main():
                 spdx_id = "{}x{}".format(spdx_id, used_ids[spdx_id])
             else:
                 used_ids[spdx_id] = 1
+            if os.path.islink(full):
+                try:
+                    target = os.readlink(full)
+                except OSError as error:
+                    fail("cannot read the link {}: {}".format(full, error))
+                files.append({"rel": rel, "id": spdx_id, "link": target})
+                continue
             try:
                 with open(full, "rb") as handle:
                     sha1, sha256 = hash_file(handle, hashlib.sha1(), hashlib.sha256())
             except OSError as error:
                 fail("cannot read {}: {}".format(full, error))
             sha1_values.append(sha1)
-            files.append((rel, spdx_id, sha1, sha256))
+            files.append({
+                "rel": rel,
+                "id": spdx_id,
+                "link": None,
+                "sha1": sha1,
+                "sha256": sha256,
+            })
 
     if not files:
-        fail("the install tree " + stage + " contains no regular files")
-    files.sort(key=lambda entry: entry[0])
+        fail("the install tree " + stage + " contains no files")
+    files.sort(key=lambda entry: entry["rel"])
+    # SPDX 2.3: the package verification code is computed over the files that
+    # carry a SHA1 checksum; a symbolic link has no content checksum and is
+    # therefore excluded (its target is hashed as a file of its own).
     verification = hashlib.sha1(
         "".join(sorted(sha1_values)).encode("ascii")
     ).hexdigest()
 
     def spdx_file(entry):
-        rel, spdx_id, sha1, sha256 = entry
-        return {
-            "fileName": "./" + rel,
-            "SPDXID": spdx_id,
-            "checksums": [
-                {"algorithm": "SHA1", "checksumValue": sha1},
-                {"algorithm": "SHA256", "checksumValue": sha256},
-            ],
+        file_entry = {
+            "fileName": "./" + entry["rel"],
+            "SPDXID": entry["id"],
+        }
+        if entry["link"] is not None:
+            file_entry["fileTypes"] = ["OTHER"]
+            file_entry["comment"] = "symbolic link to " + entry["link"]
+        else:
+            file_entry["checksums"] = [
+                {"algorithm": "SHA1", "checksumValue": entry["sha1"]},
+                {"algorithm": "SHA256", "checksumValue": entry["sha256"]},
+            ]
+        file_entry.update({
             "licenseConcluded": "NOASSERTION",
             "licenseInfoInFiles": ["NOASSERTION"],
             "copyrightText": "NOASSERTION",
-        }
+        })
+        return file_entry
 
     created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     document = {
@@ -146,7 +177,7 @@ def main():
                 "licenseDeclared": "GPL-3.0-or-later",
                 "copyrightText": "NOASSERTION",
                 "supplier": "NOASSERTION",
-                "hasFiles": [entry[1] for entry in files],
+                "hasFiles": [entry["id"] for entry in files],
             },
             {
                 "SPDXID": "SPDXRef-Package-gcc",
@@ -241,6 +272,40 @@ def main():
         "packageVerificationCodeValue", "")
     if not re.fullmatch(r"[0-9a-f]{40}", code):
         problems.append("the package verification code is not a SHA1")
+    symlinks = [
+        entry for entry in written.get("files") or []
+        if entry.get("fileTypes") == ["OTHER"]
+    ]
+    expected_links = sum(1 for entry in files if entry["link"] is not None)
+    if len(symlinks) != expected_links:
+        problems.append("the crug package does not list every symbolic link")
+    for entry in symlinks:
+        if not (entry.get("comment") or "").startswith("symbolic link to "):
+            problems.append(
+                entry.get("fileName", "?") + " does not say what it links to"
+            )
+        if entry.get("checksums"):
+            problems.append(
+                entry.get("fileName", "?") + " carries checksums, but a link has none"
+            )
+    hashed = []
+    for entry in written.get("files") or []:
+        if entry.get("fileTypes") == ["OTHER"]:
+            continue
+        sha1 = next(
+            (checksum.get("checksumValue")
+             for checksum in entry.get("checksums") or []
+             if checksum.get("algorithm") == "SHA1"),
+            None,
+        )
+        if not re.fullmatch(r"[0-9a-f]{40}", sha1 or ""):
+            problems.append(entry.get("fileName", "?") + " has no SHA1 checksum")
+            continue
+        hashed.append(sha1)
+    if len(hashed) != len(sha1_values):
+        problems.append("the crug package does not hash every regular file")
+    if hashlib.sha1("".join(sorted(hashed)).encode("ascii")).hexdigest() != code:
+        problems.append("the package verification code is not the SHA1 of the file checksums")
     kinds = {
         (rel.get("spdxElementId"), rel.get("relationshipType"), rel.get("relatedSpdxElement"))
         for rel in written.get("relationships") or []

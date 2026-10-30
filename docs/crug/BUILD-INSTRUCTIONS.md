@@ -94,7 +94,7 @@ bytes), and then writes the artefacts into `dist/`:
 |----------|----------|
 | `dist/crug-0.2.4-linux-x86_64.tar.gz` | The install tree, rooted at `crug-0.2.4/`, which is the `/opt/crug` tree: about 143 MB in 971 files. |
 | `dist/crug_0.2.4-1_amd64.deb` | The Debian package of the same tree plus the `/usr/bin/crugc`, `/usr/include/crug` and `/usr/lib/x86_64-linux-gnu/libcrug.a` links and the Debian documentation: about 94 MB, 439 MiB installed. |
-| `dist/crug-0.2.4.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages and one entry per file. |
+| `dist/crug-0.2.4.spdx.json` | SPDX 2.3 SBOM for the tarball, with the `crug`, `gcc-16.2.0` and `libcrug` packages, one entry per regular file and one per symbolic link. A symbolic link carries its target in a comment and no checksum; SPDX 2.3 excludes links from the package verification code, which is the SHA-1 of the regular files. |
 | `dist/LICENSE`, `dist/NOTICE` | The licence texts shipped with the release. |
 | `dist/SHA256SUMS` | The SHA-256 of the five artefacts above, in `sha256sum` format. |
 
@@ -242,7 +242,10 @@ From the repository root, after `scripts/package.sh`:
     $ tar -tzf dist/crug-0.2.4-linux-x86_64.tar.gz | wc -l
     1074
 
-The listing has 1074 entries (971 files) and starts with
+The listing has 1074 entries (971 files, 29 of them symbolic links; the SBOM
+lists the same 971 names, marks the links `OTHER` and computes the package
+verification code over the 942 regular files, which
+`scripts/check-packaging.sh` compares with the tarball) and starts with
 `crug-0.2.4/bin/crugc`; `crug-0.2.4/lib/libcrug.a`,
 `crug-0.2.4/include/crug/task.h` and the four
 `crug-0.2.4/share/doc/crug/` files are present. A quick smoke test of the

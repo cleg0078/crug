@@ -56,9 +56,9 @@ fi
 
 # ---- 3. the SBOM and the tarball listing, checked here. ----
 if [ -s "$sbom" ]; then
-  if python3 - "$sbom" "$version" <<'PY' >>"$build/sbom-check.log" 2>&1
-import json, sys
-path, version = sys.argv[1], sys.argv[2]
+  if python3 - "$sbom" "$version" "$tarball" <<'PY' >>"$build/sbom-check.log" 2>&1
+import hashlib, json, re, sys, tarfile
+path, version, tarball = sys.argv[1], sys.argv[2], sys.argv[3]
 doc = json.load(open(path, encoding="utf-8"))
 problems = []
 if doc.get("spdxVersion") != "SPDX-2.3":
@@ -79,10 +79,75 @@ for wanted in ("crug", "gcc-16.2.0", "libcrug"):
 for p in packages:
     if not p.get("SPDXID") or not p.get("licenseConcluded"):
         problems.append("package " + p.get("name", "?") + " lacks SPDXID or licenseConcluded")
+
+# The SBOM and the tarball must describe the same tree: every regular file,
+# every hard link and every symbolic link, with links carrying no checksum
+# (SPDX 2.3 excludes them from the package verification code).
+entries = doc.get("files") or []
+by_name = {}
+sbom_regular = set()
+sbom_links = set()
+for entry in entries:
+    name = entry.get("fileName", "")
+    if not name.startswith("./"):
+        problems.append(name + " is not a relative path")
+        continue
+    rel = name[2:]
+    by_name[rel] = entry
+    if entry.get("fileTypes") == ["OTHER"]:
+        sbom_links.add(rel)
+        if not (entry.get("comment") or "").startswith("symbolic link to "):
+            problems.append(rel + " does not say what it links to")
+        if entry.get("checksums"):
+            problems.append(rel + " carries checksums, but a link has none")
+    else:
+        sbom_regular.add(rel)
+if not sbom_links:
+    problems.append("the SBOM lists no symbolic links")
+prefix = "crug-" + version + "/"
+tar_regular = set()
+tar_links = set()
+try:
+    with tarfile.open(tarball) as archive:
+        for member in archive:
+            if not member.name.startswith(prefix):
+                continue
+            rel = member.name[len(prefix):]
+            if not rel or member.isdir():
+                continue
+            if member.issym():
+                tar_links.add(rel)
+            elif member.islnk() or member.isfile():
+                tar_regular.add(rel)
+except (OSError, tarfile.TarError) as error:
+    problems.append("cannot list the tarball: %s" % error)
+if sbom_regular != tar_regular:
+    problems.append("the SBOM regular-file set differs from the tarball")
+if sbom_links != tar_links:
+    problems.append("the SBOM symbolic-link set differs from the tarball")
+
+sha1_values = []
+for rel in sorted(sbom_regular):
+    value = next((c.get("checksumValue") for c in by_name[rel].get("checksums") or []
+                  if c.get("algorithm") == "SHA1"), "")
+    if not re.fullmatch(r"[0-9a-f]{40}", value or ""):
+        problems.append(rel + " has no SHA1 checksum")
+        continue
+    sha1_values.append(value)
+crug = next((p for p in packages if p.get("name") == "crug"), {})
+code = (crug.get("packageVerificationCode") or {}).get(
+    "packageVerificationCodeValue", "")
+if not re.fullmatch(r"[0-9a-f]{40}", code or ""):
+    problems.append("packageVerificationCode is not a SHA1")
+elif hashlib.sha1("".join(sorted(sha1_values)).encode("ascii")).hexdigest() != code:
+    problems.append("packageVerificationCode is not the checksum of the regular files")
+if len(crug.get("hasFiles") or []) != len(entries):
+    problems.append("hasFiles does not list every SBOM file")
 if problems:
     print("\n".join(problems))
     sys.exit(1)
-print("sbom: %d package(s): %s" % (len(packages), ", ".join(names)))
+print("sbom: %d package(s): %s; %d regular file(s), %d symbolic link(s), verification code verified"
+      % (len(packages), ", ".join(names), len(sbom_regular), len(sbom_links)))
 PY
   then
     artefacts=$((artefacts + 1))
