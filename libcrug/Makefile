@@ -105,7 +105,8 @@ ifeq ($(PAL),linux)
 # a PAL-level seam (see tests/runtime/scope_wake_race.c and
 # startup_shutdown_race.c), so they run on the Linux backend only.
 RUNTIME_TESTS += $(BUILD)/shutdown-concurrent $(BUILD)/burst-stacks \
-	$(BUILD)/scope-wake-race $(BUILD)/startup-shutdown-race \
+	$(BUILD)/scope-wake-race $(BUILD)/scope-free-race \
+	$(BUILD)/startup-shutdown-race \
 	$(BUILD)/startup-shutdown-handshake $(BUILD)/stats-race \
 	$(BUILD)/start-then-shutdown $(BUILD)/recv-scratch-big
 RUNTIME_ABORT_TESTS += $(BUILD)/linux-spawn-shutdown
@@ -227,6 +228,9 @@ $(BUILD)/shutdown-concurrent: tests/runtime/shutdown_concurrent.c core/task.h pa
 
 $(BUILD)/scope-wake-race: tests/runtime/scope_wake_race.c core/task.h core/task-internal.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-wake-race.o | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/scope_wake_race.c $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-wake-race.o $(PAL_LDLIBS)
+
+$(BUILD)/scope-free-race: tests/runtime/scope_free_race.c core/task.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/scope_free_race.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
 $(BUILD)/startup-shutdown-race: tests/runtime/startup_shutdown_race.c core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-start-race.o | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/startup_shutdown_race.c $(CORE_OBJ) $(ARCH_OBJ) $(BUILD)/pal-start-race.o $(PAL_LDLIBS)

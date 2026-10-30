@@ -779,10 +779,13 @@ runtime_start (void)
   atomic_store_explicit (&sched.sleepers, 0u, memory_order_relaxed);
   sched.worker_count = workers;
   atomic_store_explicit (&sched.shutdown, 0u, memory_order_release);
-  atomic_store_explicit (&sched.started, 1u, memory_order_release);
-  /* The start is in progress until the starter publishes 2 from its spawn
-     admission; until then a shutdown waits for the handles to exist.  */
+  /* Publish "start in progress" before the started flag that makes the
+     runtime visible.  A shutdown that acquires started == 1 must then also
+     observe start_state == 1 and wait for the worker handles instead of
+     joining a slot that runtime_start() has not created yet (RT-03/S-01).
+     The release store below orders both writes, so this one is relaxed.  */
   atomic_store_explicit (&sched.start_state, 1, memory_order_relaxed);
+  atomic_store_explicit (&sched.started, 1u, memory_order_release);
   queue_unlock ();
 
   crug_task_start_hook ();
@@ -907,9 +910,15 @@ crug_task_finish (void)
     {
       struct crug_scope *scope = task->scope;
       task->scope = NULL;
+      /* Raise the completion handshake before dropping the count, so a waiter
+	 that sees pending zero cannot free the group while the wake below is
+	 still using its address (R-01).  The release store after the wake is
+	 what tells crug_scope_leave() that the group is no longer touched.  */
+      atomic_fetch_add_explicit (&scope->in_flight, 1u, memory_order_acq_rel);
       if (atomic_fetch_sub_explicit (&scope->pending, 1u, memory_order_acq_rel)
 	  == 1u)
 	crug_pal_wake_all (&scope->pending);
+      atomic_fetch_sub_explicit (&scope->in_flight, 1u, memory_order_release);
     }
 
   if (atomic_load_explicit (&sched.shutdown, memory_order_acquire)
