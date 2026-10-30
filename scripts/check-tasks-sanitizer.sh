@@ -30,6 +30,17 @@ compile "$build/tasks-stress" "$root/libcrug/tests/tasks_stress.c" "$root/libcru
 compile "$build/scope-stress" "$root/libcrug/tests/scope_stress.c" "$root/libcrug/core/task.c"
 compile "$build/scope-free-race" "$root/libcrug/tests/runtime/scope_free_race.c" "$root/libcrug/core/task.c"
 
+# The seam test needs a private view of the backend so it can hold a group's
+# completion wake while the main thread tries to leave the group.
+$CC $CFLAGS $CPPFLAGS \
+    -Dcrug_pal_wake_all=crug_pal_wake_all_real \
+    -Dcrug_pal_wait_u32=crug_pal_wait_u32_real \
+    -c -o "$build/pal-wake-race.o" "$root/libcrug/pal/linux/pal_linux.c"
+$CC $CFLAGS $CPPFLAGS -o "$build/scope-wake-race" \
+    "$root/libcrug/tests/runtime/scope_wake_race.c" "$root/libcrug/core/task.c" \
+    "$build/pal-wake-race.o" $root/libcrug/arch/x86_64/sysv/switch.S \
+    $root/libcrug/arch/x86_64/sysv/stack.c -pthread
+
 ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   CRUG_TASKS_WORKERS=4 "$build/tasks-test" > "$build/tasks-test.log" 2>&1
 cat "$build/tasks-test.log"
@@ -50,4 +61,10 @@ ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   CRUG_TASKS_WORKERS=4 "$build/scope-free-race" > "$build/scope-free-race.log" 2>&1
 cat "$build/scope-free-race.log"
 
-echo "tasks-sanitizer: ASan and UBSan clean over the suite, 100000 tasks, 200 scopes and 3000 group lifetimes"
+# The same lifetime under a held wake: pre-fix, leave() frees the group while
+# this thread is still inside the completion wake, which ASan reports.
+ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+  "$build/scope-wake-race" > "$build/scope-wake-race.log" 2>&1
+cat "$build/scope-wake-race.log"
+
+echo "tasks-sanitizer: ASan and UBSan clean over the suite, 100000 tasks, 200 scopes, 3000 group lifetimes and 20 held completion wakes"

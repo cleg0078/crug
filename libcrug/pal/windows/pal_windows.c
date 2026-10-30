@@ -332,7 +332,41 @@ crug_pal_clock_monotonic_ns (void)
       windows_error = CRUG_PAL_ESYS;
       return 0;
     }
-  return (uint64_t) ((now.QuadPart * 1000000000) / clock_frequency.QuadPart);
+  /* Converting a 10 MHz counter to nanoseconds multiplies by 10^9, which
+     overflows a signed 64-bit integer after about 922 seconds.  Divide the
+     whole seconds first and scale only the remainder; the result saturates at
+     UINT64_MAX (about 584 years), a range no monotonic clock reader can
+     distinguish from "still running".  The 128-bit form is exact for every
+     counter whose quotient fits; the fallback splits the fraction.  */
+#if defined(__SIZEOF_INT128__)
+  {
+    __int128 ns = ((__int128) now.QuadPart * 1000000000)
+		  / (__int128) clock_frequency.QuadPart;
+    if (ns < 0)
+      return 0;
+    if (ns > (__int128) UINT64_MAX)
+      return UINT64_MAX;
+    return (uint64_t) ns;
+  }
+#else
+  {
+    uint64_t freq = (uint64_t) clock_frequency.QuadPart;
+    uint64_t ticks = now.QuadPart < 0 ? 0 : (uint64_t) now.QuadPart;
+    uint64_t whole;
+    uint64_t rest;
+
+    if (freq == 0)
+      return 0;
+    whole = ticks / freq;
+    rest = ticks % freq;
+    if (whole > (UINT64_MAX - 999999999ull) / 1000000000ull)
+      return UINT64_MAX;
+    if (freq <= UINT64_MAX / 1000000000ull)
+      return whole * 1000000000ull + (rest * 1000000000ull) / freq;
+    return whole * 1000000000ull
+	   + (uint64_t) ((long double) rest * 1e9L / (long double) freq);
+  }
+#endif
 }
 
 void

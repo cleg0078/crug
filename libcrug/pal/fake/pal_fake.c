@@ -11,6 +11,7 @@
 
 #include "crug_pal.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -209,7 +210,10 @@ crug_pal_memory_release (void *ptr, size_t size)
   free (ptr);
 }
 
-static uint64_t fake_clock_ns;
+/* The fake runtime reads this clock from several threads, so the advance is an
+   atomic read-modify-write (RT-06): a plain increment races under TSan and can
+   lose a tick even when the reader only needs monotonicity.  */
+static _Atomic uint64_t fake_clock_ns;
 
 uint64_t
 crug_pal_clock_monotonic_ns (void)
@@ -217,12 +221,12 @@ crug_pal_clock_monotonic_ns (void)
   /* Monotonic by construction: the fake clock advances one microsecond per
      reading, never depends on wall time, and a sleep advances it by exactly
      the requested amount so duration checks have a defined answer.  */
-  fake_clock_ns += 1000;
-  return fake_clock_ns;
+  return atomic_fetch_add_explicit (&fake_clock_ns, 1000,
+				    memory_order_relaxed) + 1000;
 }
 
 void
 crug_pal_sleep_ns (uint64_t ns)
 {
-  fake_clock_ns += ns;
+  atomic_fetch_add_explicit (&fake_clock_ns, ns, memory_order_relaxed);
 }

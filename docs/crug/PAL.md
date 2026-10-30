@@ -111,7 +111,12 @@ part of the frozen contract: they may be appended to, never renumbered.
 The fake backend is a *contract* backend, not a concurrency model: it exists so
 the core and the suite can be built where no POSIX layer exists, and so the
 suite cannot accidentally depend on one. It must never ship as a production
-backend (ADR 0011 D9).
+backend (ADR 0011 D9). One consequence is visible in the runtime suite:
+`make -C libcrug check-RUNTIME PAL=fake` leaves out
+`libcrug/tests/runtime/recv_into.c`. The fake backend runs a thread's entry
+inside `crug_pal_thread_join`, and a yield on the main thread is a no-op, so a
+test that parks a main-thread receiver until a task publishes a value cannot
+make progress there. Every backend with real threads runs that test.
 
 ## 5. Contract tests
 

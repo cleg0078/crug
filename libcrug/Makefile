@@ -97,8 +97,15 @@ LOG := build/check-pal-$(PAL).log
 # use); the fake backend adds the deterministic join-failure and
 # spawn-during-shutdown cases, and the Linux-only case needs two real threads.
 RUNTIME_TESTS := $(BUILD)/chan-ticket $(BUILD)/chan-claim $(BUILD)/recv-scratch \
-	$(BUILD)/recv-into $(BUILD)/shutdown-status $(BUILD)/frame-alignment \
+	$(BUILD)/shutdown-status $(BUILD)/frame-alignment \
 	$(BUILD)/cache-restart
+# A receive-into test parks a main-thread receiver until a task publishes a
+# value.  The fake backend runs a thread's entry inside crug_pal_thread_join and
+# its main-thread yield is a no-op, so that test cannot make progress there
+# (RT-04); every backend with real threads runs it.
+ifneq ($(PAL),fake)
+RUNTIME_TESTS += $(BUILD)/recv-into
+endif
 RUNTIME_ABORT_TESTS := $(BUILD)/frame-overflow
 ifeq ($(PAL),linux)
 # The start/shutdown and task-group interleaving witnesses need real threads and
