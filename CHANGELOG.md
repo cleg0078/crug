@@ -94,6 +94,13 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
   noreturn wrappers make a function ineligible for the 1.00-confidence label.
 - **Packaging.** `dist/` no longer mixes versions, symbolic links are listed
   in the SBOM, and the Debian maintainer is not taken from the checkout.
+- **Grammar fixtures.** A file-scope `own` became `crug-OWN-014` in this
+  batch, which gave every `qualifier-lookahead-5..8.c` fixture a second,
+  unrelated diagnostic on its surviving declaration and failed the
+  excess-errors check. The chains now lead with `raw`, so the surviving
+  declaration is a plain file-scope pointer and each fixture reports only
+  the `crug-TYPE-002` chain it pins; `make check-GRAMMAR_DG` is green at 22
+  expected passes.
 
 ## [0.2.4] - 2026-10-28
 

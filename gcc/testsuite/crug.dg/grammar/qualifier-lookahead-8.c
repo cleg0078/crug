@@ -25,12 +25,15 @@
    c_parser_peek_nth_token wrote past the four-token buffer and corrupted the
    parser state (P3-008).  The chained qualifiers are still rejected, one
    crug-TYPE-002 for each qualifier after the first, and the parser recovers
-   to the declarator that follows.  */
+   to the declarator that follows.  The chain leads with `raw` so the
+   surviving declaration is a plain file-scope pointer: a surviving `own`
+   would also report `crug-OWN-014` and a surviving borrow `crug-BORROW-018`
+   (fix-p3), which would cloud the lookahead signal.  */
 
-own
+raw
+own			/* { dg-error "crug-TYPE-002" } */
 ref			/* { dg-error "crug-TYPE-002" } */
 mut			/* { dg-error "crug-TYPE-002" } */
 raw			/* { dg-error "crug-TYPE-002" } */
 own			/* { dg-error "crug-TYPE-002" } */
-ref			/* { dg-error "crug-TYPE-002" } */
-mut			/* { dg-error "crug-TYPE-002" } */ int *g;
+ref			/* { dg-error "crug-TYPE-002" } */ int *g;
