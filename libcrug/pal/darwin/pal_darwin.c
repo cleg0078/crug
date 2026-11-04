@@ -5,7 +5,7 @@
    a Darwin primitive; the portability lint fails the build if any of these
    names appear under libcrug/core (ADR 0011 D1, ADR 0012 D2).
 
-     threads    POSIX threads
+     threads    POSIX threads, pthread_key_create for the thread-exit hook
      wait/wake  a hashed table of mutex and condition variable pairs: Darwin
                 has no futex and its ulock is private, so the PAL keeps the
                 predicate authoritative and signals the bucket of the address
@@ -68,6 +68,78 @@ bucket_of (const void *addr)
 }
 
 static _Thread_local crug_pal_error darwin_error = CRUG_PAL_OK;
+
+/* Thread-exit hooks (contract 1.3): a process-wide key owns one destructor
+   and each thread carries its registrations as a small LIFO chain in the
+   key slot.  Darwin has no futex but it has POSIX keys, so the hook works
+   exactly as it does on Linux.  */
+
+struct crug_pal_at_exit
+{
+  void (*fn) (void *);
+  void *arg;
+  struct crug_pal_at_exit *next;
+};
+
+static pthread_key_t at_exit_key;
+static pthread_once_t at_exit_once = PTHREAD_ONCE_INIT;
+static int at_exit_key_failed;
+
+static void
+at_exit_run (void *value)
+{
+  struct crug_pal_at_exit *node = (struct crug_pal_at_exit *) value;
+
+  pthread_setspecific (at_exit_key, NULL);
+  while (node != NULL)
+    {
+      struct crug_pal_at_exit *next = node->next;
+      node->fn (node->arg);
+      free (node);
+      node = next;
+    }
+}
+
+static void
+at_exit_key_create (void)
+{
+  at_exit_key_failed = pthread_key_create (&at_exit_key, at_exit_run) != 0;
+}
+
+int
+crug_pal_thread_at_exit (void (*fn) (void *), void *arg)
+{
+  struct crug_pal_at_exit *node;
+
+  if (fn == NULL)
+    {
+      darwin_error = CRUG_PAL_EINVAL;
+      return -1;
+    }
+  pthread_once (&at_exit_once, at_exit_key_create);
+  if (at_exit_key_failed)
+    {
+      darwin_error = CRUG_PAL_ENOSYS;
+      return -1;
+    }
+  node = (struct crug_pal_at_exit *) malloc (sizeof *node);
+  if (node == NULL)
+    {
+      darwin_error = CRUG_PAL_ENOMEM;
+      return -1;
+    }
+  node->fn = fn;
+  node->arg = arg;
+  node->next = (struct crug_pal_at_exit *) pthread_getspecific (at_exit_key);
+  if (pthread_setspecific (at_exit_key, node) != 0)
+    {
+      free (node);
+      darwin_error = CRUG_PAL_ESYS;
+      return -1;
+    }
+  darwin_error = CRUG_PAL_OK;
+  return 0;
+}
 
 const char *
 crug_pal_error_name (crug_pal_error error)

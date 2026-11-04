@@ -22,6 +22,63 @@
 
 static _Thread_local crug_pal_error fake_error = CRUG_PAL_OK;
 
+/* Thread-exit hooks (contract 1.3).  The fake has no threads and no exit
+   notification, so it models both: a hook registered while a fake thread's
+   entry runs fires the moment that entry returns inside crug_pal_thread_join
+   (the join-then-observe order a real backend gives), and a hook registered
+   outside any fake entry stays armed until crug_pal_shutdown drains it at the
+   end of the run (process teardown).  Registrations per thread are a small
+   LIFO chain in thread-local storage, so the code is pure C: no operating
+   system symbol appears anywhere in this file.  */
+
+struct crug_pal_at_exit
+{
+  void (*fn) (void *);
+  void *arg;
+  struct crug_pal_at_exit *next;
+};
+
+static _Thread_local struct crug_pal_at_exit *fake_at_exit;
+
+static void
+fake_run_at_exit (void)
+{
+  struct crug_pal_at_exit *node = fake_at_exit;
+
+  fake_at_exit = NULL;
+  while (node != NULL)
+    {
+      struct crug_pal_at_exit *next = node->next;
+      node->fn (node->arg);
+      free (node);
+      node = next;
+    }
+}
+
+int
+crug_pal_thread_at_exit (void (*fn) (void *), void *arg)
+{
+  struct crug_pal_at_exit *node;
+
+  if (fn == NULL)
+    {
+      fake_error = CRUG_PAL_EINVAL;
+      return -1;
+    }
+  node = (struct crug_pal_at_exit *) malloc (sizeof *node);
+  if (node == NULL)
+    {
+      fake_error = CRUG_PAL_ENOMEM;
+      return -1;
+    }
+  node->fn = fn;
+  node->arg = arg;
+  node->next = fake_at_exit;
+  fake_at_exit = node;
+  fake_error = CRUG_PAL_OK;
+  return 0;
+}
+
 static uint32_t fake_waits;
 static uint32_t fake_wakes;
 static uint32_t fake_threads;
@@ -56,6 +113,9 @@ crug_pal_clear_error (void)
 void
 crug_pal_shutdown (void)
 {
+  /* Model process teardown: a hook on a thread that never exits still runs
+     (contract 1.3).  */
+  fake_run_at_exit ();
   fake_error = CRUG_PAL_OK;
 }
 
@@ -103,6 +163,9 @@ crug_pal_thread_join (crug_pal_thread *thread)
     {
       thread->ran = 1;
       thread->entry (thread->arg);
+      /* The entry returned: this thread is on its way out, so its at-exit
+	 hooks (contract 1.3) run here, before the join can report success.  */
+      fake_run_at_exit ();
     }
   /* CRUG_FAKE_JOIN_FAIL models a backend that cannot join: the entry has run,
      but the handle is not released, so the core must report the failure and

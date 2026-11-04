@@ -333,12 +333,12 @@ case_error_mapping (crug_pal_reporter reporter, void *ctx)
 static void
 case_version_and_names (crug_pal_reporter reporter, void *ctx)
 {
-  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 2)
+  if (CRUG_PAL_VERSION_MAJOR != 1 || CRUG_PAL_VERSION_MINOR != 3)
     {
       fail (reporter, ctx, "version-and-names", "the suite was built against another contract version");
       return;
     }
-  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 2))
+  if (CRUG_PAL_ABI_VERSION != ((1 << 16) | 3))
     {
       fail (reporter, ctx, "version-and-names", "the ABI version encoding changed");
       return;
@@ -355,6 +355,75 @@ case_version_and_names (crug_pal_reporter reporter, void *ctx)
       return;
     }
   pass (reporter, ctx, "version-and-names");
+}
+
+/* Contract 1.3: crug_pal_thread_at_exit.  Two hooks registered from inside a
+   backend-created entry must both have run by the time a successful join
+   returns, in last-in first-out order, and a NULL callback must be refused as
+   EINVAL.  The fake backend fires its hooks when the entry returns inside
+   crug_pal_thread_join, so the same observations hold there with no
+   operating system at all.  */
+
+static _Atomic uint32_t at_exit_order[2];
+static _Atomic uint32_t at_exit_next;
+
+static void
+at_exit_note (void *tag)
+{
+  at_exit_order[atomic_fetch_add_explicit (&at_exit_next, 1,
+                                          memory_order_relaxed) % 2]
+    = (uint32_t) (size_t) tag;
+}
+
+static void
+at_exit_entry (void *arg)
+{
+  (void) arg;
+  if (crug_pal_thread_at_exit (at_exit_note, (void *) (size_t) 1) != 0)
+    return;
+  if (crug_pal_thread_at_exit (at_exit_note, (void *) (size_t) 2) != 0)
+    return;
+}
+
+static void
+case_thread_at_exit (crug_pal_reporter reporter, void *ctx)
+{
+  crug_pal_thread *thread = NULL;
+
+  atomic_store_explicit (&at_exit_next, 0, memory_order_relaxed);
+  atomic_store_explicit (&at_exit_order[0], 0, memory_order_relaxed);
+  atomic_store_explicit (&at_exit_order[1], 0, memory_order_relaxed);
+  crug_pal_clear_error ();
+  if (crug_pal_thread_at_exit (NULL, NULL) == 0)
+    {
+      fail (reporter, ctx, "thread-at-exit", "a NULL callback was accepted");
+      return;
+    }
+  if (crug_pal_last_error () != CRUG_PAL_EINVAL)
+    {
+      fail (reporter, ctx, "thread-at-exit", "the NULL callback was not EINVAL");
+      return;
+    }
+  crug_pal_clear_error ();
+  if (crug_pal_thread_create (&thread, at_exit_entry, NULL) != 0)
+    {
+      fail (reporter, ctx, "thread-at-exit", "create failed");
+      return;
+    }
+  if (crug_pal_thread_join (thread) != 0)
+    {
+      fail (reporter, ctx, "thread-at-exit", "join reported failure");
+      return;
+    }
+  /* The join succeeded, so the entry ran and returned: both hooks must have
+     fired, and the one registered last (tag 2) must have fired first.  */
+  if (atomic_load_explicit (&at_exit_next, memory_order_acquire) != 2)
+    fail (reporter, ctx, "thread-at-exit", "the hooks did not both run before join returned");
+  else if (atomic_load_explicit (&at_exit_order[0], memory_order_acquire) != 2
+           || atomic_load_explicit (&at_exit_order[1], memory_order_acquire) != 1)
+    fail (reporter, ctx, "thread-at-exit", "the hooks did not run last-in first-out");
+  else
+    pass (reporter, ctx, "thread-at-exit");
 }
 
 static void
@@ -387,6 +456,7 @@ crug_pal_contract_run (crug_pal_reporter reporter, void *ctx,
   case_clock_monotonic (reporter, ctx);
   case_sleep_duration (reporter, ctx);
   case_error_mapping (reporter, ctx);
+  case_thread_at_exit (reporter, ctx);
   case_shutdown_idempotent (reporter, ctx);
 
   if (summary != NULL)

@@ -98,7 +98,7 @@ LOG := build/check-pal-$(PAL).log
 # spawn-during-shutdown cases, and the Linux-only case needs two real threads.
 RUNTIME_TESTS := $(BUILD)/chan-ticket $(BUILD)/chan-claim $(BUILD)/recv-scratch \
 	$(BUILD)/shutdown-status $(BUILD)/frame-alignment \
-	$(BUILD)/cache-restart
+	$(BUILD)/cache-restart $(BUILD)/recv-scratch-release
 # A receive-into test parks a main-thread receiver until a task publishes a
 # value.  The fake backend runs a thread's entry inside crug_pal_thread_join and
 # its main-thread yield is a no-op, so that test cannot make progress there
@@ -214,6 +214,9 @@ $(BUILD)/recv-scratch: tests/runtime/recv_scratch.c core/chan.h core/task.h $(CO
 
 $(BUILD)/recv-into: tests/runtime/recv_into.c core/chan.h core/task.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_into.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
+
+$(BUILD)/recv-scratch-release: tests/runtime/recv_scratch_release.c core/chan.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_scratch_release.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)
 
 $(BUILD)/recv-scratch-big: tests/runtime/recv_scratch_big.c core/task.h core/task-internal.h pal/include/crug_pal.h $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/runtime/recv_scratch_big.c $(CORE_OBJ) $(ARCH_OBJ) $(PAL_OBJ) $(PAL_LDLIBS)

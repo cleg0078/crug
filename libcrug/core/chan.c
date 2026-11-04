@@ -69,8 +69,32 @@ static _Atomic uint64_t chan_received;
 static _Atomic uint64_t chan_wait;
 static _Atomic unsigned chan_turn;
 
-static _Thread_local unsigned char *recv_buffer;
-static _Thread_local size_t recv_buffer_size;
+/* The main-thread receive buffer (contract 1.3): the slot is the stable
+   handle the PAL thread-exit hook carries, because growing the buffer moves
+   the bytes but never the slot.  A backend without a thread-exit hook leaves
+   the slot in place, which is the v1.2 behaviour: a leak per thread, never a
+   dangling buffer.  */
+struct chan_recv_slot
+{
+  unsigned char *buffer;
+  size_t size;
+};
+
+static _Thread_local struct chan_recv_slot *recv_slot;
+
+static void
+chan_release_recv_slot (void *opaque)
+{
+  struct chan_recv_slot *slot = (struct chan_recv_slot *) opaque;
+
+  free (slot->buffer);
+  free (slot);
+  /* The hook runs on the thread that owns the slot, so clearing the TLS
+     pointer is safe there and required on the fake backend, where a fake
+     thread's exit notification fires on the still-running joiner.  */
+  if (recv_slot == slot)
+    recv_slot = NULL;
+}
 
 static void
 chan_fatal (const char *what)
@@ -147,16 +171,32 @@ chan_recv_buffer (struct crug_chan *chan)
 
   if (scratch != NULL)
     return scratch;
-  if (recv_buffer_size < chan->element_size)
+  if (recv_slot == NULL)
+    {
+      struct chan_recv_slot *slot
+	= (struct chan_recv_slot *) malloc (sizeof *slot);
+      if (slot == NULL)
+	chan_fatal ("cannot receive a channel value");
+      slot->buffer = NULL;
+      slot->size = 0;
+      /* Arm the release before publishing the slot: the hook holds the
+	 slot's address, and a registration that fails (a backend without
+	 thread-exit notification) leaves the slot reachable, as in v1.2.  */
+      if (crug_pal_thread_at_exit (chan_release_recv_slot, slot) != 0
+	  && crug_pal_last_error () != CRUG_PAL_ENOSYS)
+	chan_fatal ("cannot receive a channel value");
+      recv_slot = slot;
+    }
+  if (recv_slot->size < chan->element_size)
     {
       unsigned char *bigger
-	= (unsigned char *) realloc (recv_buffer, chan->element_size);
+	= (unsigned char *) realloc (recv_slot->buffer, chan->element_size);
       if (bigger == NULL)
 	chan_fatal ("cannot receive a channel value");
-      recv_buffer = bigger;
-      recv_buffer_size = chan->element_size;
+      recv_slot->buffer = bigger;
+      recv_slot->size = chan->element_size;
     }
-  return recv_buffer;
+  return recv_slot->buffer;
 }
 
 /* The receiver side of a capacity-0 handoff: the value just taken is the

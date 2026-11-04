@@ -5,7 +5,8 @@
    a Linux primitive; the portability lint (scripts/lint-no-os-apis.sh) fails
    the build if any of these names appear under libcrug/core (ADR 0011 D1).
 
-     threads    POSIX threads (the spec's "pthread initially" choice)
+     threads    POSIX threads (the spec's "pthread initially" choice),
+                pthread_key_create for the thread-exit hook
      wait/wake  SYS_futex with the private futex word operations
      memory     mmap, mprotect, munmap
      clock      clock_gettime (CLOCK_MONOTONIC)
@@ -38,6 +39,82 @@
 #endif
 
 static _Thread_local crug_pal_error linux_error = CRUG_PAL_OK;
+
+/* Thread-exit hooks (contract 1.3).  A process-wide key owns one destructor;
+   each thread carries its registrations as a small LIFO chain in the key
+   slot, so a thread that registers several hooks runs them last-in, first-
+   out, and a thread that registers none never touches the key.
+   pthread_setspecific on the calling thread is the arm; the destructor fires
+   as the thread leaves, before a join on it can return.  */
+
+struct crug_pal_at_exit
+{
+  void (*fn) (void *);
+  void *arg;
+  struct crug_pal_at_exit *next;
+};
+
+static pthread_key_t at_exit_key;
+static pthread_once_t at_exit_once = PTHREAD_ONCE_INIT;
+static int at_exit_key_failed;
+
+static void
+at_exit_run (void *value)
+{
+  struct crug_pal_at_exit *node = (struct crug_pal_at_exit *) value;
+
+  /* Clear the slot first: POSIX may call the destructor again while the slot
+     is non-NULL, and a chain that has run must not run twice.  */
+  pthread_setspecific (at_exit_key, NULL);
+  while (node != NULL)
+    {
+      struct crug_pal_at_exit *next = node->next;
+      node->fn (node->arg);
+      free (node);
+      node = next;
+    }
+}
+
+static void
+at_exit_key_create (void)
+{
+  at_exit_key_failed = pthread_key_create (&at_exit_key, at_exit_run) != 0;
+}
+
+int
+crug_pal_thread_at_exit (void (*fn) (void *), void *arg)
+{
+  struct crug_pal_at_exit *node;
+
+  if (fn == NULL)
+    {
+      linux_error = CRUG_PAL_EINVAL;
+      return -1;
+    }
+  pthread_once (&at_exit_once, at_exit_key_create);
+  if (at_exit_key_failed)
+    {
+      linux_error = CRUG_PAL_ENOSYS;
+      return -1;
+    }
+  node = (struct crug_pal_at_exit *) malloc (sizeof *node);
+  if (node == NULL)
+    {
+      linux_error = CRUG_PAL_ENOMEM;
+      return -1;
+    }
+  node->fn = fn;
+  node->arg = arg;
+  node->next = (struct crug_pal_at_exit *) pthread_getspecific (at_exit_key);
+  if (pthread_setspecific (at_exit_key, node) != 0)
+    {
+      free (node);
+      linux_error = CRUG_PAL_ESYS;
+      return -1;
+    }
+  linux_error = CRUG_PAL_OK;
+  return 0;
+}
 
 const char *
 crug_pal_error_name (crug_pal_error error)

@@ -1,4 +1,4 @@
-/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.2.
+/* crug_pal.h - the Crug Platform Abstraction Layer, contract version 1.3.
    Copyright (C) 2026 the Crug authors.  GPLv3+; see LICENSE.
 
    This header is the ONLY way libcrug/core reaches an operating system.
@@ -23,6 +23,15 @@
    releases the handle and returns 0.  On failure it returns non-zero, does
    NOT release the handle and does NOT mark it joined, so the caller can keep
    the handle and report the failure; joining a handle twice is undefined.
+
+   crug_pal_thread_at_exit() (contract 1.3, additive) runs one callback on the
+   calling thread's way out: after the entry of a thread the backend created
+   has returned, or during process teardown for a thread the caller created.
+   The hook is registered for whichever thread calls it, runs at most once,
+   and must not block or call back into the PAL.  Backends register it through
+   their thread-exit notification (a POSIX key destructor, an Windows FLS
+   callback, a fake join); a backend with no such notification reports
+   CRUG_PAL_ENOSYS and the caller must fall back to a leak.
 
    Wait/wake
    ---------
@@ -64,7 +73,7 @@ extern "C" {
 #endif
 
 #define CRUG_PAL_VERSION_MAJOR 1
-#define CRUG_PAL_VERSION_MINOR 2
+#define CRUG_PAL_VERSION_MINOR 3
 #define CRUG_PAL_ABI_VERSION ((CRUG_PAL_VERSION_MAJOR << 16) | CRUG_PAL_VERSION_MINOR)
 
 /* Stable error classes.  Values are part of the v1 contract: they may be
@@ -99,6 +108,12 @@ int crug_pal_thread_create (crug_pal_thread **out,
                             void (*entry) (void *),
                             void *arg);
 int crug_pal_thread_join (crug_pal_thread *thread);
+
+/* Run FN (ARG) on this thread's way out (contract 1.3).  Returns 0 when the
+   hook is armed, -1 with CRUG_PAL_EINVAL for a NULL FN and -1 with
+   CRUG_PAL_ENOSYS on a backend that cannot notify at thread exit.  A hook
+   registered on a thread that never exits has run by process teardown.  */
+int crug_pal_thread_at_exit (void (*fn) (void *), void *arg);
 
 /* The number of usable processors, at least 1.  */
 uint32_t crug_pal_cpu_count (void);

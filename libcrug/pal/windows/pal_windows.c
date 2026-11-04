@@ -5,7 +5,8 @@
    a Windows primitive; the portability lint fails the build if any of these
    names appear under libcrug/core (ADR 0011 D1, ADR 0012 D2).
 
-     threads    CreateThread and WaitForSingleObject
+     threads    CreateThread and WaitForSingleObject, FlsAlloc for the
+                thread-exit hook (Vista or later, hence _WIN32_WINNT 0x0600)
      wait/wake  WaitOnAddress and WakeByAddress*, resolved at run time because
                 a MinGW import library may predate Windows 8; a spin with Sleep
                 is the fallback when the calls are not present
@@ -18,6 +19,13 @@
    returns ReadWrite memory and commit is a no-op that keeps the contract.
 */
 
+#ifndef WINVER
+#define WINVER 0x0600
+#endif
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
+
 #include "crug_pal.h"
 
 #include <windows.h>
@@ -28,6 +36,85 @@
 #include <stdlib.h>
 
 static _Thread_local crug_pal_error windows_error = CRUG_PAL_OK;
+
+/* Thread-exit hooks (contract 1.3).  A fiber-local-storage slot owns one
+   callback; each thread carries its registrations as a small LIFO chain in
+   the slot, and FlsFree on the way out fires the callback once the value is
+   cleared.  The FLS family exists since Windows Vista.  */
+
+struct crug_pal_at_exit
+{
+  void (*fn) (void *);
+  void *arg;
+  struct crug_pal_at_exit *next;
+};
+
+static DWORD at_exit_fls = TLS_OUT_OF_INDEXES;
+static INIT_ONCE at_exit_once = INIT_ONCE_STATIC_INIT;
+
+static void CALLBACK
+at_exit_run (void *value)
+{
+  struct crug_pal_at_exit *node = (struct crug_pal_at_exit *) value;
+
+  FlsSetValue (at_exit_fls, NULL);
+  while (node != NULL)
+    {
+      struct crug_pal_at_exit *next = node->next;
+      node->fn (node->arg);
+      free (node);
+      node = next;
+    }
+}
+
+static BOOL CALLBACK
+at_exit_fls_create (PINIT_ONCE once, PVOID parameter, PVOID *context)
+{
+  DWORD slot;
+
+  (void) once;
+  (void) parameter;
+  (void) context;
+  slot = FlsAlloc (at_exit_run);
+  if (slot == TLS_OUT_OF_INDEXES)
+    return FALSE;
+  at_exit_fls = slot;
+  return TRUE;
+}
+
+int
+crug_pal_thread_at_exit (void (*fn) (void *), void *arg)
+{
+  struct crug_pal_at_exit *node;
+
+  if (fn == NULL)
+    {
+      windows_error = CRUG_PAL_EINVAL;
+      return -1;
+    }
+  if (!InitOnceExecuteOnce (&at_exit_once, at_exit_fls_create, NULL, NULL))
+    {
+      windows_error = CRUG_PAL_ENOSYS;
+      return -1;
+    }
+  node = (struct crug_pal_at_exit *) malloc (sizeof *node);
+  if (node == NULL)
+    {
+      windows_error = CRUG_PAL_ENOMEM;
+      return -1;
+    }
+  node->fn = fn;
+  node->arg = arg;
+  node->next = (struct crug_pal_at_exit *) FlsGetValue (at_exit_fls);
+  if (!FlsSetValue (at_exit_fls, node))
+    {
+      free (node);
+      windows_error = CRUG_PAL_ESYS;
+      return -1;
+    }
+  windows_error = CRUG_PAL_OK;
+  return 0;
+}
 
 const char *
 crug_pal_error_name (crug_pal_error error)
