@@ -18,7 +18,9 @@
 #     ignores scheduled runs, picks the newest push/pull_request/manual run on
 #     HEAD and fails on a non-success winner;
 #   - scripts/check-p0-open.sh rejects a broken ledger container, a malformed
-#     row, an open P0 and a fixed P0/P1 with no regression test.
+#     row, an open P0 and a fixed P0/P1 with no regression test;
+#   - scripts/check-crugc-resolution.sh proves every check-* script prefers
+#     this checkout's compiler over an installed crugc on PATH (K-042).
 #
 # Those negative cases run against temporary copies of the real ledger, so
 # the repository ledger is never edited.
@@ -44,7 +46,7 @@ die () { warn "$*"; exit 2; }
 while [ $# -gt 0 ]; do
 	case $1 in
 	--self-test) mode=self-test ;;
-	-h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+	-h|--help) sed -n '2,32p' "$0"; exit 0 ;;
 	*) die "unknown argument $1" ;;
 	esac
 	shift
@@ -143,6 +145,7 @@ run 'multi-OS regression for K-001' make check-MULTI_OS
 run 'c2crug proofs and conformance' make check-C2CRUG
 run 'goroutine and task runtime tests' make check-GOROUTINES
 run 'channel runtime tests' make check-CHANNELS
+run 'crugc resolution for K-042' sh "$ROOT/scripts/check-crugc-resolution.sh"
 
 if [ "$failed" -ne 0 ]; then
 	warn "$failed check(s) failed, $passed passed"

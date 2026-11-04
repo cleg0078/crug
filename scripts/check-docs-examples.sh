@@ -39,10 +39,20 @@ if [ ! -f "$DOC" ]; then
   echo "check-docs-examples: missing $DOC" >&2
   exit 2
 fi
-if ! command -v crugc >/dev/null 2>&1; then
-  echo "check-docs-examples: no crugc on PATH (looked in $ROOT/gcc)" >&2
-  exit 2
+CRUGC=${CRUGC:-}
+if [ -z "$CRUGC" ]; then
+  # Prefer the compiler in this checkout: an installed crugc on PATH may
+  # be an older release and would validate that compiler, not this tree (K-042).
+  if [ -x "$ROOT/gcc/crugc" ]; then
+    CRUGC="$ROOT/gcc/crugc"
+  elif command -v crugc >/dev/null 2>&1; then
+    CRUGC=$(command -v crugc)
+  else
+    echo "check-docs-examples: no crugc (set CRUGC or run make crugc)" >&2
+    exit 2
+  fi
 fi
+export CRUGC
 
 rm -rf "$SCRATCH"
 mkdir -p "$SCRATCH" || { echo "check-docs-examples: cannot create $SCRATCH" >&2; exit 2; }
@@ -164,10 +174,10 @@ while IFS=' ' read -r n name flags; do
   esac
 
   if [ "$runtime" -eq 1 ]; then
-    crugc -O2 $flags -I"$LIB/core" "$src" $RUNTIME -pthread -o "$bin" > "$SCRATCH/$n.compile" 2>&1
+    "$CRUGC" -O2 $flags -I"$LIB/core" "$src" $RUNTIME -pthread -o "$bin" > "$SCRATCH/$n.compile" 2>&1
     status=$?
   else
-    crugc -O2 $flags "$src" -o "$bin" > "$SCRATCH/$n.compile" 2>&1
+    "$CRUGC" -O2 $flags "$src" -o "$bin" > "$SCRATCH/$n.compile" 2>&1
     status=$?
   fi
 

@@ -4,10 +4,12 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CRUGC=${CRUGC:-}
 if [ -z "$CRUGC" ]; then
-  if command -v crugc >/dev/null 2>&1; then
-    CRUGC=$(command -v crugc)
-  elif [ -x "$ROOT/gcc/crugc" ]; then
+  # Prefer the compiler in this checkout: an installed crugc on PATH may
+  # be an older release and would validate that compiler, not this tree (K-042).
+  if [ -x "$ROOT/gcc/crugc" ]; then
     CRUGC="$ROOT/gcc/crugc"
+  elif command -v crugc >/dev/null 2>&1; then
+    CRUGC=$(command -v crugc)
   else
     echo "ffi-codegen: no crugc (set CRUGC or run make crugc)" >&2
     exit 2

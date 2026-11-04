@@ -17,10 +17,12 @@ OUT=$ROOT/build/drop-policy
 
 if [ -n "${CRUGC:-}" ]; then
 	:
+elif [ -x "$ROOT/gcc/crugc" ]; then
+	# Prefer the compiler in this checkout: an installed crugc on PATH may
+	# be an older release and would validate that compiler, not this tree (K-042).
+	CRUGC=$ROOT/gcc/crugc
 elif command -v crugc >/dev/null 2>&1; then
 	CRUGC=crugc
-elif [ -x "$ROOT/gcc/crugc" ]; then
-	CRUGC=$ROOT/gcc/crugc
 else
 	echo "drop-policy: no crugc driver found (build it with make baseline)" >&2
 	exit 2
