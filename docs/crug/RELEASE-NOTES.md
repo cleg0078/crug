@@ -1,10 +1,11 @@
-# Crug 0.2.4
+# Crug 0.2.5
 
-Status: release 0.2.4, 2026-10-28, carrying the post-`v0.1.0-rc1` defect batch
-in section 8. The qualification numbers in sections 3 and 5 are the ones the
-Phase 25 gate (`docs/crug/EXIT-GATES.md`) recorded for the candidate, and every
-threshold is owned by `docs/crug/RELEASE-POLICY.md`; section 8 says what the
-batch changed.
+Status: release 0.2.5, 2026-11-04, carrying the fix-p3 batch and the two
+defects that survived it (K-031 and K-042) on top of the 0.2.4 post-`v0.1.0-rc1`
+defect batch in section 8; section 9 says what 0.2.5 changed. The qualification
+numbers in sections 3 and 5 are the ones the Phase 25 gate
+(`docs/crug/EXIT-GATES.md`) recorded for the candidate, and every threshold is
+owned by `docs/crug/RELEASE-POLICY.md`.
 
 ## 1. What this candidate is
 
@@ -14,9 +15,9 @@ contract to C, carried by a pinned GCC 16.2.0 baseline. Every feature is opt-in:
 with no `-fcrug-*` flag the compiler produces the same objects as GCC 16.2, and
 the upstream testsuite remains the compatibility floor.
 
-`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.4`,
+`gcc/crugc --version` reports the six version axes separately: `crugc 0.2.5`,
 `compiler: GCC 16.2.0`, `language version: 0.1.0`, `Crug ABI version: 1`,
-`runtime ABI version: 1`, `FFI metadata version: 1.0`, `PAL version: 1.2`.
+`runtime ABI version: 1`, `FFI metadata version: 1.0`, `PAL version: 1.3`.
 
 ## 2. Highlights
 
@@ -53,15 +54,15 @@ the upstream testsuite remains the compatibility floor.
 | Runtime | dispatch ratio 0.083 of pthread-per-task, 67.7 KiB per task against 8,032 KiB | `docs/crug/PERFORMANCE.md` |
 | Channels | 197 ns per round trip, 42.5M elements/s, 4,224 bytes per channel | `docs/crug/PERFORMANCE.md` |
 | Kernel | 2,980 translation units, 0 errors, 436 of 438 objects byte-identical (the two explained objects record the build timestamp and the compiler identification), boot to a freestanding `/init` | `docs/crug/KERNEL-BASELINE.md` |
-| Ports | 13-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
+| Ports | 14-case PAL contract plus 17 task checks on Linux x86-64/AArch64 and Windows x86-64, macOS in CI | `scripts/check-multi-os-ports.sh` |
 | Fuzzing and sanitizers | six harnesses, 0 crashes, ASan/UBSan/LSan clean, TSan on the OS-thread channel arm | `docs/crug/FUZZING.md` |
 | Defects | 0 open P0, 0 open P1 at this tag | `docs/crug/KNOWN-ISSUES.md` |
 
 ## 4. Install and verify
 
 ```sh
-tar xzf crug-0.2.4-linux-x86_64.tar.gz
-export PATH=$PWD/crug-0.2.4/bin:$PATH
+tar xzf crug-0.2.5-linux-x86_64.tar.gz
+export PATH=$PWD/crug-0.2.5/bin:$PATH
 crugc --version
 crugc hello.c -o hello && ./hello
 crugc -fcrug-ownership hello-own.c -o hello-own && ./hello-own
@@ -72,7 +73,7 @@ crugc -fcrug-goroutines -fcrug-channels -I/opt/crug/include/crug \
 The `-L`/`-lcrug` pair follows the source file: a static archive is scanned when
 it is seen, so a library named first leaves the `crug_*` runtime symbols
 undefined. `docs/crug/BUILD-INSTRUCTIONS.md` covers the source build and the
-container image (`crug/pkg:0.2.4`), and `packaging/smoke/` holds the three
+container image (`crug/pkg:0.2.5`), and `packaging/smoke/` holds the three
 programs above.
 
 ## 5. Known limitations
@@ -85,9 +86,10 @@ programs above.
   spawned task materializes its stack only when a worker dispatches it
   (ADR 0008 A-2 and A-3). Stack growth remains unavailable.
 - `recv` writes into storage the caller owns; the pre-0.2.4 pointer forms
-  (`crug_chan_recv_ptr` / `_owned`) stay for compatibility and keep a
-  thread-local scratch buffer of at most 64 KiB that a detached external thread
-  can retain (K-031).
+  (`crug_chan_recv_ptr` / `_owned`) stay for compatibility. Their thread-local
+  scratch buffer is released at thread exit from 0.2.5 (PAL 1.3, K-031), so an
+  external thread that leaves without calling
+  `crug_pal_shutdown` retains a buffer of at most 64 KiB per live thread.
 - Fuzzing is bounded by a budget and a nightly window; it is evidence, not a
   proof of absence.
 - Kernel code is plain GNU C: no ownership, drop, borrow or race analysis
@@ -112,7 +114,8 @@ post-1.0 feature list in `docs/crug/COMPATIBILITY-POLICY.md`.
 ## 8. Post-rc1 fixes
 
 This section records the bug-fix batch after `v0.1.0-rc1` on top of
-`f86b7df`, first released as 0.2.0 and reissued as 0.2.1, 0.2.2, 0.2.3 and 0.2.4; no `rc2` tag is
+`f86b7df`, first released as 0.2.0, reissued as 0.2.1, 0.2.2, 0.2.3 and 0.2.4, and carried
+forward by 0.2.5; no `rc2` tag is
 cut and the candidate claims in sections 1-7 are otherwise unchanged. The change implements the external audit of
 2026-10-23 (twenty-one defects, `docs/crug/KNOWN-ISSUES.md` K-003 to K-023):
 
@@ -169,7 +172,7 @@ spawns before it drains falls from 7.4-11.4 s and 32 GB of `VmPeak` to
 compiler are unchanged.
 
 0.2.4 is the defect batch of `spec/fix-p2` (K-024 to K-042), landed on top of
-0.2.3. Ownership joins over conditional and `switch` statements and `drop` of a
+0.2.3 (section 9 carries the two items of that batch that stayed open). Ownership joins over conditional and `switch` statements and `drop` of a
 value received from an owning channel are now accepted, while an unproven
 disjoint root still reports `crug-BORROW-024`; `recv` lowers to the new
 `crug_chan_recv_into` / `_owned` entry points, so it no longer writes through a
@@ -182,8 +185,10 @@ start/shutdown handshake (K-033 to K-035); `c2crug --safe` decides eligibility
 on preprocessed source, which stops it from rewriting a macro-hidden aliasing
 free; and the coverage, gate and CI scripts gained a commit field, a marker
 escape fix and run selection. The language version, the Crug and runtime ABIs,
-the FFI metadata version and the PAL contract are unchanged. K-042 stays open:
-the diagnostic scripts resolve `crugc` from `PATH` before the in-tree launcher.
+the FFI metadata version and the PAL contract are unchanged. Two items of the
+batch stayed open: K-042, the diagnostic scripts resolving `crugc` from `PATH`
+before the in-tree launcher, and K-031, the per-thread receive scratch with no
+release entry point for a short-lived receiver thread.
 
 Known limitations of these fixes, stated rather than hidden:
 
@@ -197,3 +202,35 @@ Known limitations of these fixes, stated rather than hidden:
   the coverage archive for the fix commit is not regenerated;
 - `scripts/gate.sh` cannot replay checks whose fixtures were removed; the
   three accepted-gap archives in A-31 are replayed and printed, not green.
+
+## 9. 0.2.5: fix-p3 and the two survivors
+
+0.2.5 lands `spec/fix-p3` and closes the last two ledger rows, so
+`docs/crug/KNOWN-ISSUES.md` has no open entry at this tag.
+
+- **Ownership passes.** A `move`, `adopt` or release in a do-while body now
+  reaches iteration two through the joined back edge (K-043, K-044), and a
+  lender stored where the pass cannot follow is tracked as escaped, so an
+  exclusive `mut` argument derived from it reports `crug-BORROW-024` instead
+  of injecting a false `restrict` (K-045).
+- **FFI parser.** EOF inside a declaration reports `crug-FFI-003` at EOF
+  without dropping the whole sidecar, and explicit sidecar errors carry their
+  `[crug-FFI-NNN]` text suffix and SARIF rule metadata.
+- **PAL 1.3 (ADR 0011 A-3).** `crug_pal_thread_at_exit` lets a backend run a
+  per-thread cleanup when the thread is on its way out, so the per-thread
+  receive scratch of the pointer forms is released with the thread: a
+  short-lived or detached external receiver no longer retains up to the
+  largest element it ever received (K-031). The bump is additive and all four
+  backends implement the hook (Linux and Darwin with a `pthread_key_create`
+  destructor, Windows with `FlsAlloc`, the fake backend at join and
+  shutdown); a backend that cannot report it returns `CRUG_PAL_ENOSYS` and
+  the runtime keeps its pre-1.3 behaviour. The contract suite grew from
+  thirteen cases to fourteen.
+- **Check-script identity (K-042).** Every `check-*` script resolves this
+  checkout's `gcc/crugc` before probing `PATH`, so `make check-FFI` and its
+  siblings validate the tree under test; `scripts/check-crugc-resolution.sh`
+  pins the ordering and the identity, inside `check-p1-regressions`.
+- **Gates.** EXIT-GATES amendment A-35 re-baselines the counts these two
+  fixes moved (fourteen PAL cases, 23 P1 regression checks, a new
+  short-lived-receiver arm in the sanitizer suite). The `CHECK` command
+  strings are untouched, so every archived gate replays unchanged.

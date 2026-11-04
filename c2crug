@@ -42,7 +42,7 @@ def _release_version ():
             value = handle.read().strip()
     except OSError:
         value = ""
-    return value or "0.2.4"
+    return value or "0.2.5"
 
 
 VERSION = _release_version()

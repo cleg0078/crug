@@ -8,6 +8,8 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-04
+
 ### Added
 
 - **PAL contract 1.3 (ADR 0011 A-3).** `crug_pal_thread_at_exit` runs a
@@ -102,6 +104,10 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
   shadowed the in-tree launcher; they now prefer `gcc/crugc` (and
   `check-docs-examples.sh` honours an exported `CRUGC`), pinned by
   `scripts/check-crugc-resolution.sh`.
+- **Release version.** `VERSION` and `crugc --version` now report `0.2.5`.
+  The language version stays `0.1.0`, the Crug and runtime ABIs stay `1`
+  and `.crugffi` stays `1.0`; the PAL contract moves to 1.3 (ADR 0011 A-3),
+  additively and with all four backends updated together.
 - **Do-while miscompiles.** A `move` in a do-while body was invisible to the
   back edge (`free(): double free detected`), an `adopt` overwrite leaked,
   and a release followed by a read was a use-after-release (K-043, K-044).
