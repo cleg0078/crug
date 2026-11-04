@@ -184,7 +184,11 @@ if command -v docker >/dev/null 2>&1; then
   fi
   if docker image inspect "$tag" >/dev/null 2>&1; then
     if docker run --rm "$tag" crugc --version >"$build/image-version.log" 2>&1; then
-      for line in "crugc $version" "compiler: GCC 16.2.0" "language version: $version" \
+      # The seven-line report versions its axes separately, so only the
+      # release line takes $version; the language axis, the GCC baseline and
+      # the two ABIs are the constants the launcher prints (check-release
+      # cross-checks the PAL line against the header).
+      for line in "crugc $version" "compiler: GCC 16.2.0" "language version: 0.1.0" \
                   "Crug ABI version: 1" "runtime ABI version: 1"; do
         grep -qx "$line" "$build/image-version.log" \
           || bad "image --version lacks line: $line"
