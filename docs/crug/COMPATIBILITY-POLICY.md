@@ -98,14 +98,18 @@ The runtime is a separate deliverable with its own versions.
   `struct crug_scope_stats` and `struct crug_chan_stats` field sets.
   Additions are additive: a program that uses no `scope` and no channel never
   references the newer symbols.
-- **PAL contract version 1.2**: `libcrug/pal/include/crug_pal.h` exports
-  `CRUG_PAL_VERSION_MAJOR` (1), `CRUG_PAL_VERSION_MINOR` (2) and
-  `CRUG_PAL_ABI_VERSION` (`(1 << 16) | 2`). Version 1.1 added
+- **PAL contract version 1.3**: `libcrug/pal/include/crug_pal.h` exports
+  `CRUG_PAL_VERSION_MAJOR` (1), `CRUG_PAL_VERSION_MINOR` (3) and
+  `CRUG_PAL_ABI_VERSION` (`(1 << 16) | 3`). Version 1.1 added
   `crug_pal_page_size`, which the task runtime uses to size its stack guard
   (ADR 0011 amendment A-1). Version 1.2 made `crug_pal_thread_join` return
   `int`: 0 after a successful join, which releases the handle, and a nonzero
   code for a NULL handle (`CRUG_PAL_EINVAL`) or a failed system join
-  (`CRUG_PAL_ESYS`) with the handle kept. The contract suite has thirteen
+  (`CRUG_PAL_ESYS`) with the handle kept. Version 1.3 added
+  `crug_pal_thread_at_exit`, which lets a backend run a per-thread cleanup
+  when the thread is on its way out; a backend without an exit notification
+  reports `CRUG_PAL_ENOSYS` and the caller keeps its fallback (ADR 0011
+  amendment A-3). The contract suite has fourteen
   cases. A backend implements the whole contract; it never adds a function the
   core must know about.
 - The runtime ABI is OS- and architecture-independent (`docs/crug/ABI.md`
@@ -246,3 +250,4 @@ semantics, and the platforms and tooling listed as post-1.0 elsewhere.
 |---|---|---|---|
 | A-1 | 2026-10-20 | Initial ratification for Phase 23: language version 1 pre-1.0, Crug-native ABI 1, runtime ABI 1, PAL 1.1, `.crugffi` 1.0, the deprecation rules and the v1 host matrix. | The project needed one page that says what the gates are allowed to assume and how a promise may change. Everything here already had a canonical ADR or a measured check; this file only states the combination and the change procedure. |
 | A-2 | 2026-10-26 | The PAL contract moves from 1.1 to 1.2: `crug_pal_thread_join` returns `int` so a backend can report a failed join. The language version 1 pre-1.0, Crug-native ABI 1, runtime ABI 1 and `.crugffi` 1.0 are unchanged. | A failed join was previously indistinguishable from a successful one; ADR 0011 A-2 gives the status and requires the handle to stay valid on failure. The four backends and the thirteen-case contract test moved together. |
+| A-3 | 2026-11-04 | The PAL contract moves from 1.2 to 1.3: `crug_pal_thread_at_exit` is added so a per-thread resource (the channel receive slot, K-031) can be released when its thread exits. No existing signature, error value or semantic changes; a backend that cannot observe thread exit reports `CRUG_PAL_ENOSYS` and its caller keeps the v1.2 behaviour. The language version 1 pre-1.0, Crug-native ABI 1, runtime ABI 1 and `.crugffi` 1.0 are unchanged. | A short-lived receiver thread leaked its thread-local receive buffer because the contract had no exit notification (ledger K-031). ADR 0011 A-3 adds the hook, the four backends implement it, and the contract test grows to fourteen cases. |

@@ -63,7 +63,7 @@ installed:
     Crug ABI version: 1
     runtime ABI version: 1
     FFI metadata version: 1.0
-    PAL version: 1.2
+    PAL version: 1.3
 
 `make -C libcrug PAL=linux` builds the runtime objects in
 `libcrug/build/linux/` (`task.o`, `pal_linux.o`, `switch.o`, `stack.o`,

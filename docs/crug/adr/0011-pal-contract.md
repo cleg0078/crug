@@ -193,3 +193,41 @@ From 1.0 on, a signature change of this kind is a new major version; the
 exception is recorded here because at rc1 the PAL has no consumer outside this
 repository and all four backends changed in the same commit. The Crug runtime
 ABI stays 1 (ABI.md section 6).
+
+## Amendment A-3 (2026-11-04): `crug_pal_thread_at_exit`
+
+D8's additive rule again, the same path A-1 used. v1.3 adds one entry point:
+
+```c
+int crug_pal_thread_at_exit (void (*fn) (void *), void *arg);
+```
+
+A successful call arranges for `fn (arg)` to run at most once on the calling
+thread's way out: after a backend-created thread's entry has returned, or at
+process teardown for a thread the caller did not create. The hook must not
+block and must not re-enter the PAL except through `crug_pal_clear_error`.
+A NULL `fn` is `CRUG_PAL_EINVAL`; a backend with no exit notification at all
+returns `CRUG_PAL_ENOSYS` and the caller keeps its own fallback.
+`CRUG_PAL_VERSION_MINOR` is 3 and `CRUG_PAL_ABI_VERSION` is
+`(1 << 16) | 3`; no existing signature, error value or semantic changed.
+
+The reason is ledger K-031: `libcrug/core/chan.c` keeps one malloc'ed receive
+slot per thread for a receive that happens outside a task, and the contract
+gave the core no way to release it, so a short-lived receiver thread leaked
+(documented in `scripts/check-sanitizer.sh`). The core may not name an OS
+exit-hook primitive, so the fix had to arrive as a PAL capability.
+
+The four backends implement it: Linux and Darwin register a process-wide
+`pthread_key_create` destructor carrying a per-thread LIFO chain of
+registrations; Windows uses `FlsAlloc` with the same chain (the FLS family is
+Vista-or-later, and the backend now defaults `_WIN32_WINNT` to 0x0600); the
+fake backend keeps a plain thread-local chain, fires it when a fake thread's
+entry returns inside `crug_pal_thread_join`, and drains the rest in
+`crug_pal_shutdown` to model process teardown. The suite grows to fourteen
+cases: `thread-at-exit` refuses a NULL callback as `EINVAL` and asserts that
+two hooks registered inside a created thread's entry have both run, last-in
+first-out, by the time a successful join returns. `chan.c` arms the hook when
+it first allocates a thread's receive slot, and
+`libcrug/tests/runtime/recv_scratch_release.c` plus the LeakSanitizer arm of
+`scripts/check-sanitizer.sh` pin the release end to end. The runtime ABI
+stays 1.

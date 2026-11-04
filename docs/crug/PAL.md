@@ -1,8 +1,9 @@
 # PAL — the Platform Abstraction Layer
 
-Status: **v1.2** (v1 frozen 2026-10-19 by ADR 0011; v1.1 added
+Status: **v1.3** (v1 frozen 2026-10-19 by ADR 0011; v1.1 added
 `crug_pal_page_size` on 2026-10-20, ADR 0011 A-1; v1.2 made
-`crug_pal_thread_join` return `int` on 2026-10-26, ADR 0011 A-2). The contract is
+`crug_pal_thread_join` return `int` on 2026-10-26, ADR 0011 A-2; v1.3 added
+`crug_pal_thread_at_exit` on 2026-11-04, ADR 0011 A-3). The contract is
 `libcrug/pal/include/crug_pal.h`; the suite that proves a backend honours it
 is `libcrug/core/pal_contract.c`; the Phase 13 gate runs both backends.
 
@@ -30,16 +31,17 @@ cheap, and a stale comment is how the boundary erodes.
 `libcrug/arch/` holds architecture and ABI dependent context switching. It is
 empty in Phase 13; Phase 14 adds the x86-64 System V switch there.
 
-## 2. PAL surface (v1.2)
+## 2. PAL surface (v1.3)
 
 The header is normative; this table is the map.
 
 | Area | Entry point | Contract |
 |---|---|---|
-| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `1`, `2`, `(1 << 16) \| 2` today |
+| version | `CRUG_PAL_VERSION_MAJOR`, `CRUG_PAL_VERSION_MINOR`, `CRUG_PAL_ABI_VERSION` | `1`, `3`, `(1 << 16) \| 3` today |
 | page size | `size_t crug_pal_page_size (void)` | the granularity of reserve/commit/protect_guard: a power of two, at least 4096 (v1.1) |
 | status | `int crug_pal_thread_create (crug_pal_thread **out, void (*entry)(void *), void *arg)` | 0 on success, non-zero on failure, reason in `crug_pal_last_error()` |
 | threads | `int crug_pal_thread_join (crug_pal_thread *thread)` | waits for the entry to finish and, on success, releases the handle and returns 0; a NULL handle is `CRUG_PAL_EINVAL` and a failed system join is `CRUG_PAL_ESYS`, both nonzero, and in either case the handle is not released (v1.2) |
+| threads | `int crug_pal_thread_at_exit (void (*fn)(void *), void *arg)` | runs `fn (arg)` at most once when the calling thread is on its way out: after a backend-created thread's entry returns, or at process teardown for a caller-created thread; must not block or re-enter the PAL; a NULL `fn` is `CRUG_PAL_EINVAL` and a backend with no exit notification reports `CRUG_PAL_ENOSYS` and the caller keeps its fallback (v1.3) |
 | threads | `uint32_t crug_pal_cpu_count (void)` | at least 1 |
 | wait/wake | `void crug_pal_wait_u32 (_Atomic uint32_t *addr, uint32_t expected)` | blocks while `*addr == expected`; spurious returns allowed |
 | wait/wake | `void crug_pal_wake_one`, `crug_pal_wake_all` | releases one or every waiter on `addr`; a wake with no waiter is not remembered |
@@ -72,13 +74,15 @@ epoch and wakes them with `wake_one`/`wake_all`, takes each task stack from
 `crug_pal_page_size ()` at the low end from `memory_protect_guard`, and reads
 the clock for its statistics. The contract
 suite covers exactly those calls, so a runtime linked against a new backend is
-tested by the same thirteen cases as the fake one. A task group (Phase 15,
+tested by the same fourteen cases as the fake one. A task group (Phase 15,
 `SCOPE.md`) adds no PAL call of its own: a waiter uses `wait_u32` on the group's
 pending count on the main thread and `yield` inside a task. Channels (Phase 16,
 `CHANNELS.md`) are clients too: a blocked send or receive yields inside a task
 and calls `sleep_ns` on the main thread, and `crug_chan_poll_wait` is the same
-pair behind one name. No consumer so far needs a v1 entry point that does not
-already exist.
+pair behind one name. Since v1.3 a channel receive outside a task also arms
+`crug_pal_thread_at_exit` so the thread-local receive slot is released when the
+receiver exits (K-031); a backend that declines the hook keeps the v1.2
+behaviour of holding the slot for the life of the process.
 
 ## 3. Error model
 
@@ -106,6 +110,7 @@ part of the frozen contract: they may be appended to, never renumbered.
 | guard pages | declined (`false`) | `mprotect(PROT_NONE)`, proven by a faulting child | `VirtualProtect(PAGE_NOACCESS)` | `mprotect(PROT_NONE)` |
 | clock | synthetic, advances 1 µs per reading and by the requested amount on sleep | `clock_gettime(CLOCK_MONOTONIC)` | `QueryPerformanceCounter` | `mach_absolute_time` and the mach timebase |
 | sleep | advances the synthetic clock | `clock_nanosleep(CLOCK_MONOTONIC)`, retried on interruption | `Sleep` | `nanosleep` |
+| exit hooks | fires the registrations when a fake entry returns inside `join`, and drains the rest in `shutdown` | `pthread_key_create` destructor, LIFO chain per thread | `FlsAlloc` callback, LIFO chain per thread | `pthread_key_create` destructor, LIFO chain per thread |
 | error slot | thread-local | thread-local | thread-local | thread-local |
 
 The fake backend is a *contract* backend, not a concurrency model: it exists so
@@ -121,11 +126,11 @@ make progress there. Every backend with real threads runs that test.
 ## 5. Contract tests
 
 `make -C libcrug check-PAL PAL=fake` runs `libcrug/core/pal_contract.c` —
-thirteen cases, all written against the header:
+fourteen cases, all written against the header:
 
 | Case | Proves |
 |---|---|
-| `version-and-names` | the suite and the backend agree on 1.2, and every error class has a spelling |
+| `version-and-names` | the suite and the backend agree on 1.3, and every error class has a spelling |
 | `thread-create-join` | the entry has run before `join` returns, the handle is not NULL, and `join` returns 0 |
 | `thread-join-rejects-null` | a NULL handle is refused with nonzero and `CRUG_PAL_EINVAL` |
 | `thread-rejects-null-entry` | a NULL entry fails with `CRUG_PAL_EINVAL` |
@@ -137,19 +142,21 @@ thirteen cases, all written against the header:
 | `clock-monotonic` | readings never go backwards, and the clock advances across a 1 ms sleep (two back-to-back readings may share a tick) |
 | `sleep-duration` | a 2 ms sleep does not return early |
 | `error-mapping` | a zero-size reservation is `EINVAL` and a success clears the slot |
+| `thread-at-exit` | a NULL callback is `EINVAL`; two hooks registered inside an entry have both run, last-in first-out, by the time a successful join returns |
 | `shutdown-idempotent` | two shutdowns are defined behaviour |
 
-Measured (2026-10-28, after v1.2; Linux host):
+Measured (2026-11-04, after v1.3; Linux host):
 
 ```text
-pal-contract[fake]:  13 cases, 0 failed, 1 skipped   (memory-guard)
-pal-contract[linux]: 13 cases, 0 failed, 0 skipped
+pal-contract[fake]:  14 cases, 0 failed, 1 skipped   (memory-guard)
+pal-contract[linux]: 14 cases, 0 failed, 0 skipped
 guard-fault: SIGSEGV on the guarded page as claimed
 ```
 
 The 2026-10-20 port run recorded twelve cases for `linux-aarch64` (qemu),
-`windows` (Wine) and `darwin` (macOS CI job) before v1.2 added the thirteenth;
-those rows are historical and were not re-measured here.
+`windows` (Wine) and `darwin` (macOS CI job) before v1.2 added the thirteenth
+and v1.3 the fourteenth; those rows are historical and were not re-measured here
+(the v1.3 case runs on every in-tree backend, and the CI matrix re-measures them).
 
 Phase 18 added the Windows and Darwin backends and the AArch64 and Microsoft x64
 context switches; every backend links the same `core/pal_contract.c` unchanged
@@ -162,7 +169,7 @@ Two checks make the pair a contract rather than two scripts:
   they differ, if Linux skips anything, if the fake skips anything other than
   guard pages, if the Linux guard page does not fault, or if the fake backend's
   object references a system symbol (`nm -u`). It prints
-  `check-pal: fake and linux share 13 contract cases, 0 failures; fake backend links no system primitive, guard pages fault on linux`.
+  `check-pal: fake and linux share 14 contract cases, 0 failures; fake backend links no system primitive, guard pages fault on linux`.
 - `tests/linux/pal_guard_fault.c` writes into the guarded range inside a
   child process and requires SIGSEGV; it lives outside `core/` because process
   control is not the core's business.
@@ -181,10 +188,13 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
 
 ## 7. Versioning
 
-- **v1 is frozen; v1.1 is additive.** The v1 signatures, error values and
+- **v1 is frozen; v1.1 and v1.3 are additive.** The v1 signatures, error values and
   semantics in this document are the contract that the Phase 13 gate
   adjudicates. v1.1 (2026-10-20) added `crug_pal_page_size` and nothing else
   (ADR 0011 A-1), which is exactly the additive path this section describes.
+  v1.3 (2026-11-04) added `crug_pal_thread_at_exit` and nothing else
+  (ADR 0011 A-3): every existing signature, error value and semantic still
+  holds, and a backend that declines the hook reports `CRUG_PAL_ENOSYS`.
 - An additive change (a new entry point, a new error class at the end) bumps
   `CRUG_PAL_VERSION_MINOR` and needs an ADR amendment; existing behaviour may
   not change. v1.2 is the one recorded exception before 1.0:
@@ -218,10 +228,10 @@ by `test "$(grep -R 'asm' libcrug/core | grep -vc '^$' || true)" = 0`.
 
 | Command | Expectation |
 |---|---|
-| `make -C libcrug check-PAL PAL=fake` | exit 0; `pal-contract[fake]: 13 cases, 0 failed, 1 skipped` |
-| `make -C libcrug check-PAL PAL=linux` | exit 0; `pal-contract[linux]: 13 cases, 0 failed, 0 skipped` and the guard-fault line |
+| `make -C libcrug check-PAL PAL=fake` | exit 0; `pal-contract[fake]: 14 cases, 0 failed, 1 skipped` |
+| `make -C libcrug check-PAL PAL=linux` | exit 0; `pal-contract[linux]: 14 cases, 0 failed, 0 skipped` and the guard-fault line |
 | `make -C libcrug check` | both backends, then the lint |
-| `scripts/check-pal.sh` | exit 0; same 13 case names on both backends, no unexpected skip, no system symbols in the fake object |
+| `scripts/check-pal.sh` | exit 0; same 14 case names on both backends, no unexpected skip, no system symbols in the fake object |
 | `scripts/lint-no-os-apis.sh libcrug/core` | exit 0; 0 references |
 | `grep -R 'asm' libcrug/core` | no line |
 | `make -C libcrug check-MULTI_OS` | exit 0; contract, tasks and three plain-C channel programs under one command (Phase 18) |

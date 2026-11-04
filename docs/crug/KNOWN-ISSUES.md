@@ -73,7 +73,7 @@ K-027   P2       ffi      fixed  scripts/check-ffi-suite.sh  a metadata file wit
 K-028   P2       ffi      fixed  gcc/testsuite/crug.dg/ffi/metadata/returns-unowned.c  the grammar prose made `owned` mandatory on a `returns` clause while the parser also accepts a plain type; ADR 0007 A-3 now states the optional form and a fixture pins it (F-03)
 K-029   P2       ffi      fixed  scripts/check-ffi-suite.sh  a metadata file could declare an unbounded number of entries; a per-file cap of 10000 now reports crug-FFI-010 (F-04)
 K-030   P1       compiler fixed  gcc/testsuite/crug.dg/channels/recv-over-aligned.c  a non-VLA receive loaded the element from the shared 16-byte-aligned scratch, so a type aligned to 32/64/128 was read through a misaligned access (UBSan); recv now lowers to crug_chan_recv_into/_owned into a temporary of the element type, with libcrug/tests/channels/recv-align.c as the committed run arm (C-01)
-K-031   P2       runtime  open   -  the legacy per-thread scratch of crug_chan_recv_ptr/_owned is retained after a detached external thread exits (LSan: 4 MiB in 16 blocks); accepted and documented, a PAL TLS destructor needs contract 1.3 (C-02, follow-up task-14)
+K-031   P2       runtime  fixed  libcrug/tests/runtime/recv_scratch_release.c  the per-thread receive slot of crug_chan_recv_ptr/_owned is released on the receiving thread's way out through the new crug_pal_thread_at_exit (PAL 1.3, ADR 0011 A-3); a short-lived receiver thread retains nothing (C-02)
 K-032   P2       runtime  fixed  libcrug/tests/runtime/recv_scratch_big.c  the per-task receive scratch cache kept an element larger than the cache limit for the life of the task (4.2 MB observed); a large scratch is freed at task exit and crug_task_recv_scratch_aligned reuses only a buffer that fits the requested alignment (A-01)
 K-033   P1       runtime  fixed  libcrug/tests/runtime/scope_wake_race.c  a delayed PAL wake could target a freed scope whose address was reused, delivering a wake to the new scope; scope leave now completes the group before releasing it and no wake is issued after that handshake (R-01)
 K-034   P2       runtime  fixed  libcrug/tests/runtime/stats_race.c  crug_task_stats_get read queue_peak and configured_workers as plain memory while the scheduler wrote them under its lock (TSan); both fields are atomic now (R-02)
@@ -84,7 +84,7 @@ K-038   P2       compiler fixed  scripts/test-c2crug.py  a sidecar whose first l
 K-039   P2       compiler fixed  migration/bench-c2crug.py  --analyze rescanned the source for every candidate, so 800 candidates cost about 5.6 s and 1200 about 12.5 s; per-function fact caching makes the same inputs take 0.067/0.110/0.255/0.728 s for 100/200/400/800 pairs (C2-C)
 K-040   P2       compiler fixed  migration/witnesses/same-line-exits.c  two returns on one line made the guard of the first cover the second, so a release could be migrated although an exit skipped it; the proof now matches the terminal statement position (R4-TOOL-003)
 K-041   P2       compiler fixed  gcc/testsuite/crug.dg/channels/recv-owned-drop.c  'own T *v = recv (ch); drop (v);' was rejected as crug-OWN-007 because the ownership pass only recognised a CALL_EXPR initialiser; a received owned value is now modelled as adopted with no destructor and only the unreleased and double-drop forms are diagnosed (C-01 follow-up)
-K-042   P2       ci       open   -                                      the diagnostic scripts resolve crugc from PATH before the in-tree launcher, so 'make check-FFI' validated an installed 0.2.3 compiler instead of this tree; scripts/gate.sh prepends gcc/ so archived gates are unaffected
+K-042   P2       ci       fixed  scripts/check-crugc-resolution.sh  twenty-three diagnostic scripts resolved crugc from PATH before the in-tree launcher, so 'make check-FFI' validated an installed 0.2.3 compiler instead of this tree; all now prefer gcc/crugc (or a PATH prepend), and scripts/gate.sh prepends gcc/ so archived gates were unaffected
 K-043   P0       compiler fixed  gcc/testsuite/crug.dg/ownership/do-while-double-move.c  a do-while body was walked once, so a move was invisible to the back edge and iteration two double-freed (OWN-01)
 K-044   P1       compiler fixed  gcc/testsuite/crug.dg/ownership/do-while-leak.c  the missing back-edge join also leaked an adopt overwrite and made release-then-read a use-after-release (OWN-02/OWN-02b; use-after-drop covered by the sibling fixture)
 K-045   P1       compiler fixed  gcc/testsuite/crug.dg/alias/global-escape.c  an alias fact injected restrict although the lender had been copied to a global before the call, a deterministic -O2 miscompile (OWN-03)
@@ -104,8 +104,9 @@ K-045   P1       compiler fixed  gcc/testsuite/crug.dg/alias/global-escape.c  an
   optional `owned` on `returns` (K-028, ADR 0007 A-3) and the entry cap; the
   channel group is the receive into caller storage, which removes the shared
   scratch misalignment (K-030) and trims that scratch to 64 KiB (K-032), with
-  the external-thread TLS retention accepted and documented (K-031, open until
-  PAL 1.3 can carry a destructor); the runtime group is the scope wake race
+  the external-thread TLS retention, accepted and documented while the
+  contract had no destructor and fixed for 1.3 by the new exit hook (K-031,
+  ADR 0011 A-3); the runtime group is the scope wake race
   (K-033), the `queue_peak` data race (K-034) and the start/shutdown handshake
   (K-035); and the process group is the coverage provenance field (K-036) and
   `c2crug --safe` (K-037 to K-040: preprocessed input, the sidecar major, the

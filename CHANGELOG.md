@@ -10,7 +10,24 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ### Added
 
-- **`crug-FFI-013`.** A `.crugffi` sidecar that ends inside a declaration
+- **PAL contract 1.3 (ADR 0011 A-3).** `crug_pal_thread_at_exit` runs a
+  per-thread cleanup when the calling thread is on its way out: Linux and
+  Darwin implement it with a `pthread_key_create` destructor carrying a LIFO
+  chain, Windows with `FlsAlloc`, and the fake backend fires the chain when a
+  fake entry returns inside `crug_pal_thread_join` and drains the rest in
+  `crug_pal_shutdown`. A backend with no exit notification reports
+  `CRUG_PAL_ENOSYS` and the caller keeps its fallback. The contract suite has
+  fourteen cases; the new `thread-at-exit` case pins the order (LIFO, before a
+  successful join returns) and the `EINVAL` refusal.
+- **Regression pins (K-042).** `scripts/check-crugc-resolution.sh` proves,
+  for every `check-*` script that resolves a `crugc`, that this checkout's
+  compiler wins over an installed one, by source order and by identity with a
+  hostile `PATH`; it runs inside `scripts/check-p1-regressions.sh`.
+- **Regression pins (K-031).** `libcrug/tests/runtime/recv_scratch_release.c`
+  runs 64 short-lived PAL-created receivers and asserts each exit chain
+  completed before its join returned; the sanitizer stress receivers now exit
+  on purpose, with LeakSanitizer as the leak witness.
+- **`crug-FFI-013`**. A `.crugffi` sidecar that ends inside a declaration
   (a tag name after `type struct`/`type opaque`, a function name after
   `fn`) reports the new code at the last token instead of dropping the file
   without a diagnostic; the more specific truncation codes are used only when
@@ -34,6 +51,10 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ### Changed
 
+- **Diagnostic scripts prefer this checkout.** Twenty-three `check-*`
+  scripts (and `check-docs-examples.sh`, which gained an explicit `CRUGC`
+  block) resolve `$ROOT/gcc/crugc` before probing `PATH`, so a run validates
+  this tree and not an installed release (K-042).
 - **Do-while ownership.** A do-while body is walked once as a probe, every
   back and exit edge is joined, and the body is then walked for real from the
   joined state. A `move` in the body now reaches iteration two, an `adopt`
@@ -72,6 +93,15 @@ runtime ABI, FFI metadata and PAL versions are versioned separately, as
 
 ### Fixed
 
+- **Short-lived receiver leak (K-031).** The per-thread receive slot of
+  `crug_chan_recv_ptr`/`_owned` is released when the receiving thread exits,
+  through the new PAL 1.3 exit hook; a detached or short-lived receiver no
+  longer retains up to the largest element it ever received.
+- **Compiler identity in checks (K-042).** `make check-FFI` and the other
+  diagnostic scripts validated an installed `crugc` from `PATH` when one
+  shadowed the in-tree launcher; they now prefer `gcc/crugc` (and
+  `check-docs-examples.sh` honours an exported `CRUGC`), pinned by
+  `scripts/check-crugc-resolution.sh`.
 - **Do-while miscompiles.** A `move` in a do-while body was invisible to the
   back edge (`free(): double free detected`), an `adopt` overwrite leaked,
   and a release followed by a read was a use-after-release (K-043, K-044).

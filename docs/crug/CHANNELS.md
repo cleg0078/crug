@@ -178,10 +178,11 @@ void crug_chan_stats_get (struct crug_chan_stats *out);
   (`crug_chan_recv_into`, `size` equal to the channel element size, suitably
   aligned, never the shared buffer): it allocates nothing and cannot alias
   another task's storage. The pointer forms remain for ABI compatibility. Their
-  scratch is one `_Thread_local` buffer per thread, 16-byte aligned and grown on
+  scratch is one `_Thread_local` slot per thread, 16-byte aligned and grown on
   demand; a task that exits frees it through the per-task allocator (trimmed to
-  64 KiB), but a detached external thread can retain up to the largest element
-  it ever received (C-02, follow-up).
+  64 KiB). Since PAL 1.3 an external thread's slot is released on that thread's
+  way out through `crug_pal_thread_at_exit` (K-031), so a short-lived receiver
+  retains nothing; only a receiver thread that never exits keeps the slot.
 - This surface is part of runtime ABI version 1 and is OS- and
   architecture-independent (Phase 18, ADR 0012): the same `chan.c` builds on
   Linux x86-64, Linux AArch64, Windows x86-64 and macOS ARM64, and only the PAL
@@ -281,9 +282,11 @@ longer read through a `void *`-aligned buffer (C-01); the size passed is
 `sizeof` the element. A variably modified or erroneous element keeps the
 pointer form. The change is ABI-additive: no public symbol was removed or
 changed and the runtime ABI stays 1. The old pointer forms are retained, and a
-receive in a task no longer touches the shared scratch. One limitation remains:
-the pointer forms keep a `_Thread_local` scratch per thread, and a detached
-external thread can retain up to the largest element it ever received (C-02);
+receive in a task no longer touches the shared scratch. The pointer forms keep
+a `_Thread_local` slot per thread; since PAL 1.3 the slot is released at thread
+exit through `crug_pal_thread_at_exit` (K-031, ADR 0011 A-3), which closes the
+C-02 retention limitation, and a backend that declines the hook (`ENOSYS`) keeps
+the pre-1.3 behaviour of holding the slot for the life of the thread.
 `recv_into` writes caller storage and allocates nothing.
 
 Staleness note (ADR 0025 D5 amendment): because a send arm is claimed, not
