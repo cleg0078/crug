@@ -1,0 +1,3 @@
+runtime-fuzz: scheduler: FAIL rc=1
+FAIL: scheduler-fuzz: sequence 1263 seed 0x68eb9045cff88df8: rendezvous never waited
+scheduler-fuzz: sequences=2000 tasks=15506 yields=15880 scopes=3016 channels=3972 failures=1

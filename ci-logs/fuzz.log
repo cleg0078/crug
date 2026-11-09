@@ -1,0 +1,15 @@
+scripts/check-fuzz.sh
+fuzz: budget: 2000 compiler input(s) per target, runtime budget from FUZZ_RUNS
+fuzz: parser: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ownership: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: borrow: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ffi: 2000 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: 4 harness(es), 8000 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: OK
+runtime-fuzz: scheduler: FAIL rc=1
+FAIL: scheduler-fuzz: sequence 1263 seed 0x68eb9045cff88df8: rendezvous never waited
+scheduler-fuzz: sequences=2000 tasks=15506 yields=15880 scopes=3016 channels=3972 failures=1
+fuzz: the runtime run did not report two harnesses
+fuzz: FAIL: a harness reported a crash, a timeout or a new finding
+fuzz: logs: /home/runner/work/crug/crug/build/fuzz/compiler.log /home/runner/work/crug/crug/build/fuzz/runtime.log
+make: *** [Makefile:336: check-FUZZ] Error 1

@@ -1,0 +1,6 @@
+fuzz: parser: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ownership: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: borrow: 2000 input(s), 0 crash(es), 0 timeout(s)
+fuzz: ffi: 2000 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: 4 harness(es), 8000 input(s), 0 crash(es), 0 timeout(s)
+compiler-fuzz: OK
